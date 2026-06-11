@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #faf9f6;
+  --foreground: #1a1a1a;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+code {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.875em;
+  padding: 0.125em 0.375em;
+  border-radius: 0.25rem;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+@layer components {
+  /* Primary action: solid dark, light text. */
+  .dewey-btn-primary {
+    @apply w-full py-2.5 px-4 text-sm font-medium rounded-md border-none cursor-pointer;
+    @apply bg-dewey-ink text-white;
+    @apply hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Secondary action: outlined. */
+  .dewey-btn-secondary {
+    @apply px-3 py-1.5 text-sm border border-dewey-border rounded-md bg-white cursor-pointer;
+    @apply hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .dewey-input {
+    @apply w-full border border-dewey-border rounded-md px-3 py-2 text-sm bg-white;
+    @apply focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 focus:border-dewey-accent;
+  }
+
+  .dewey-label {
+    @apply block text-sm font-medium text-dewey-ink mb-1;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

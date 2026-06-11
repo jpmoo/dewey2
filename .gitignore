@@ -1,0 +1,21 @@
+/node_modules
+/.next
+/out
+/build
+*.tsbuildinfo
+next-env.d.ts.bak
+
+.env
+.env.local
+.env*.local
+
+.DS_Store
+*.pem
+npm-debug.log*
+
+# 1.0 codebase is context only — not part of this repo
+/reference
+
+# Runtime artifacts from restart.sh
+/dewey.log
+/dewey.pid

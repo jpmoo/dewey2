@@ -1,0 +1,510 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
+import { apiFetch } from "@/lib/api-client";
+
+type SystemRole = "admin" | "coach" | "partner";
+
+type User = {
+  id: number;
+  username: string;
+  full_name: string;
+  nickname: string | null;
+  email: string | null;
+  system_role: SystemRole;
+  district_id: number | null;
+  school_id: number | null;
+  role: string | null;
+  about: string | null;
+  created_at: string;
+};
+
+type School = { id: number; district_id: number; name: string };
+type DistrictWithSchools = { id: number; name: string; schools: School[] };
+
+const ROLE_BADGE: Record<SystemRole, string> = {
+  admin: "bg-amber-100 text-amber-800",
+  coach: "bg-blue-100 text-blue-800",
+  partner: "bg-green-100 text-green-800",
+};
+
+const ROLES: SystemRole[] = ["admin", "coach", "partner"];
+
+export function AdminUserManager() {
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id ? parseInt(session.user.id, 10) : null;
+
+  const [users, setUsers] = useState<User[]>([]);
+  const [districts, setDistricts] = useState<DistrictWithSchools[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<User | null>(null);
+  const [creating, setCreating] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [{ users }, { districts }] = await Promise.all([
+        apiFetch<{ users: User[] }>("/api/admin/users"),
+        apiFetch<{ districts: DistrictWithSchools[] }>("/api/admin/districts"),
+      ]);
+      setUsers(users);
+      setDistricts(districts);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load users");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <section>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Users</h2>
+          <p className="text-sm text-dewey-mute">
+            Each account has one role: admin, coach, or partner.
+          </p>
+        </div>
+        <button type="button" className="dewey-btn-secondary" onClick={() => setCreating(true)}>
+          + New user
+        </button>
+      </div>
+
+      {loading ? (
+        <p className="text-dewey-mute">Loading users…</p>
+      ) : error ? (
+        <p className="text-red-600">{error}</p>
+      ) : (
+        <ul className="space-y-2">
+          {users.map((u) => (
+            <li
+              key={u.id}
+              className="flex items-center justify-between gap-3 p-3 rounded-lg border border-dewey-border bg-white hover:bg-gray-50 cursor-pointer"
+              onClick={() => setEditing(u)}
+            >
+              <div className="min-w-0">
+                <span className="font-medium">{u.full_name}</span>
+                <span className="ml-2 text-sm text-dewey-mute">@{u.username}</span>
+                {u.role && <span className="ml-2 text-xs text-dewey-mute">· {u.role}</span>}
+              </div>
+              <span
+                className={`text-xs px-2 py-0.5 rounded ${ROLE_BADGE[u.system_role]}`}
+              >
+                {u.system_role}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {creating && (
+        <UserCreateModal
+          districts={districts}
+          onClose={() => setCreating(false)}
+          onSaved={async () => {
+            setCreating(false);
+            await load();
+          }}
+        />
+      )}
+
+      {editing && (
+        <UserEditModal
+          user={editing}
+          districts={districts}
+          isSelf={currentUserId === editing.id}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await load();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+// ============================================================
+// Shared org pickers
+// ============================================================
+
+function OrgPickers({
+  districts,
+  districtId,
+  schoolId,
+  onChange,
+}: {
+  districts: DistrictWithSchools[];
+  districtId: number | null;
+  schoolId: number | null;
+  onChange: (next: { district_id: number | null; school_id: number | null }) => void;
+}) {
+  const schools = districts.find((d) => d.id === districtId)?.schools ?? [];
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="dewey-label">District</label>
+        <select
+          className="dewey-input"
+          value={districtId ?? ""}
+          onChange={(e) => {
+            const next = e.target.value === "" ? null : Number(e.target.value);
+            // Changing district clears any now-invalid school.
+            onChange({ district_id: next, school_id: null });
+          }}
+        >
+          <option value="">— unassigned —</option>
+          {districts.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="dewey-label">School</label>
+        <select
+          className="dewey-input"
+          value={schoolId ?? ""}
+          disabled={districtId === null}
+          onChange={(e) =>
+            onChange({
+              district_id: districtId,
+              school_id: e.target.value === "" ? null : Number(e.target.value),
+            })
+          }
+        >
+          <option value="">— unassigned —</option>
+          {schools.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function ModalShell({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold mb-4">{title}</h3>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Create
+// ============================================================
+
+function UserCreateModal({
+  districts,
+  onClose,
+  onSaved,
+}: {
+  districts: DistrictWithSchools[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [nickname, setNickname] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [systemRole, setSystemRole] = useState<SystemRole>("partner");
+  const [districtId, setDistrictId] = useState<number | null>(null);
+  const [schoolId, setSchoolId] = useState<number | null>(null);
+  const [role, setRole] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setErr(null);
+    if (password.length < 8) {
+      setErr("Password must be at least 8 characters.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiFetch("/api/admin/users", {
+        method: "POST",
+        body: {
+          username,
+          full_name: fullName,
+          nickname,
+          email,
+          password,
+          system_role: systemRole,
+          district_id: districtId,
+          school_id: schoolId,
+          role,
+        },
+      });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to create user");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <ModalShell title="New user" onClose={onClose}>
+      <div className="space-y-4">
+        {err && <p className="text-sm text-red-600">{err}</p>}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="dewey-label">Username</label>
+            <input className="dewey-input" value={username} onChange={(e) => setUsername(e.target.value)} />
+          </div>
+          <div>
+            <label className="dewey-label">Temporary password</label>
+            <input
+              type="password"
+              className="dewey-input"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="dewey-label">Full name</label>
+          <input className="dewey-input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="dewey-label">Nickname</label>
+            <input className="dewey-input" value={nickname} onChange={(e) => setNickname(e.target.value)} />
+          </div>
+          <div>
+            <label className="dewey-label">Email</label>
+            <input className="dewey-input" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="dewey-label">System role</label>
+            <select
+              className="dewey-input"
+              value={systemRole}
+              onChange={(e) => setSystemRole(e.target.value as SystemRole)}
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="dewey-label">Job title</label>
+            <input
+              className="dewey-input"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              placeholder="e.g. 3rd Grade Teacher"
+            />
+          </div>
+        </div>
+        <OrgPickers
+          districts={districts}
+          districtId={districtId}
+          schoolId={schoolId}
+          onChange={({ district_id, school_id }) => {
+            setDistrictId(district_id);
+            setSchoolId(school_id);
+          }}
+        />
+      </div>
+      <div className="flex gap-2 mt-6 justify-end">
+        <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="dewey-btn-primary w-auto" onClick={save} disabled={saving}>
+          {saving ? "Creating…" : "Create user"}
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ============================================================
+// Edit
+// ============================================================
+
+function UserEditModal({
+  user,
+  districts,
+  isSelf,
+  onClose,
+  onSaved,
+}: {
+  user: User;
+  districts: DistrictWithSchools[];
+  isSelf: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [fullName, setFullName] = useState(user.full_name);
+  const [nickname, setNickname] = useState(user.nickname ?? "");
+  const [email, setEmail] = useState(user.email ?? "");
+  const [systemRole, setSystemRole] = useState<SystemRole>(user.system_role);
+  const [districtId, setDistrictId] = useState<number | null>(user.district_id);
+  const [schoolId, setSchoolId] = useState<number | null>(user.school_id);
+  const [role, setRole] = useState(user.role ?? "");
+  const [about, setAbout] = useState(user.about ?? "");
+  const [newPassword, setNewPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setErr(null);
+    if (newPassword && newPassword.length < 8) {
+      setErr("New password must be at least 8 characters.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        full_name: fullName,
+        nickname,
+        email,
+        system_role: systemRole,
+        district_id: districtId,
+        school_id: schoolId,
+        role,
+        about,
+      };
+      if (newPassword) body.password = newPassword;
+      await apiFetch(`/api/admin/users/${user.id}`, { method: "PATCH", body });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!confirm(`Delete ${user.full_name} (@${user.username})? This cannot be undone.`)) return;
+    setDeleting(true);
+    setErr(null);
+    try {
+      await apiFetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to delete");
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <ModalShell title={`Edit @${user.username}`} onClose={onClose}>
+      <div className="space-y-4">
+        {err && <p className="text-sm text-red-600">{err}</p>}
+        <div>
+          <label className="dewey-label">Full name</label>
+          <input className="dewey-input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="dewey-label">Nickname</label>
+            <input className="dewey-input" value={nickname} onChange={(e) => setNickname(e.target.value)} />
+          </div>
+          <div>
+            <label className="dewey-label">Email</label>
+            <input className="dewey-input" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="dewey-label">
+              System role
+              {isSelf && <span className="text-xs text-dewey-mute ml-1">(your account)</span>}
+            </label>
+            <select
+              className="dewey-input"
+              value={systemRole}
+              onChange={(e) => setSystemRole(e.target.value as SystemRole)}
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="dewey-label">Job title</label>
+            <input className="dewey-input" value={role} onChange={(e) => setRole(e.target.value)} />
+          </div>
+        </div>
+        <OrgPickers
+          districts={districts}
+          districtId={districtId}
+          schoolId={schoolId}
+          onChange={({ district_id, school_id }) => {
+            setDistrictId(district_id);
+            setSchoolId(school_id);
+          }}
+        />
+        <div>
+          <label className="dewey-label">About (coaching context)</label>
+          <textarea
+            className="dewey-input min-h-[80px]"
+            value={about}
+            onChange={(e) => setAbout(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="dewey-label">Reset password</label>
+          <input
+            type="password"
+            className="dewey-input"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Leave blank to keep current password"
+            autoComplete="new-password"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2 mt-6 justify-between">
+        <button
+          type="button"
+          className="px-4 py-2 border border-red-200 text-red-700 rounded-md hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={remove}
+          disabled={deleting || isSelf}
+          title={isSelf ? "You can't delete your own account." : undefined}
+        >
+          {deleting ? "Deleting…" : "Delete"}
+        </button>
+        <div className="flex gap-2">
+          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="dewey-btn-primary w-auto" onClick={save} disabled={saving}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
