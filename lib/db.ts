@@ -382,6 +382,19 @@ export async function deleteUser(id: number): Promise<boolean> {
   return (res.rowCount ?? 0) > 0;
 }
 
+/** Persist a user's theme choice in their settings JSONB (overrides the admin default). */
+export async function setUserTheme(userId: number, theme: "light" | "dark"): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query(
+    `UPDATE users
+        SET settings = jsonb_set(settings, '{theme}', to_jsonb($2::text), true),
+            updated_at = NOW()
+      WHERE id = $1`,
+    [userId, theme]
+  );
+}
+
 // ============================================================
 // User audit log
 // ============================================================
