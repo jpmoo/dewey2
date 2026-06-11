@@ -63,7 +63,7 @@ export function SetupForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-xl border border-dewey-border bg-white/60 p-6 text-left space-y-4"
+      className="rounded-xl border border-dewey-border bg-dewey-surface/60 p-6 text-left space-y-4"
     >
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div>

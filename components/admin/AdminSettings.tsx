@@ -174,7 +174,7 @@ export function AdminSettings() {
         </p>
       </div>
 
-      <div className="space-y-5 rounded-lg border border-dewey-border bg-white p-5">
+      <div className="space-y-5 rounded-lg border border-dewey-border bg-dewey-surface p-5">
         {/* Ollama */}
         <div>
           <label className="dewey-label">Ollama URL</label>
@@ -328,7 +328,7 @@ export function AdminSettings() {
               Set the RAGDoll URL above, then load collections to choose defaults.
             </p>
           ) : (
-            <div className="border border-dewey-border rounded-md p-2 max-h-44 overflow-y-auto space-y-1 bg-white">
+            <div className="border border-dewey-border rounded-md p-2 max-h-44 overflow-y-auto space-y-1 bg-dewey-surface">
               {allCollections.map((name) => (
                 <label key={name} className="flex items-center gap-2 text-sm cursor-pointer">
                   <input

@@ -241,7 +241,7 @@ export function AdminUserManager() {
               {filtered.map((u) => (
             <li
               key={u.id}
-              className="flex items-center justify-between gap-3 p-3 rounded-lg border border-dewey-border bg-white hover:bg-gray-50 cursor-pointer"
+              className="flex items-center justify-between gap-3 p-3 rounded-lg border border-dewey-border bg-dewey-surface hover:bg-dewey-surface-2 cursor-pointer"
               onClick={() => setEditing(u)}
             >
               <div className="min-w-0">
@@ -378,7 +378,7 @@ function ModalShell({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"
+        className="bg-dewey-surface rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold mb-4">{title}</h3>
@@ -744,7 +744,7 @@ function UserEditModal({
                   No collections available — configure RAGDoll in system settings.
                 </p>
               ) : (
-                <div className="border border-dewey-border rounded-md p-2 max-h-40 overflow-y-auto space-y-1 bg-white">
+                <div className="border border-dewey-border rounded-md p-2 max-h-40 overflow-y-auto space-y-1 bg-dewey-surface">
                   {allColls.map((name) => (
                     <label key={name} className="flex items-center gap-2 text-sm cursor-pointer">
                       <input
@@ -781,7 +781,7 @@ function UserEditModal({
           ) : logs.length === 0 ? (
             <p className="text-xs text-dewey-mute">No activity recorded yet.</p>
           ) : (
-            <ul className="border border-dewey-border rounded-md divide-y divide-dewey-border max-h-44 overflow-y-auto bg-white">
+            <ul className="border border-dewey-border rounded-md divide-y divide-dewey-border max-h-44 overflow-y-auto bg-dewey-surface">
               {logs.map((l) => {
                 const meta: string[] = [];
                 if (l.detail) meta.push(l.detail);

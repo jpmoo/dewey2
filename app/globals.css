@@ -2,9 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Palette as space-separated RGB channels so Tailwind's rgb(var(--x) / alpha)
+   can apply opacity modifiers. The .dark overrides flip the whole UI. */
 :root {
-  --background: #faf9f6;
-  --foreground: #1a1a1a;
+  --dewey-cream: 250 249 246;     /* page background */
+  --dewey-ink: 26 26 26;          /* primary text */
+  --dewey-mute: 107 107 107;      /* muted text */
+  --dewey-border: 232 230 225;    /* borders */
+  --dewey-accent: 37 99 235;      /* links/active */
+  --dewey-surface: 255 255 255;   /* cards, inputs */
+  --dewey-surface-2: 249 250 251; /* hover/raised */
+  --dewey-primary: 26 26 26;      /* primary button bg */
+  --dewey-primary-fg: 255 255 255;/* primary button text */
+  --code-bg: rgba(0, 0, 0, 0.06);
+}
+
+.dark {
+  --dewey-cream: 17 18 20;
+  --dewey-ink: 237 237 235;
+  --dewey-mute: 156 160 165;
+  --dewey-border: 50 52 56;
+  --dewey-accent: 124 158 247;
+  --dewey-surface: 30 32 36;
+  --dewey-surface-2: 40 42 47;
+  --dewey-primary: 237 237 235;
+  --dewey-primary-fg: 17 18 20;
+  --code-bg: rgba(255, 255, 255, 0.1);
 }
 
 html {
@@ -13,8 +36,8 @@ html {
 
 body {
   margin: 0;
-  color: var(--foreground);
-  background: var(--background);
+  background: rgb(var(--dewey-cream));
+  color: rgb(var(--dewey-ink));
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
@@ -23,25 +46,25 @@ code {
   font-size: 0.875em;
   padding: 0.125em 0.375em;
   border-radius: 0.25rem;
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--code-bg);
 }
 
 @layer components {
-  /* Primary action: solid dark, light text. */
+  /* Primary action: high-contrast, inverts between light and dark. */
   .dewey-btn-primary {
     @apply w-full py-2.5 px-4 text-sm font-medium rounded-md border-none cursor-pointer;
-    @apply bg-dewey-ink text-white;
+    @apply bg-dewey-primary text-dewey-primary-fg;
     @apply hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   /* Secondary action: outlined. */
   .dewey-btn-secondary {
-    @apply px-3 py-1.5 text-sm border border-dewey-border rounded-md bg-white cursor-pointer;
-    @apply hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply px-3 py-1.5 text-sm border border-dewey-border rounded-md bg-dewey-surface text-dewey-ink cursor-pointer;
+    @apply hover:bg-dewey-surface-2 focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .dewey-input {
-    @apply w-full border border-dewey-border rounded-md px-3 py-2 text-sm bg-white;
+    @apply w-full border border-dewey-border rounded-md px-3 py-2 text-sm bg-dewey-surface text-dewey-ink;
     @apply focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 focus:border-dewey-accent;
   }
 

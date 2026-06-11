@@ -121,7 +121,7 @@ export function AdminOrgManager() {
       ) : (
         <div className="space-y-4">
           {districts.map((d) => (
-            <div key={d.id} className="rounded-lg border border-dewey-border bg-white p-4">
+            <div key={d.id} className="rounded-lg border border-dewey-border bg-dewey-surface p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-medium">{d.name}</h3>
                 <button
@@ -140,7 +140,7 @@ export function AdminOrgManager() {
                   d.schools.map((s) => (
                     <li
                       key={s.id}
-                      className="flex items-center justify-between text-sm px-2 py-1 rounded hover:bg-gray-50"
+                      className="flex items-center justify-between text-sm px-2 py-1 rounded hover:bg-dewey-surface-2"
                     >
                       <span>{s.name}</span>
                       <button
