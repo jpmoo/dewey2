@@ -21,8 +21,9 @@ export default async function AdminPage() {
 
   return (
     <div className="min-h-screen bg-dewey-cream text-dewey-ink flex flex-col">
-      {/* pl clears the corner logo rendered by the root layout. */}
-      <header className="border-b border-dewey-border pl-20 pr-6 py-4 flex items-center justify-between">
+      {/* h-16 + items-center vertically centers the title against the corner
+          logo; pl clears that logo (rendered by the root layout). */}
+      <header className="border-b border-dewey-border pl-16 pr-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">Admin</h1>
           <span className="text-sm text-dewey-mute">

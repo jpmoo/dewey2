@@ -14,7 +14,9 @@ export function SignOutButton({ className }: { className?: string }) {
     <button
       type="button"
       className={className}
-      onClick={() => signOut({ callbackUrl: rootPath })}
+      onClick={() => {
+        if (confirm("Sign out of Dewey?")) signOut({ callbackUrl: rootPath });
+      }}
     >
       Sign out
     </button>
