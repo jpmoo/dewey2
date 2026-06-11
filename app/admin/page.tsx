@@ -5,7 +5,6 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { AdminSettings } from "@/components/admin/AdminSettings";
 import { AdminUserManager } from "@/components/admin/AdminUserManager";
 import { AdminOrgManager } from "@/components/admin/AdminOrgManager";
-import { Logo } from "@/components/Logo";
 
 export const dynamic = "force-dynamic";
 
@@ -22,9 +21,9 @@ export default async function AdminPage() {
 
   return (
     <div className="min-h-screen bg-dewey-cream text-dewey-ink flex flex-col">
-      <header className="border-b border-dewey-border px-6 py-3 flex items-center justify-between">
+      {/* pl clears the corner logo rendered by the root layout. */}
+      <header className="border-b border-dewey-border pl-20 pr-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Logo size={26} />
           <h1 className="text-lg font-semibold">Admin</h1>
           <span className="text-sm text-dewey-mute">
             {session.user.nickname || session.user.name}

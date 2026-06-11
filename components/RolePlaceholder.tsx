@@ -1,4 +1,3 @@
-import { Logo } from "@/components/Logo";
 import { SignOutButton } from "@/components/SignOutButton";
 
 /**
@@ -19,7 +18,6 @@ export function RolePlaceholder({
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-md w-full rounded-xl border border-dewey-border bg-white/60 p-8 text-center">
-        <Logo size={48} className="mx-auto mb-3" />
         <p className="text-xs text-dewey-mute uppercase tracking-wide mb-2">{role}</p>
         <h1 className="text-2xl font-semibold mb-2">{heading}</h1>
         <p className="text-dewey-mute text-sm mb-1">Welcome, {name}.</p>

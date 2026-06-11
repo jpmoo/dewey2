@@ -23,7 +23,7 @@ export default async function LoginPage() {
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-sm w-full">
         <div className="text-center mb-6">
-          <Logo size={44} className="mx-auto mb-4" />
+          <Logo size={88} className="mx-auto mb-4" />
           <p className="text-sm text-dewey-mute">Sign in to your account.</p>
         </div>
         <LoginForm />

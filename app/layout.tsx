@@ -3,6 +3,7 @@ import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/components/SessionProvider";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
+import { CornerLogo } from "@/components/CornerLogo";
 
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-sans" });
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
@@ -21,7 +22,10 @@ export default function RootLayout({
       <body className="min-h-screen antialiased font-sans bg-dewey-cream text-dewey-ink">
         <SessionProvider>
           <ImpersonationBanner />
-          {children}
+          <div className="relative">
+            <CornerLogo />
+            {children}
+          </div>
         </SessionProvider>
       </body>
     </html>
