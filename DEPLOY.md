@@ -46,6 +46,12 @@ the connection string, or just choose an alphanumeric password.
 ```bash
 sudo -u postgres psql -c "CREATE USER dewey2 WITH PASSWORD 'CHANGE_ME';"
 sudo -u postgres psql -c "CREATE DATABASE dewey2 OWNER dewey2;"
+
+# Postgres 15+: ensure the role can create tables in schema public.
+# Harmless to re-run; required if the database already existed without OWNER.
+sudo -u postgres psql -d dewey2 -c "ALTER DATABASE dewey2 OWNER TO dewey2;"
+sudo -u postgres psql -d dewey2 -c "ALTER SCHEMA public OWNER TO dewey2;"
+sudo -u postgres psql -d dewey2 -c "GRANT ALL ON SCHEMA public TO dewey2;"
 ```
 
 Confirm the credentials work over TCP (this is how the app connects):
@@ -191,6 +197,6 @@ alone won't pick it up.
 | Page loads but **no CSS/JS** (unstyled, console 404s on `/dewey/_next/...`) | Caddy is stripping the prefix. Use `reverse_proxy /dewey*`, not `handle_path`. |
 | **Sign-in loops or 404s** on `/dewey/api/auth/...` | `NEXTAUTH_URL` path, `NEXT_PUBLIC_BASE_PATH`, and the Caddy prefix don't all match `/dewey`. Rebuild after fixing. |
 | Setup screen shows **"Database unavailable"** (503) | `DATABASE_URL` wrong, Postgres not running, or role/password mismatch. Re-run the `psql "postgres://..."` test from §2. |
-| `permission denied for schema public` on first launch | The role doesn't own the database. Recreate it with `CREATE DATABASE dewey2 OWNER dewey2;`. |
+| `permission denied for schema public` on first launch (Postgres error `42501`) | Postgres 15+ restricts who can create objects in schema `public`. The role isn't the schema owner. Fix without recreating the DB: `sudo -u postgres psql -d dewey2 -c "ALTER SCHEMA public OWNER TO dewey2;" -c "GRANT ALL ON SCHEMA public TO dewey2;"` then re-hit `/api/setup-status` (the app retries the bootstrap automatically). |
 | Port already in use on restart | `lsof -ti tcp:3032 \| xargs kill -9`, then re-run `./restart.sh`. |
 | Service doesn't survive logout/reboot | `sudo loginctl enable-linger "$USER"`. |
