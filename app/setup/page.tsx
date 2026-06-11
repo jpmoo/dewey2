@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { hasAdmin } from "@/lib/db";
 import { SetupForm } from "@/components/setup/SetupForm";
+import { Logo } from "@/components/Logo";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function SetupPage() {
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-md w-full">
         <div className="text-center mb-6">
+          <Logo size={56} className="mx-auto mb-3" />
           <h1 className="text-2xl font-semibold mb-1">Set up Dewey</h1>
           <p className="text-sm text-dewey-mute text-balance">
             Create the dedicated administrator account. It manages users, the

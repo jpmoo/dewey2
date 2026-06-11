@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { hasAdmin } from "@/lib/db";
 import { LoginForm } from "@/components/LoginForm";
+import { Logo } from "@/components/Logo";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ export default async function LoginPage() {
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-sm w-full">
         <div className="text-center mb-6">
+          <Logo size={56} className="mx-auto mb-3" />
           <h1 className="text-2xl font-semibold mb-1">Dewey</h1>
           <p className="text-sm text-dewey-mute">Sign in to your account.</p>
         </div>

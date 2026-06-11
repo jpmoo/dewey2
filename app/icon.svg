@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Dewey logo: apple with oval glasses and bushy mustache">
+  <defs>
+    <style>
+      .stroke { fill: none; stroke: #000; stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
+      .thin   { fill: none; stroke: #000; stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; }
+      .fill   { fill: #000; stroke: none; }
+    </style>
+  </defs>
+
+  <!-- Apple outline (taller/thinner, with a subtle bottom notch) -->
+  <path class="stroke" d="
+    M256 118
+    C214 110, 156 128, 136 178
+    C115 230, 126 318, 170 382
+    C200 426, 234 446, 256 452
+    C278 446, 312 426, 342 382
+    C386 318, 397 230, 376 178
+    C356 128, 298 110, 256 118
+    Z
+  "/>
+
+  <!-- Bottom notch detail -->
+  <path class="thin" d="
+    M224 450
+    C240 438, 272 438, 288 450
+  "/>
+
+  <!-- Stem -->
+  <path class="stroke" d="
+    M248 120
+    C236 98, 250 80, 270 74
+  "/>
+
+  <!-- Leaf (stylized, slightly right-leaning) -->
+  <path class="stroke" d="
+    M274 92
+    C312 72, 356 84, 374 122
+    C344 136, 306 132, 274 92
+    Z
+  "/>
+  <path class="thin" d="
+    M288 100
+    C318 106, 338 112, 356 124
+  "/>
+
+  <!-- Glasses (oval, no arms) - placed lower -->
+  <ellipse class="thin" cx="206" cy="262" rx="62" ry="46"/>
+  <ellipse class="thin" cx="306" cy="262" rx="62" ry="46"/>
+  <path class="thin" d="M268 262 C258 254, 254 254, 244 262"/>
+
+  <!-- Eyelid hints -->
+  <path class="thin" d="M184 252 C196 240, 216 240, 228 252"/>
+  <path class="thin" d="M284 252 C296 240, 316 240, 328 252"/>
+
+  <!-- Mustache (lower, bushier; bottom third) -->
+  <g transform="translate(0,18)">
+    <path class="fill" d="
+      M256 324
+      C240 300, 198 292, 170 306
+      C154 314, 150 336, 164 350
+      C176 362, 200 362, 220 354
+      C234 348, 246 340, 256 324
+      Z
+    "/>
+    <path class="fill" d="
+      M256 324
+      C272 300, 314 292, 342 306
+      C358 314, 362 336, 348 350
+      C336 362, 312 362, 292 354
+      C278 348, 266 340, 256 324
+      Z
+    "/>
+
+    <!-- inner whisker strokes (negative space via thin white strokes) -->
+    <path d="M188 338 C202 328, 214 326, 230 330" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+    <path d="M194 350 C208 340, 220 338, 236 342" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+    <path d="M324 338 C310 328, 298 326, 282 330" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+    <path d="M318 350 C304 340, 292 338, 276 342" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round"/>
+  </g>
+</svg>
