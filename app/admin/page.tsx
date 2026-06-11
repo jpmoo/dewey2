@@ -2,9 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions, isAdminSession } from "@/lib/auth";
 import { SignOutButton } from "@/components/SignOutButton";
-import { AdminSettings } from "@/components/admin/AdminSettings";
-import { AdminUserManager } from "@/components/admin/AdminUserManager";
-import { AdminOrgManager } from "@/components/admin/AdminOrgManager";
+import { AdminTabs } from "@/components/admin/AdminTabs";
 
 export const dynamic = "force-dynamic";
 
@@ -32,10 +30,8 @@ export default async function AdminPage() {
         </div>
         <SignOutButton className="text-sm text-dewey-mute hover:text-dewey-ink" />
       </header>
-      <main className="flex-1 px-6 py-6 max-w-3xl w-full mx-auto space-y-10">
-        <AdminSettings />
-        <AdminOrgManager />
-        <AdminUserManager />
+      <main className="flex-1 px-6 py-6 max-w-3xl w-full mx-auto">
+        <AdminTabs />
       </main>
     </div>
   );
