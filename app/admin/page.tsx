@@ -24,8 +24,8 @@ export default async function AdminPage() {
     <div className="min-h-screen bg-dewey-cream text-dewey-ink flex flex-col">
       <header className="border-b border-dewey-border px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Logo size={28} />
-          <h1 className="text-lg font-semibold">Dewey Admin</h1>
+          <Logo size={26} />
+          <h1 className="text-lg font-semibold">Admin</h1>
           <span className="text-sm text-dewey-mute">
             {session.user.nickname || session.user.name}
           </span>

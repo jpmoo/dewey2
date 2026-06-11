@@ -17,8 +17,8 @@ export default async function SetupPage() {
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="max-w-md w-full">
         <div className="text-center mb-6">
-          <Logo size={56} className="mx-auto mb-3" />
-          <h1 className="text-2xl font-semibold mb-1">Set up Dewey</h1>
+          <Logo size={44} className="mx-auto mb-4" />
+          <h1 className="text-2xl font-semibold mb-1">First-time setup</h1>
           <p className="text-sm text-dewey-mute text-balance">
             Create the dedicated administrator account. It manages users, the
             organization, and system configuration. Two demo accounts
