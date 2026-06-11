@@ -45,6 +45,12 @@ export function AdminUserManager() {
   const [editing, setEditing] = useState<User | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // Filters.
+  const [query, setQuery] = useState("");
+  const [filterDistrict, setFilterDistrict] = useState<number | null>(null);
+  const [filterSchool, setFilterSchool] = useState<number | null>(null);
+  const [filterRole, setFilterRole] = useState<SystemRole | "all">("all");
+
   const load = useCallback(async () => {
     try {
       const [{ users }, { districts }] = await Promise.all([
@@ -86,6 +92,30 @@ export function AdminUserManager() {
     [update]
   );
 
+  // Schools shown in the filter: scoped to the chosen district, else all.
+  const schoolOptions =
+    filterDistrict !== null
+      ? districts.find((d) => d.id === filterDistrict)?.schools ?? []
+      : districts.flatMap((d) => d.schools);
+
+  const q = query.trim().toLowerCase();
+  const filtered = users.filter((u) => {
+    if (filterRole !== "all" && u.system_role !== filterRole) return false;
+    if (filterDistrict !== null && u.district_id !== filterDistrict) return false;
+    if (filterSchool !== null && u.school_id !== filterSchool) return false;
+    if (q) {
+      const hay = [u.full_name, u.username, u.email, u.nickname, u.role]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const filtersActive =
+    q !== "" || filterRole !== "all" || filterDistrict !== null || filterSchool !== null;
+
   return (
     <section>
       <div className="mb-4 flex items-center justify-between">
@@ -105,8 +135,78 @@ export function AdminUserManager() {
       ) : error ? (
         <p className="text-red-600">{error}</p>
       ) : (
-        <ul className="space-y-2">
-          {users.map((u) => (
+        <>
+          <div className="mb-4 space-y-2">
+            <input
+              type="search"
+              className="dewey-input"
+              placeholder="Search by name, username, email, or title…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <div className="grid grid-cols-3 gap-2">
+              <select
+                className="dewey-input"
+                value={filterDistrict ?? ""}
+                onChange={(e) => {
+                  setFilterDistrict(e.target.value === "" ? null : Number(e.target.value));
+                  setFilterSchool(null); // school list depends on district
+                }}
+              >
+                <option value="">All districts</option>
+                {districts.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              <select
+                className="dewey-input"
+                value={filterSchool ?? ""}
+                onChange={(e) =>
+                  setFilterSchool(e.target.value === "" ? null : Number(e.target.value))
+                }
+              >
+                <option value="">All schools</option>
+                {schoolOptions.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              <select
+                className="dewey-input"
+                value={filterRole}
+                onChange={(e) => setFilterRole(e.target.value as SystemRole | "all")}
+              >
+                <option value="all">All roles</option>
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center justify-between text-xs text-dewey-mute">
+              <span>
+                {filtered.length} of {users.length} user{users.length === 1 ? "" : "s"}
+              </span>
+              {filtersActive && (
+                <button
+                  type="button"
+                  className="text-dewey-accent hover:underline"
+                  onClick={() => {
+                    setQuery("");
+                    setFilterDistrict(null);
+                    setFilterSchool(null);
+                    setFilterRole("all");
+                  }}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          </div>
+
+          {filtered.length === 0 ? (
+            <p className="text-sm text-dewey-mute py-4 text-center">No users match these filters.</p>
+          ) : (
+            <ul className="space-y-2">
+              {filtered.map((u) => (
             <li
               key={u.id}
               className="flex items-center justify-between gap-3 p-3 rounded-lg border border-dewey-border bg-white hover:bg-gray-50 cursor-pointer"
@@ -137,8 +237,10 @@ export function AdminUserManager() {
                 </span>
               </div>
             </li>
-          ))}
-        </ul>
+              ))}
+            </ul>
+          )}
+        </>
       )}
 
       {creating && (
