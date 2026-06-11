@@ -1,0 +1,47 @@
+/**
+ * Persisted shape of a coaching template's canvas. Stored as JSONB on
+ * coaching_templates.graph. Deliberately framework-agnostic (not React Flow's
+ * node shape) so the storage format is stable.
+ */
+
+export interface TemplateNode {
+  id: string;
+  /** ACTIVITY_TYPES key. */
+  activityKey: string;
+  /** Display label (defaults to the activity label; editable later). */
+  label: string;
+  position: { x: number; y: number };
+  /** Phase this activity belongs to, if grouped. */
+  phaseId?: string | null;
+}
+
+export interface TemplateEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface TemplatePhase {
+  id: string;
+  name: string;
+  /** Display color for the phase grouping on the canvas. */
+  color?: string;
+}
+
+export interface TemplateGraph {
+  nodes: TemplateNode[];
+  edges: TemplateEdge[];
+  phases: TemplatePhase[];
+}
+
+export const EMPTY_GRAPH: TemplateGraph = { nodes: [], edges: [], phases: [] };
+
+export interface CoachingTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  graph: TemplateGraph;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+}

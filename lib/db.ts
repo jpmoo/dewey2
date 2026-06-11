@@ -1,5 +1,7 @@
 import { getPool } from "@/lib/pg";
 import { hashPassword } from "@/lib/password";
+import type { CoachingTemplate, TemplateGraph } from "@/lib/templates";
+import { EMPTY_GRAPH } from "@/lib/templates";
 
 // ============================================================
 // Types
@@ -142,6 +144,19 @@ export function ensureSchema(): Promise<void> {
 
         CREATE INDEX IF NOT EXISTS idx_user_logs_user
           ON user_logs (user_id, created_at DESC);
+
+        -- Coaching templates: an arc-level canvas (activities + flow + phases)
+        -- authored by an admin and available to all coaches. The canvas graph
+        -- is stored as JSONB (see lib/templates.ts for its shape).
+        CREATE TABLE IF NOT EXISTS coaching_templates (
+          id          SERIAL PRIMARY KEY,
+          name        TEXT NOT NULL,
+          description TEXT,
+          graph       JSONB NOT NULL DEFAULT '{"nodes":[],"edges":[],"phases":[]}',
+          created_by  INTEGER REFERENCES users (id) ON DELETE SET NULL,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
@@ -379,6 +394,100 @@ export async function deleteUser(id: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query("DELETE FROM users WHERE id = $1", [id]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+// ============================================================
+// Coaching templates
+// ============================================================
+
+function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
+  const graph = (row.graph as TemplateGraph) ?? EMPTY_GRAPH;
+  return {
+    id: row.id as number,
+    name: row.name as string,
+    description: (row.description as string | null) ?? null,
+    graph: {
+      nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
+      edges: Array.isArray(graph.edges) ? graph.edges : [],
+      phases: Array.isArray(graph.phases) ? graph.phases : [],
+    },
+    created_by: (row.created_by as number | null) ?? null,
+    created_at: toIso(row.created_at),
+    updated_at: toIso(row.updated_at),
+  };
+}
+
+export async function getTemplates(): Promise<CoachingTemplate[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query("SELECT * FROM coaching_templates ORDER BY name");
+  return res.rows.map(rowToTemplate);
+}
+
+export async function getTemplate(id: number): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query("SELECT * FROM coaching_templates WHERE id = $1 LIMIT 1", [id]);
+  return res.rows[0] ? rowToTemplate(res.rows[0]) : null;
+}
+
+export async function createTemplate(params: {
+  name: string;
+  description?: string | null;
+  graph?: TemplateGraph;
+  createdBy?: number | null;
+}): Promise<CoachingTemplate> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `INSERT INTO coaching_templates (name, description, graph, created_by)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [
+      params.name.trim(),
+      params.description?.trim() || null,
+      JSON.stringify(params.graph ?? EMPTY_GRAPH),
+      params.createdBy ?? null,
+    ]
+  );
+  return rowToTemplate(res.rows[0]);
+}
+
+export async function updateTemplate(
+  id: number,
+  params: { name?: string; description?: string | null; graph?: TemplateGraph }
+): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  let i = 1;
+  if (params.name !== undefined) {
+    sets.push(`name = $${i++}`);
+    values.push(params.name.trim());
+  }
+  if (params.description !== undefined) {
+    sets.push(`description = $${i++}`);
+    values.push(params.description?.trim() || null);
+  }
+  if (params.graph !== undefined) {
+    sets.push(`graph = $${i++}`);
+    values.push(JSON.stringify(params.graph));
+  }
+  if (sets.length === 0) return getTemplate(id);
+  sets.push("updated_at = NOW()");
+  values.push(id);
+  const res = await pool.query(
+    `UPDATE coaching_templates SET ${sets.join(", ")} WHERE id = $${i} RETURNING *`,
+    values
+  );
+  return res.rows[0] ? rowToTemplate(res.rows[0]) : null;
+}
+
+export async function deleteTemplate(id: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query("DELETE FROM coaching_templates WHERE id = $1", [id]);
   return (res.rowCount ?? 0) > 0;
 }
 

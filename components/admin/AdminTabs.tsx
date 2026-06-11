@@ -4,13 +4,15 @@ import { useState } from "react";
 import { AdminSettings } from "./AdminSettings";
 import { AdminOrgManager } from "./AdminOrgManager";
 import { AdminUserManager } from "./AdminUserManager";
+import { AdminTemplates } from "./AdminTemplates";
 
-type Tab = "system" | "organization" | "users";
+type Tab = "system" | "organization" | "users" | "templates";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "system", label: "System" },
   { id: "organization", label: "Organization" },
   { id: "users", label: "Users" },
+  { id: "templates", label: "Templates" },
 ];
 
 /**
@@ -47,6 +49,7 @@ export function AdminTabs() {
       {tab === "system" && <AdminSettings />}
       {tab === "organization" && <AdminOrgManager />}
       {tab === "users" && <AdminUserManager />}
+      {tab === "templates" && <AdminTemplates />}
     </div>
   );
 }
