@@ -1,8 +1,21 @@
 import type { NextAuthOptions } from "next-auth";
+import type { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { getUserWithHashByUsername } from "@/lib/db";
-import type { SystemRole } from "@/lib/db";
+import { getUserById, getUserWithHashByUsername } from "@/lib/db";
+import type { SystemRole, User } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
+
+/** Copy a user's identity onto the JWT. Shared by sign-in and impersonation. */
+function applyUserToToken(token: JWT, user: User): void {
+  token.sub = String(user.id);
+  token.name = user.full_name;
+  token.email = user.email;
+  token.username = user.username;
+  token.nickname = user.nickname;
+  token.system_role = user.system_role;
+  token.district_id = user.district_id;
+  token.school_id = user.school_id;
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -33,7 +46,8 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
+      // Fresh sign-in.
       if (user) {
         const u = user as typeof user & {
           username: string;
@@ -48,7 +62,39 @@ export const authOptions: NextAuthOptions = {
         token.system_role = u.system_role;
         token.district_id = u.district_id;
         token.school_id = u.school_id;
+        return token;
       }
+
+      // Impersonation: driven by the client calling session.update({ ... }).
+      // The token is signed server-side, so these guards can't be bypassed.
+      if (trigger === "update" && session && typeof session === "object") {
+        const action = (session as { action?: string }).action;
+
+        // Start impersonating: only a real admin who isn't already impersonating.
+        if (action === "impersonate" && token.system_role === "admin" && !token.impersonatorId) {
+          const targetId = Number((session as { userId?: unknown }).userId);
+          if (Number.isFinite(targetId) && String(targetId) !== token.sub) {
+            const target = await getUserById(targetId);
+            if (target) {
+              token.impersonatorId = token.sub;
+              token.impersonatorName = (token.name as string) ?? token.username ?? "admin";
+              applyUserToToken(token, target);
+            }
+          }
+        }
+
+        // Stop impersonating: restore the original admin. Allowed regardless of
+        // the current (impersonated) role — the bail-out must always work.
+        else if (action === "stop" && token.impersonatorId) {
+          const admin = await getUserById(Number(token.impersonatorId));
+          if (admin) {
+            applyUserToToken(token, admin);
+            delete token.impersonatorId;
+            delete token.impersonatorName;
+          }
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
@@ -59,6 +105,9 @@ export const authOptions: NextAuthOptions = {
         session.user.system_role = (token.system_role as SystemRole) ?? "partner";
         session.user.district_id = (token.district_id as number | null) ?? null;
         session.user.school_id = (token.school_id as number | null) ?? null;
+        // Surfaced so the UI can show the "viewing as…" banner and bail-out.
+        session.user.impersonating = !!token.impersonatorId;
+        session.user.impersonatorName = (token.impersonatorName as string | null) ?? null;
       }
       return session;
     },

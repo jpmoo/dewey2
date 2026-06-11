@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api-client";
+import { rootPath } from "@/lib/base-path";
 
 type SystemRole = "admin" | "coach" | "partner";
 
@@ -32,10 +33,11 @@ const ROLE_BADGE: Record<SystemRole, string> = {
 const ROLES: SystemRole[] = ["admin", "coach", "partner"];
 
 export function AdminUserManager() {
-  const { data: session } = useSession();
+  const { data: session, update } = useSession();
   const currentUserId = session?.user?.id ? parseInt(session.user.id, 10) : null;
 
   const [users, setUsers] = useState<User[]>([]);
+  const [impersonating, setImpersonating] = useState<number | null>(null);
   const [districts, setDistricts] = useState<DistrictWithSchools[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +63,27 @@ export function AdminUserManager() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loginAs = useCallback(
+    async (u: User) => {
+      if (
+        !confirm(
+          `Log in as ${u.full_name} (@${u.username})? You'll see Dewey as this ${u.system_role}. A banner lets you return to admin.`
+        )
+      )
+        return;
+      setImpersonating(u.id);
+      try {
+        await update({ action: "impersonate", userId: u.id });
+        // Hard navigation so the dispatcher routes by the now-impersonated role.
+        window.location.href = rootPath;
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "Failed to switch users");
+        setImpersonating(null);
+      }
+    },
+    [update]
+  );
 
   return (
     <section>
@@ -93,11 +116,25 @@ export function AdminUserManager() {
                 <span className="ml-2 text-sm text-dewey-mute">@{u.username}</span>
                 {u.role && <span className="ml-2 text-xs text-dewey-mute">· {u.role}</span>}
               </div>
-              <span
-                className={`text-xs px-2 py-0.5 rounded ${ROLE_BADGE[u.system_role]}`}
-              >
-                {u.system_role}
-              </span>
+              <div className="flex items-center gap-3 shrink-0">
+                {currentUserId !== u.id && (
+                  <button
+                    type="button"
+                    className="text-xs text-dewey-accent hover:underline disabled:opacity-50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      loginAs(u);
+                    }}
+                    disabled={impersonating !== null}
+                    title={`View Dewey as ${u.full_name}`}
+                  >
+                    {impersonating === u.id ? "Switching…" : "Log in as"}
+                  </button>
+                )}
+                <span className={`text-xs px-2 py-0.5 rounded ${ROLE_BADGE[u.system_role]}`}>
+                  {u.system_role}
+                </span>
+              </div>
             </li>
           ))}
         </ul>

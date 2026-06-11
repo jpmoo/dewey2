@@ -12,6 +12,10 @@ declare module "next-auth" {
       system_role: SystemRole;
       district_id: number | null;
       school_id: number | null;
+      /** True when an admin is impersonating this user. */
+      impersonating: boolean;
+      /** Display name of the admin who started impersonating, if any. */
+      impersonatorName: string | null;
     };
   }
 
@@ -32,5 +36,9 @@ declare module "next-auth/jwt" {
     system_role?: SystemRole;
     district_id?: number | null;
     school_id?: number | null;
+    /** Original admin's user id while impersonating; absent otherwise. */
+    impersonatorId?: string;
+    /** Original admin's display name while impersonating. */
+    impersonatorName?: string;
   }
 }

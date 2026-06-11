@@ -16,7 +16,9 @@ export const dynamic = "force-dynamic";
 export default async function AdminPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/login");
-  if (!isAdminSession(session)) redirect("/workspace");
+  // Non-admins (including an admin currently impersonating a coach/partner) get
+  // routed to the right place by the dispatcher.
+  if (!isAdminSession(session)) redirect("/");
 
   return (
     <div className="min-h-screen bg-dewey-cream text-dewey-ink flex flex-col">

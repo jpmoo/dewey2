@@ -8,8 +8,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * Entry dispatcher. First-run (no admin) → setup. Signed-out → login. Otherwise
- * route by role: admins land in the console; coaches/partners go to their
- * (forthcoming) workspace.
+ * route by role: admins land in the console; coaches and partners go to their
+ * own workspaces. Drives impersonation too — after an admin starts/stops
+ * impersonating, a redirect through "/" lands on the right place for the
+ * now-current role.
  */
 export default async function HomePage() {
   if (!(await hasAdmin())) {
@@ -19,8 +21,12 @@ export default async function HomePage() {
   if (!session?.user) {
     redirect("/login");
   }
-  if (session.user.system_role === "admin") {
-    redirect("/admin");
+  switch (session.user.system_role) {
+    case "admin":
+      redirect("/admin");
+    case "coach":
+      redirect("/coach");
+    default:
+      redirect("/partner");
   }
-  redirect("/workspace");
 }
