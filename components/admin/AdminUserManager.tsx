@@ -121,6 +121,14 @@ export function AdminUserManager() {
   const filtersActive =
     q !== "" || filterRole !== "all" || filterDistrict !== null || filterSchool !== "all";
 
+  // Resolve a user's district/school to display names from the loaded org tree.
+  const orgLabel = (u: User): string => {
+    const d = districts.find((x) => x.id === u.district_id);
+    if (!d) return "Unassigned";
+    const s = d.schools.find((x) => x.id === u.school_id);
+    return s ? `${d.name} · ${s.name}` : `${d.name} · District-wide`;
+  };
+
   return (
     <section>
       <div className="mb-4 flex items-center justify-between">
@@ -222,9 +230,12 @@ export function AdminUserManager() {
               onClick={() => setEditing(u)}
             >
               <div className="min-w-0">
-                <span className="font-medium">{u.full_name}</span>
-                <span className="ml-2 text-sm text-dewey-mute">@{u.username}</span>
-                {u.role && <span className="ml-2 text-xs text-dewey-mute">· {u.role}</span>}
+                <div>
+                  <span className="font-medium">{u.full_name}</span>
+                  <span className="ml-2 text-sm text-dewey-mute">@{u.username}</span>
+                  {u.role && <span className="ml-2 text-xs text-dewey-mute">· {u.role}</span>}
+                </div>
+                <div className="text-xs text-dewey-mute truncate">{orgLabel(u)}</div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 {currentUserId !== u.id && (
