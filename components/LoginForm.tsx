@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { rootPath } from "@/lib/base-path";
 
 export function LoginForm() {
   const [username, setUsername] = useState("");
@@ -21,7 +22,7 @@ export function LoginForm() {
       });
       if (result?.ok) {
         // Let the dispatcher route by role.
-        window.location.href = "/";
+        window.location.href = rootPath;
         return;
       }
       setError("Incorrect username or password.");

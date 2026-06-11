@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { pathWithBase } from "@/lib/base-path";
 
 export function SetupForm() {
   const [username, setUsername] = useState("");
@@ -26,7 +27,7 @@ export function SetupForm() {
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/setup", {
+      const res = await fetch(pathWithBase("/api/setup"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -48,7 +49,7 @@ export function SetupForm() {
         redirect: false,
       });
       if (result?.ok) {
-        window.location.href = "/admin";
+        window.location.href = pathWithBase("/admin");
         return;
       }
       setError("Account created. Please sign in.");

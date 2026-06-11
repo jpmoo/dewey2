@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { hasAdmin } from "@/lib/db";
 
+// Reflects live DB state on every request — never cache.
+export const dynamic = "force-dynamic";
+
 /**
  * Whether a dedicated admin account exists. When false the app is in first-run
  * state and every entry point should funnel to /setup.
