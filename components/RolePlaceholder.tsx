@@ -1,5 +1,5 @@
 import { Logo } from "@/components/Logo";
-import { signOutPath } from "@/lib/routes";
+import { SignOutButton } from "@/components/SignOutButton";
 
 /**
  * Shared shell for the not-yet-built coach/partner interfaces. Confirms auth +
@@ -24,9 +24,7 @@ export function RolePlaceholder({
         <h1 className="text-2xl font-semibold mb-2">{heading}</h1>
         <p className="text-dewey-mute text-sm mb-1">Welcome, {name}.</p>
         <p className="text-dewey-mute text-sm mb-6 text-balance">{blurb}</p>
-        <a href={signOutPath()} className="text-sm text-dewey-accent hover:underline">
-          Sign out
-        </a>
+        <SignOutButton className="text-sm text-dewey-accent hover:underline" />
       </div>
     </main>
   );

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions, isAdminSession } from "@/lib/auth";
-import { signOutPath } from "@/lib/routes";
+import { SignOutButton } from "@/components/SignOutButton";
 import { AdminSettings } from "@/components/admin/AdminSettings";
 import { AdminUserManager } from "@/components/admin/AdminUserManager";
 import { AdminOrgManager } from "@/components/admin/AdminOrgManager";
@@ -30,9 +30,7 @@ export default async function AdminPage() {
             {session.user.nickname || session.user.name}
           </span>
         </div>
-        <a href={signOutPath()} className="text-sm text-dewey-mute hover:text-dewey-ink">
-          Sign out
-        </a>
+        <SignOutButton className="text-sm text-dewey-mute hover:text-dewey-ink" />
       </header>
       <main className="flex-1 px-6 py-6 max-w-3xl w-full mx-auto space-y-10">
         <AdminSettings />
