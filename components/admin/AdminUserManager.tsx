@@ -48,7 +48,8 @@ export function AdminUserManager() {
   // Filters.
   const [query, setQuery] = useState("");
   const [filterDistrict, setFilterDistrict] = useState<number | null>(null);
-  const [filterSchool, setFilterSchool] = useState<number | null>(null);
+  // "all" = any school; "districtwide" = assigned to the district but no school.
+  const [filterSchool, setFilterSchool] = useState<"all" | "districtwide" | number>("all");
   const [filterRole, setFilterRole] = useState<SystemRole | "all">("all");
 
   const load = useCallback(async () => {
@@ -92,17 +93,21 @@ export function AdminUserManager() {
     [update]
   );
 
-  // Schools shown in the filter: scoped to the chosen district, else all.
+  // Schools shown in the filter are strictly those in the chosen district.
   const schoolOptions =
     filterDistrict !== null
       ? districts.find((d) => d.id === filterDistrict)?.schools ?? []
-      : districts.flatMap((d) => d.schools);
+      : [];
 
   const q = query.trim().toLowerCase();
   const filtered = users.filter((u) => {
     if (filterRole !== "all" && u.system_role !== filterRole) return false;
     if (filterDistrict !== null && u.district_id !== filterDistrict) return false;
-    if (filterSchool !== null && u.school_id !== filterSchool) return false;
+    if (filterSchool === "districtwide") {
+      if (u.school_id !== null) return false;
+    } else if (typeof filterSchool === "number" && u.school_id !== filterSchool) {
+      return false;
+    }
     if (q) {
       const hay = [u.full_name, u.username, u.email, u.nickname, u.role]
         .filter(Boolean)
@@ -114,7 +119,7 @@ export function AdminUserManager() {
   });
 
   const filtersActive =
-    q !== "" || filterRole !== "all" || filterDistrict !== null || filterSchool !== null;
+    q !== "" || filterRole !== "all" || filterDistrict !== null || filterSchool !== "all";
 
   return (
     <section>
@@ -150,7 +155,7 @@ export function AdminUserManager() {
                 value={filterDistrict ?? ""}
                 onChange={(e) => {
                   setFilterDistrict(e.target.value === "" ? null : Number(e.target.value));
-                  setFilterSchool(null); // school list depends on district
+                  setFilterSchool("all"); // school list depends on district
                 }}
               >
                 <option value="">All districts</option>
@@ -160,12 +165,16 @@ export function AdminUserManager() {
               </select>
               <select
                 className="dewey-input"
-                value={filterSchool ?? ""}
-                onChange={(e) =>
-                  setFilterSchool(e.target.value === "" ? null : Number(e.target.value))
-                }
+                value={typeof filterSchool === "number" ? String(filterSchool) : filterSchool}
+                disabled={filterDistrict === null}
+                title={filterDistrict === null ? "Select a district first" : undefined}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFilterSchool(v === "all" || v === "districtwide" ? v : Number(v));
+                }}
               >
-                <option value="">All schools</option>
+                <option value="all">All schools</option>
+                <option value="districtwide">District-wide (no school)</option>
                 {schoolOptions.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -192,7 +201,7 @@ export function AdminUserManager() {
                   onClick={() => {
                     setQuery("");
                     setFilterDistrict(null);
-                    setFilterSchool(null);
+                    setFilterSchool("all");
                     setFilterRole("all");
                   }}
                 >
