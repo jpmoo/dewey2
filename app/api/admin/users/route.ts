@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
-import { createUser, getAllUsers } from "@/lib/db";
+import { createUser, getAllUsers, logUserEvent } from "@/lib/db";
 import type { SystemRole } from "@/lib/db";
 
 const ROLES: SystemRole[] = ["admin", "coach", "partner"];
@@ -20,6 +20,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const guard = await requireAdmin();
   if (guard instanceof NextResponse) return guard;
+  const { session } = guard;
 
   const body = await request.json().catch(() => ({}));
   const username = typeof body.username === "string" ? body.username.trim() : "";
@@ -52,6 +53,12 @@ export async function POST(request: NextRequest) {
       school_id: numOrNull(body.school_id),
       role: typeof body.role === "string" ? body.role : null,
       about: typeof body.about === "string" ? body.about : null,
+    });
+    await logUserEvent({
+      userId: user.id,
+      actorId: Number(session.user.id),
+      action: "created",
+      detail: `role: ${user.system_role}`,
     });
     return NextResponse.json({ user });
   } catch (e) {

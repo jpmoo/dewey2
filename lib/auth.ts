@@ -1,7 +1,7 @@
 import type { NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { getUserById, getUserWithHashByUsername } from "@/lib/db";
+import { getUserById, getUserWithHashByUsername, logUserEvent } from "@/lib/db";
 import type { SystemRole, User } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 
@@ -32,6 +32,7 @@ export const authOptions: NextAuthOptions = {
         if (!user) return null;
         const ok = await verifyPassword(credentials.password, user.password_hash);
         if (!ok) return null;
+        await logUserEvent({ userId: user.id, actorId: user.id, action: "signed_in" });
         return {
           id: String(user.id),
           name: user.full_name,
@@ -79,6 +80,12 @@ export const authOptions: NextAuthOptions = {
               token.impersonatorId = token.sub;
               token.impersonatorName = (token.name as string) ?? token.username ?? "admin";
               applyUserToToken(token, target);
+              await logUserEvent({
+                userId: target.id,
+                actorId: Number(token.impersonatorId),
+                action: "impersonated",
+                detail: `by ${token.impersonatorName}`,
+              });
             }
           }
         }

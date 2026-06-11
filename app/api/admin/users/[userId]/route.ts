@@ -4,6 +4,7 @@ import {
   deleteUser,
   getAdminCount,
   getUserById,
+  logUserEvent,
   updateUser,
 } from "@/lib/db";
 import type { SystemRole, UpdateUserParams } from "@/lib/db";
@@ -91,6 +92,34 @@ export async function PATCH(
 
   try {
     const updated = await updateUser(id, update);
+    // Summarize what actually changed for the audit log.
+    const changes: string[] = [];
+    if (update.system_role && update.system_role !== user.system_role)
+      changes.push(`role ${user.system_role}→${update.system_role}`);
+    if (update.full_name !== undefined && update.full_name.trim() !== user.full_name)
+      changes.push("name");
+    if (update.nickname !== undefined && (update.nickname || "") !== (user.nickname || ""))
+      changes.push("nickname");
+    if (update.email !== undefined && (update.email || "") !== (user.email || ""))
+      changes.push("email");
+    if (update.role !== undefined && (update.role || "") !== (user.role || ""))
+      changes.push("title");
+    if (update.district_id !== undefined && update.district_id !== user.district_id)
+      changes.push("district");
+    if (update.school_id !== undefined && update.school_id !== user.school_id)
+      changes.push("school");
+    if (update.about !== undefined && (update.about || "") !== (user.about || ""))
+      changes.push("about");
+    if (update.ragCollectionsOverride !== undefined) changes.push("RAG collections");
+    if (update.password) changes.push("password reset");
+    if (changes.length > 0) {
+      await logUserEvent({
+        userId: id,
+        actorId: Number(session.user.id),
+        action: "updated",
+        detail: changes.join(", "),
+      });
+    }
     return NextResponse.json({ user: updated });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to update user";

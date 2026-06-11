@@ -128,6 +128,20 @@ export function ensureSchema(): Promise<void> {
         -- bootstrap safe to run against databases created before this column.
         ALTER TABLE system_settings
           ADD COLUMN IF NOT EXISTS rag_default_collections JSONB NOT NULL DEFAULT '[]';
+
+        -- Per-user audit log. user_id is the subject; actor_id is who did it
+        -- (null for system/self events). Cascades away with the user.
+        CREATE TABLE IF NOT EXISTS user_logs (
+          id         BIGSERIAL PRIMARY KEY,
+          user_id    INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+          actor_id   INTEGER REFERENCES users (id) ON DELETE SET NULL,
+          action     TEXT NOT NULL,
+          detail     TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_user_logs_user
+          ON user_logs (user_id, created_at DESC);
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
@@ -366,6 +380,63 @@ export async function deleteUser(id: number): Promise<boolean> {
   await ensureSchema();
   const res = await pool.query("DELETE FROM users WHERE id = $1", [id]);
   return (res.rowCount ?? 0) > 0;
+}
+
+// ============================================================
+// User audit log
+// ============================================================
+
+export interface UserLog {
+  id: number;
+  action: string;
+  detail: string | null;
+  created_at: string;
+  actor_id: number | null;
+  actor_name: string | null;
+}
+
+/**
+ * Append an audit entry for a user. Best-effort: a logging failure is recorded
+ * to the console but never propagates, so it can't break the primary action.
+ */
+export async function logUserEvent(params: {
+  userId: number;
+  actorId?: number | null;
+  action: string;
+  detail?: string | null;
+}): Promise<void> {
+  try {
+    const pool = getPool();
+    await ensureSchema();
+    await pool.query(
+      "INSERT INTO user_logs (user_id, actor_id, action, detail) VALUES ($1, $2, $3, $4)",
+      [params.userId, params.actorId ?? null, params.action, params.detail ?? null]
+    );
+  } catch (e) {
+    console.error("[logUserEvent]", e);
+  }
+}
+
+export async function getUserLogs(userId: number, limit = 50): Promise<UserLog[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT l.id, l.action, l.detail, l.created_at, l.actor_id, a.full_name AS actor_name
+       FROM user_logs l
+       LEFT JOIN users a ON a.id = l.actor_id
+      WHERE l.user_id = $1
+      ORDER BY l.created_at DESC
+      LIMIT $2`,
+    [userId, limit]
+  );
+  return res.rows.map((r) => ({
+    id: Number(r.id),
+    action: r.action as string,
+    detail: (r.detail as string | null) ?? null,
+    created_at: toIso(r.created_at),
+    actor_id: (r.actor_id as number | null) ?? null,
+    actor_name: (r.actor_name as string | null) ?? null,
+  }));
 }
 
 // ============================================================

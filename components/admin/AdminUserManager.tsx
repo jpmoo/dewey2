@@ -33,6 +33,21 @@ const ROLE_BADGE: Record<SystemRole, string> = {
 
 const ROLES: SystemRole[] = ["admin", "coach", "partner"];
 
+type UserLogView = {
+  id: number;
+  action: string;
+  detail: string | null;
+  created_at: string;
+  actor_name: string | null;
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  created: "Account created",
+  updated: "Updated",
+  impersonated: "Admin signed in as user",
+  signed_in: "Signed in",
+};
+
 export function AdminUserManager() {
   const { data: session, update } = useSession();
   const currentUserId = session?.user?.id ? parseInt(session.user.id, 10) : null;
@@ -549,6 +564,27 @@ function UserEditModal({
   const [collsLoading, setCollsLoading] = useState(false);
   const [collsError, setCollsError] = useState<string | null>(null);
 
+  const [logs, setLogs] = useState<UserLogView[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLogsLoading(true);
+    apiFetch<{ logs: UserLogView[] }>(`/api/admin/users/${user.id}/logs`)
+      .then((d) => {
+        if (!cancelled) setLogs(d.logs ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setLogs([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLogsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id]);
+
   useEffect(() => {
     let cancelled = false;
     setCollsLoading(true);
@@ -735,6 +771,40 @@ function UserEditModal({
             placeholder="Leave blank to keep current password"
             autoComplete="new-password"
           />
+        </div>
+
+        {/* Audit log */}
+        <div>
+          <label className="dewey-label">Activity</label>
+          {logsLoading ? (
+            <p className="text-xs text-dewey-mute">Loading…</p>
+          ) : logs.length === 0 ? (
+            <p className="text-xs text-dewey-mute">No activity recorded yet.</p>
+          ) : (
+            <ul className="border border-dewey-border rounded-md divide-y divide-dewey-border max-h-44 overflow-y-auto bg-white">
+              {logs.map((l) => {
+                const meta: string[] = [];
+                if (l.detail) meta.push(l.detail);
+                if (l.actor_name && (l.action === "created" || l.action === "updated"))
+                  meta.push(`by ${l.actor_name}`);
+                return (
+                  <li key={l.id} className="px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-dewey-ink">
+                        {ACTION_LABELS[l.action] ?? l.action}
+                      </span>
+                      <span className="text-dewey-mute shrink-0">
+                        {new Date(l.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    {meta.length > 0 && (
+                      <div className="text-dewey-mute mt-0.5">{meta.join(" · ")}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       </div>
       <div className="flex gap-2 mt-6 justify-between">
