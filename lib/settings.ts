@@ -13,6 +13,8 @@ export interface SystemSettings {
   anthropic_api_key: string | null;
   rag_url: string | null;
   rag_default_threshold: number;
+  /** Collections selected as the platform-wide default for retrieval. */
+  rag_default_collections: string[];
   default_theme: string;
   settings: Record<string, unknown>;
   updated_at: string;
@@ -27,6 +29,9 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
     rag_url: (row.rag_url as string | null) ?? null,
     rag_default_threshold:
       row.rag_default_threshold != null ? Number(row.rag_default_threshold) : 0.5,
+    rag_default_collections: Array.isArray(row.rag_default_collections)
+      ? (row.rag_default_collections as string[])
+      : [],
     default_theme: (row.default_theme as string | null) ?? "light",
     settings: (row.settings as Record<string, unknown>) ?? {},
     updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
@@ -59,6 +64,7 @@ export interface UpdateSystemSettingsParams {
   anthropic_api_key?: string | null;
   rag_url?: string | null;
   rag_default_threshold?: number;
+  rag_default_collections?: string[];
   default_theme?: string;
   settings?: Record<string, unknown>;
 }
@@ -88,6 +94,8 @@ export async function updateSystemSettings(
   if (params.rag_url !== undefined) push("rag_url", emptyToNull(params.rag_url));
   if (params.rag_default_threshold !== undefined)
     push("rag_default_threshold", params.rag_default_threshold);
+  if (params.rag_default_collections !== undefined)
+    push("rag_default_collections", JSON.stringify(params.rag_default_collections));
   if (params.default_theme !== undefined) push("default_theme", params.default_theme);
   if (params.settings !== undefined) push("settings", JSON.stringify(params.settings));
 

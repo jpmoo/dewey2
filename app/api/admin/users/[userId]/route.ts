@@ -57,6 +57,13 @@ export async function PATCH(
   if ("school_id" in body) update.school_id = numOrNull(body.school_id);
   if ("role" in body) update.role = body.role == null ? null : String(body.role);
   if ("about" in body) update.about = body.about == null ? null : String(body.about);
+  // null = clear override (inherit system defaults); array = per-user override.
+  if ("rag_collections_override" in body) {
+    const v = body.rag_collections_override;
+    if (v === null) update.ragCollectionsOverride = null;
+    else if (Array.isArray(v))
+      update.ragCollectionsOverride = v.filter((c: unknown): c is string => typeof c === "string");
+  }
   if (typeof body.password === "string" && body.password !== "") {
     if (body.password.length < 8) {
       return NextResponse.json(

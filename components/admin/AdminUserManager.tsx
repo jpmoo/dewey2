@@ -18,6 +18,7 @@ type User = {
   school_id: number | null;
   role: string | null;
   about: string | null;
+  settings: Record<string, unknown>;
   created_at: string;
 };
 
@@ -414,6 +415,53 @@ function UserEditModal({
   const [deleting, setDeleting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // RAG collection override. The user overrides when settings.ragCollections is
+  // an array; otherwise they inherit the system defaults.
+  const initialOverride = Array.isArray(user.settings?.ragCollections);
+  const [overrideColls, setOverrideColls] = useState(initialOverride);
+  const [selectedColls, setSelectedColls] = useState<string[]>(
+    initialOverride ? (user.settings.ragCollections as string[]) : []
+  );
+  const [availColls, setAvailColls] = useState<string[]>([]);
+  const [systemDefaults, setSystemDefaults] = useState<string[]>([]);
+  const [collsLoading, setCollsLoading] = useState(false);
+  const [collsError, setCollsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCollsLoading(true);
+    Promise.all([
+      apiFetch<{ collections: string[] }>("/api/admin/rag/collections", {
+        method: "POST",
+        body: {},
+      }).catch((e) => {
+        if (!cancelled) setCollsError(e instanceof Error ? e.message : "RAGDoll unreachable");
+        return { collections: [] as string[] };
+      }),
+      apiFetch<{ settings: { rag_default_collections: string[] } }>(
+        "/api/admin/settings"
+      ).catch(() => ({ settings: { rag_default_collections: [] as string[] } })),
+    ]).then(([c, s]) => {
+      if (cancelled) return;
+      setAvailColls(c.collections ?? []);
+      setSystemDefaults(s.settings?.rag_default_collections ?? []);
+    }).finally(() => {
+      if (!cancelled) setCollsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allColls = Array.from(new Set([...availColls, ...selectedColls])).sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+  const toggleColl = (name: string) =>
+    setSelectedColls((prev) =>
+      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
+    );
+
   const save = async () => {
     setErr(null);
     if (newPassword && newPassword.length < 8) {
@@ -431,6 +479,8 @@ function UserEditModal({
         school_id: schoolId,
         role,
         about,
+        // Array overrides; null clears the override (inherit system defaults).
+        rag_collections_override: overrideColls ? selectedColls : null,
       };
       if (newPassword) body.password = newPassword;
       await apiFetch(`/api/admin/users/${user.id}`, { method: "PATCH", body });
@@ -511,6 +561,48 @@ function UserEditModal({
             onChange={(e) => setAbout(e.target.value)}
           />
         </div>
+
+        {/* RAG collection override */}
+        <div>
+          <label className="flex items-center gap-2 text-sm font-medium text-dewey-ink">
+            <input
+              type="checkbox"
+              checked={overrideColls}
+              onChange={(e) => setOverrideColls(e.target.checked)}
+            />
+            Override default RAG collections
+          </label>
+          {!overrideColls ? (
+            <p className="text-xs text-dewey-mute mt-1">
+              Inherits the system default
+              {systemDefaults.length > 0 ? `: ${systemDefaults.join(", ")}` : " (none set)"}.
+            </p>
+          ) : (
+            <div className="mt-2">
+              {collsLoading && <p className="text-xs text-dewey-mute">Loading collections…</p>}
+              {collsError && <p className="text-xs text-red-600">{collsError}</p>}
+              {allColls.length === 0 && !collsLoading ? (
+                <p className="text-xs text-dewey-mute">
+                  No collections available — configure RAGDoll in system settings.
+                </p>
+              ) : (
+                <div className="border border-dewey-border rounded-md p-2 max-h-40 overflow-y-auto space-y-1 bg-white">
+                  {allColls.map((name) => (
+                    <label key={name} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedColls.includes(name)}
+                        onChange={() => toggleColl(name)}
+                      />
+                      <span>{name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div>
           <label className="dewey-label">Reset password</label>
           <input

@@ -9,6 +9,7 @@ type SettingsView = {
   ollama_coaching_model: string | null;
   rag_url: string | null;
   rag_default_threshold: number;
+  rag_default_collections: string[];
   default_theme: string;
   anthropic_api_key_set: boolean;
   anthropic_api_key_from_env: boolean;
@@ -39,6 +40,12 @@ export function AdminSettings() {
   const [ragThreshold, setRagThreshold] = useState(0.5);
   const [defaultTheme, setDefaultTheme] = useState("light");
 
+  // RAG collections: the live list from the server plus the selected defaults.
+  const [defaultCollections, setDefaultCollections] = useState<string[]>([]);
+  const [ragCollections, setRagCollections] = useState<string[]>([]);
+  const [ragCollLoading, setRagCollLoading] = useState(false);
+  const [ragCollError, setRagCollError] = useState<string | null>(null);
+
   // Live Ollama model list.
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -52,6 +59,7 @@ export function AdminSettings() {
       setCoachingModel(settings.ollama_coaching_model ?? "");
       setRagUrl(settings.rag_url ?? "");
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
+      setDefaultCollections(settings.rag_default_collections ?? []);
       setDefaultTheme(settings.default_theme ?? "light");
       setKeyFromEnv(settings.anthropic_api_key_from_env);
       setKeyIsSet(settings.anthropic_api_key_set);
@@ -84,6 +92,30 @@ export function AdminSettings() {
     }
   }, [ollamaUrl]);
 
+  const loadCollections = useCallback(async () => {
+    setRagCollLoading(true);
+    setRagCollError(null);
+    try {
+      const { collections } = await apiFetch<{ collections: string[] }>(
+        "/api/admin/rag/collections",
+        { method: "POST", body: { rag_url: ragUrl } }
+      );
+      setRagCollections(collections);
+      if (collections.length === 0) setRagCollError("RAGDoll reported no collections.");
+    } catch (e) {
+      setRagCollections([]);
+      setRagCollError(e instanceof Error ? e.message : "Failed to reach RAGDoll");
+    } finally {
+      setRagCollLoading(false);
+    }
+  }, [ragUrl]);
+
+  const toggleDefaultCollection = useCallback((name: string) => {
+    setDefaultCollections((prev) =>
+      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
+    );
+  }, []);
+
   const save = useCallback(async () => {
     setSaving(true);
     setMessage(null);
@@ -94,6 +126,7 @@ export function AdminSettings() {
         ollama_coaching_model: coachingModel,
         rag_url: ragUrl,
         rag_default_threshold: ragThreshold,
+        rag_default_collections: defaultCollections,
         default_theme: defaultTheme,
       };
       // Only send the key when the admin actually typed one.
@@ -114,6 +147,7 @@ export function AdminSettings() {
     anthropicKey,
     ragUrl,
     ragThreshold,
+    defaultCollections,
     defaultTheme,
     load,
   ]);
@@ -124,6 +158,10 @@ export function AdminSettings() {
   // server isn't currently reachable.
   const classOptions = Array.from(new Set([classModel, ...models].filter(Boolean)));
   const coachingIsClaude = coachingModel.startsWith("claude:");
+  // Show saved defaults even before a live load, plus anything RAGDoll reports.
+  const allCollections = Array.from(
+    new Set([...defaultCollections, ...ragCollections])
+  ).sort((a, b) => a.localeCompare(b));
 
   return (
     <section>
@@ -268,6 +306,44 @@ export function AdminSettings() {
               onChange={(e) => setRagThreshold(parseFloat(e.target.value) || 0)}
             />
           </div>
+        </div>
+
+        {/* Default collections — populated once RAGDoll connects. */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="dewey-label mb-0">Default collections</label>
+            <button
+              type="button"
+              className="dewey-btn-secondary"
+              onClick={loadCollections}
+              disabled={ragCollLoading || !ragUrl.trim()}
+              title="Connect to RAGDoll and list its collections"
+            >
+              {ragCollLoading ? "Connecting…" : "Test / load collections"}
+            </button>
+          </div>
+          {ragCollError && <p className="text-xs text-red-600 mb-1">{ragCollError}</p>}
+          {allCollections.length === 0 ? (
+            <p className="text-xs text-dewey-mute">
+              Set the RAGDoll URL above, then load collections to choose defaults.
+            </p>
+          ) : (
+            <div className="border border-dewey-border rounded-md p-2 max-h-44 overflow-y-auto space-y-1 bg-white">
+              {allCollections.map((name) => (
+                <label key={name} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={defaultCollections.includes(name)}
+                    onChange={() => toggleDefaultCollection(name)}
+                  />
+                  <span>{name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <p className="text-xs text-dewey-mute mt-1">
+            Used for retrieval by default. Override per user in Users below.
+          </p>
         </div>
 
         {/* Theme */}

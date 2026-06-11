@@ -24,6 +24,7 @@ export async function GET() {
       ollama_coaching_model: s.ollama_coaching_model,
       rag_url: s.rag_url,
       rag_default_threshold: s.rag_default_threshold,
+      rag_default_collections: s.rag_default_collections,
       default_theme: s.default_theme,
       // Key is write-only from the client's perspective.
       anthropic_api_key_set: !!getEffectiveAnthropicKey(s.anthropic_api_key),
@@ -55,6 +56,10 @@ export async function PATCH(request: NextRequest) {
   if (typeof body.rag_url === "string") update.rag_url = body.rag_url;
   if (typeof body.rag_default_threshold === "number")
     update.rag_default_threshold = body.rag_default_threshold;
+  if (Array.isArray(body.rag_default_collections))
+    update.rag_default_collections = body.rag_default_collections.filter(
+      (c: unknown): c is string => typeof c === "string"
+    );
   if (typeof body.default_theme === "string") update.default_theme = body.default_theme;
   // Only overwrite the key when a non-empty value is provided.
   if (typeof body.anthropic_api_key === "string" && body.anthropic_api_key.trim() !== "") {

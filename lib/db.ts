@@ -118,10 +118,16 @@ export function ensureSchema(): Promise<void> {
           anthropic_api_key            TEXT,
           rag_url                      TEXT,
           rag_default_threshold        DOUBLE PRECISION DEFAULT 0.5,
+          rag_default_collections      JSONB NOT NULL DEFAULT '[]',
           default_theme                TEXT DEFAULT 'light',
           settings                     JSONB NOT NULL DEFAULT '{}',
           updated_at                   TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        -- Added after the original schema; ADD COLUMN IF NOT EXISTS makes the
+        -- bootstrap safe to run against databases created before this column.
+        ALTER TABLE system_settings
+          ADD COLUMN IF NOT EXISTS rag_default_collections JSONB NOT NULL DEFAULT '[]';
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
@@ -300,6 +306,12 @@ export interface UpdateUserParams {
   role?: string | null;
   about?: string | null;
   password?: string;
+  /**
+   * Per-user RAG collection override, stored in users.settings.ragCollections.
+   * `undefined` = leave unchanged; an array = override the system defaults;
+   * `null` = clear the override so the user inherits the system defaults.
+   */
+  ragCollectionsOverride?: string[] | null;
 }
 
 export async function updateUser(id: number, params: UpdateUserParams): Promise<User> {
@@ -322,6 +334,16 @@ export async function updateUser(id: number, params: UpdateUserParams): Promise<
   if (params.role !== undefined) push("role", params.role?.trim() || null);
   if (params.about !== undefined) push("about", params.about);
   if (params.password) push("password_hash", await hashPassword(params.password));
+
+  // RAG collection override lives in the settings JSONB.
+  if (params.ragCollectionsOverride !== undefined) {
+    if (params.ragCollectionsOverride === null) {
+      sets.push(`settings = settings - 'ragCollections'`);
+    } else {
+      sets.push(`settings = jsonb_set(settings, '{ragCollections}', $${i++}::jsonb, true)`);
+      values.push(JSON.stringify(params.ragCollectionsOverride));
+    }
+  }
 
   if (sets.length === 0) {
     const current = await getUserById(id);
