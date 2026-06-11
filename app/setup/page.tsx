@@ -14,7 +14,7 @@ export default async function SetupPage() {
     redirect("/login");
   }
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="theme-light bg-dewey-cream text-dewey-ink min-h-screen flex items-center justify-center p-6">
       <div className="max-w-md w-full">
         <div className="text-center mb-6">
           <Logo size={44} className="mx-auto mb-4" />

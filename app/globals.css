@@ -17,6 +17,21 @@
   --code-bg: rgba(0, 0, 0, 0.06);
 }
 
+/* Force a light palette on a subtree even when <html> has .dark (used by the
+   unauthenticated login/setup screens). Mirrors :root. */
+.theme-light {
+  --dewey-cream: 250 249 246;
+  --dewey-ink: 26 26 26;
+  --dewey-mute: 107 107 107;
+  --dewey-border: 232 230 225;
+  --dewey-accent: 37 99 235;
+  --dewey-surface: 255 255 255;
+  --dewey-surface-2: 249 250 251;
+  --dewey-primary: 26 26 26;
+  --dewey-primary-fg: 255 255 255;
+  --code-bg: rgba(0, 0, 0, 0.06);
+}
+
 .dark {
   --dewey-cream: 17 18 20;
   --dewey-ink: 237 237 235;

@@ -20,7 +20,7 @@ export default async function LoginPage() {
     redirect("/");
   }
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="theme-light bg-dewey-cream text-dewey-ink min-h-screen flex items-center justify-center p-6">
       <div className="max-w-sm w-full">
         <div className="text-center mb-6">
           <Logo size={88} className="mx-auto mb-4" />
