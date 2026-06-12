@@ -762,9 +762,9 @@ function CanvasInner({
             <HelperLines horizontal={helperLineH} vertical={helperLineV} />
             <Controls>
               <ControlButton onClick={clearCanvas} title="Clear canvas">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 6h18M8 6V4h8v2m-1 0v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6" />
-                  <path d="M10 11v6M14 11v6" />
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M15 9l-6 6M9 9l6 6" />
                 </svg>
               </ControlButton>
             </Controls>
