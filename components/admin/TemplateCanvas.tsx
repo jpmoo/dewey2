@@ -1188,7 +1188,7 @@ function CanvasAssistant({
                       </div>
                       {i === messages.length - 1 && constructing && (
                         <div className="mt-1 text-xs text-dewey-mute italic animate-pulse">
-                          Constructing graph…
+                          Please wait a moment while I build …
                         </div>
                       )}
                       {m.sources && m.sources.length > 0 && (
