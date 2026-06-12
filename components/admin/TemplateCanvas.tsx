@@ -17,6 +17,7 @@ import {
   applyNodeChanges,
   useNodesState,
   useEdgesState,
+  useNodes,
   useReactFlow,
   type Node,
   type Edge,
@@ -56,6 +57,96 @@ function rgba(hex: string, a: number): string {
   const g = parseInt(m.slice(2, 4), 16);
   const b = parseInt(m.slice(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+const CLOUD_PAD = 26;
+const CLOUD_LABEL_STRIP = 30;
+
+/**
+ * Translucent "cloud" behind each phase, sized to its members' bounding box.
+ * Reads live node dimensions from the React Flow store (useNodes), so it sizes
+ * to the actual rendered activity sizes — identical in the editor and preview.
+ * Must be rendered inside a <ReactFlow>.
+ */
+function PhaseClouds({
+  phases,
+  onEditPhase,
+}: {
+  phases: TemplatePhase[];
+  onEditPhase?: (id: string) => void;
+}) {
+  const nodes = useNodes();
+  const clouds = useMemo(() => {
+    return phases
+      .map((p) => {
+        const members = nodes.filter(
+          (n) => (n.data as { phaseId?: string | null }).phaseId === p.id
+        );
+        if (members.length === 0) return null;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const n of members) {
+          const w = n.measured?.width ?? NODE_W;
+          const h = n.measured?.height ?? NODE_H;
+          minX = Math.min(minX, n.position.x);
+          minY = Math.min(minY, n.position.y);
+          maxX = Math.max(maxX, n.position.x + w);
+          maxY = Math.max(maxY, n.position.y + h);
+        }
+        const color = p.color ?? "#2563eb";
+        return {
+          id: p.id,
+          name: p.name,
+          color,
+          x: minX - CLOUD_PAD,
+          y: minY - CLOUD_PAD - CLOUD_LABEL_STRIP,
+          w: maxX - minX + CLOUD_PAD * 2,
+          h: maxY - minY + CLOUD_PAD * 2 + CLOUD_LABEL_STRIP,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+  }, [phases, nodes]);
+
+  return (
+    <ViewportPortal>
+      {clouds.map((c) => (
+        <div
+          key={c.id}
+          style={{
+            position: "absolute",
+            transform: `translate(${c.x}px, ${c.y}px)`,
+            width: c.w,
+            height: c.h,
+            background: rgba(c.color, 0.1),
+            border: `1px solid ${rgba(c.color, 0.4)}`,
+            borderRadius: 36,
+            boxShadow: `0 2px 18px ${rgba(c.color, 0.12)}`,
+            zIndex: -1,
+            pointerEvents: "none",
+          }}
+        >
+          <span
+            onDoubleClick={onEditPhase ? () => onEditPhase(c.id) : undefined}
+            title={onEditPhase ? "Double-click to edit phase exit conditions" : undefined}
+            style={{
+              position: "absolute",
+              top: 10,
+              left: 20,
+              fontSize: 11,
+              fontWeight: 600,
+              color: c.color,
+              cursor: onEditPhase ? "pointer" : "default",
+              pointerEvents: onEditPhase ? "auto" : "none",
+            }}
+          >
+            {c.name}
+          </span>
+        </div>
+      ))}
+    </ViewportPortal>
+  );
 }
 
 type ActivityNodeData = {
@@ -221,41 +312,6 @@ function CanvasInner({
     },
     [setEdges]
   );
-
-  // A translucent "cloud" behind each phase, sized to its members' bounding box
-  // (plus padding and a strip for the label). Recomputed as nodes move/measure.
-  const LABEL_STRIP = 30;
-  const PAD = 26;
-  const phaseClouds = useMemo(() => {
-    return phases
-      .map((p) => {
-        const members = nodes.filter((n) => n.data.phaseId === p.id);
-        if (members.length === 0) return null;
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        for (const n of members) {
-          const w = n.measured?.width ?? NODE_W;
-          const h = n.measured?.height ?? NODE_H;
-          minX = Math.min(minX, n.position.x);
-          minY = Math.min(minY, n.position.y);
-          maxX = Math.max(maxX, n.position.x + w);
-          maxY = Math.max(maxY, n.position.y + h);
-        }
-        const color = p.color ?? "#2563eb";
-        return {
-          id: p.id,
-          name: p.name,
-          color,
-          x: minX - PAD,
-          y: minY - PAD - LABEL_STRIP,
-          w: maxX - minX + PAD * 2,
-          h: maxY - minY + PAD * 2 + LABEL_STRIP,
-        };
-      })
-      .filter((c): c is NonNullable<typeof c> => c !== null);
-  }, [phases, nodes]);
 
   // ---- Add activity (drag from palette, or click to drop at center) ----
   const addActivity = useCallback(
@@ -716,44 +772,7 @@ function CanvasInner({
             fitView
             proOptions={{ hideAttribution: true }}
           >
-            <ViewportPortal>
-              {phaseClouds.map((c) => (
-                <div
-                  key={c.id}
-                  // Positioned in flow coordinates; the portal applies the
-                  // viewport transform. Behind nodes and non-interactive.
-                  style={{
-                    position: "absolute",
-                    transform: `translate(${c.x}px, ${c.y}px)`,
-                    width: c.w,
-                    height: c.h,
-                    background: rgba(c.color, 0.1),
-                    border: `1px solid ${rgba(c.color, 0.4)}`,
-                    borderRadius: 36,
-                    boxShadow: `0 2px 18px ${rgba(c.color, 0.12)}`,
-                    zIndex: -1,
-                    pointerEvents: "none",
-                  }}
-                >
-                  <span
-                    onDoubleClick={() => setEditingPhaseId(c.id)}
-                    title="Double-click to edit phase exit conditions"
-                    style={{
-                      position: "absolute",
-                      top: 10,
-                      left: 20,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: c.color,
-                      cursor: "pointer",
-                      pointerEvents: "auto", // label is clickable; the cloud body isn't
-                    }}
-                  >
-                    {c.name}
-                  </span>
-                </div>
-              ))}
-            </ViewportPortal>
+            <PhaseClouds phases={phases} onEditPhase={setEditingPhaseId} />
             <Background />
             <HelperLines horizontal={helperLineH} vertical={helperLineV} />
             <Controls>
@@ -1279,40 +1298,6 @@ function PreviewModal({
     [graph]
   );
 
-  // Phase clouds from the saved positions. Preview nodes are static (no live
-  // measurement), so use a fixed height that accounts for the phase chip.
-  const clouds = useMemo(() => {
-    const LABEL_STRIP = 30;
-    const PAD = 26;
-    const MEMBER_H = 84;
-    return (graph.phases ?? [])
-      .map((p) => {
-        const members = (graph.nodes ?? []).filter((n) => n.phaseId === p.id);
-        if (members.length === 0) return null;
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        for (const n of members) {
-          minX = Math.min(minX, n.position.x);
-          minY = Math.min(minY, n.position.y);
-          maxX = Math.max(maxX, n.position.x + NODE_W);
-          maxY = Math.max(maxY, n.position.y + MEMBER_H);
-        }
-        const color = p.color ?? "#2563eb";
-        return {
-          id: p.id,
-          name: p.name,
-          color,
-          x: minX - PAD,
-          y: minY - PAD - LABEL_STRIP,
-          w: maxX - minX + PAD * 2,
-          h: maxY - minY + PAD * 2 + LABEL_STRIP,
-        };
-      })
-      .filter((c): c is NonNullable<typeof c> => c !== null);
-  }, [graph]);
-
   return (
     <div
       className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6"
@@ -1342,38 +1327,7 @@ function PreviewModal({
               fitView
               proOptions={{ hideAttribution: true }}
             >
-              <ViewportPortal>
-                {clouds.map((c) => (
-                  <div
-                    key={c.id}
-                    style={{
-                      position: "absolute",
-                      transform: `translate(${c.x}px, ${c.y}px)`,
-                      width: c.w,
-                      height: c.h,
-                      background: rgba(c.color, 0.1),
-                      border: `1px solid ${rgba(c.color, 0.4)}`,
-                      borderRadius: 36,
-                      boxShadow: `0 2px 18px ${rgba(c.color, 0.12)}`,
-                      zIndex: -1,
-                      pointerEvents: "none",
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: "absolute",
-                        top: 10,
-                        left: 20,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: c.color,
-                      }}
-                    >
-                      {c.name}
-                    </span>
-                  </div>
-                ))}
-              </ViewportPortal>
+              <PhaseClouds phases={graph.phases ?? []} />
               <Background />
             </ReactFlow>
           </ReactFlowProvider>
