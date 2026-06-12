@@ -81,9 +81,11 @@ function newId(prefix: string): string {
 function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
   // The top stripe encodes the activity category; the border/chip reflect the phase.
   const catColor = CATEGORY_META[data.category]?.color ?? "#6b6b6b";
+  const description = data.instructions || ACTIVITY_BY_KEY[data.activityKey]?.defaultInstructions || "";
   return (
     <div
       className="rounded-md border bg-dewey-surface text-dewey-ink shadow-sm text-xs"
+      title={description || undefined}
       style={{
         borderColor: data.phaseColor || catColor,
         borderWidth: selected ? 2 : 1,
@@ -680,7 +682,7 @@ function CanvasInner({
                     }}
                     onDoubleClick={() => addActivity(a.key, { x: 80, y: 80 })}
                     className="text-xs px-2 py-1 rounded border border-dewey-border bg-dewey-surface cursor-grab hover:bg-dewey-surface-2"
-                    title="Drag onto the canvas (or double-click to add)"
+                    title={`${a.defaultInstructions}\n\n(Drag onto the canvas, or double-click to add)`}
                   >
                     {a.label}
                   </div>
