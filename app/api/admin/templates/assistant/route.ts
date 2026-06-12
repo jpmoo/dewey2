@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
 import { chatStream, type ChatMessage } from "@/lib/ai";
-import { queryRagDefault, formatRagContext } from "@/lib/rag";
+import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
 import { ACTIVITY_TYPES, ACTIVITY_BY_KEY } from "@/lib/activities";
 import type { TemplateGraph } from "@/lib/templates";
 
@@ -99,11 +99,13 @@ function sanitizeProposed(raw: unknown): TemplateGraph | null {
   phases.forEach((p, i) => colOf.set(p.id, i));
   const unphasedCol = phases.length;
   const rowByCol: Record<number, number> = {};
+  // Wide column spacing so each phase's cloud has a clear buffer from the next.
+  const COL_GAP = 340;
   for (const n of nodes) {
     const col = n.phaseId != null && colOf.has(n.phaseId) ? (colOf.get(n.phaseId) as number) : unphasedCol;
     const row = rowByCol[col] ?? 0;
     rowByCol[col] = row + 1;
-    n.position = { x: 60 + col * 240, y: 90 + row * 110 };
+    n.position = { x: 60 + col * COL_GAP, y: 90 + row * 110 };
   }
 
   const nodeIds = new Set(nodes.map((n) => n.id));
@@ -166,6 +168,7 @@ export async function POST(request: NextRequest) {
   let system = buildSystemPrompt();
   const chunks = await queryRagDefault(message).catch(() => []);
   const tRag = Date.now();
+  const sources = uniqueSources(chunks);
   if (chunks.length > 0) {
     system +=
       "\n\nRelevant excerpts from the organization's documents — ground your suggestions in these where applicable, and refer to document names when useful:\n" +
@@ -228,7 +231,7 @@ export async function POST(request: NextRequest) {
           }ms total=${tEnd - tStart}ms`
         );
 
-        send(controller, { type: "done", reply: reply || "(no response)", proposedGraph });
+        send(controller, { type: "done", reply: reply || "(no response)", proposedGraph, sources });
       } catch (e) {
         send(controller, {
           type: "error",

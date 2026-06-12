@@ -11,8 +11,22 @@ import { getSystemSettings } from "@/lib/settings";
 export interface RagChunk {
   text: string;
   source: string;
+  /** RAGDoll fetch path for the source document, e.g. "/fetch/group/file.pdf". */
+  sourceUrl: string;
   group: string;
   similarity: number;
+}
+
+/** Unique source documents from a set of chunks, in first-seen order. */
+export function uniqueSources(chunks: RagChunk[]): { name: string; path: string }[] {
+  const seen = new Set<string>();
+  const out: { name: string; path: string }[] = [];
+  for (const c of chunks) {
+    if (!c.source || !c.sourceUrl || seen.has(c.source)) continue;
+    seen.add(c.source);
+    out.push({ name: c.source, path: c.sourceUrl });
+  }
+  return out;
 }
 
 export async function queryRagDefault(prompt: string, limit = 8): Promise<RagChunk[]> {
@@ -42,6 +56,7 @@ export async function queryRagDefault(prompt: string, limit = 8): Promise<RagChu
         return {
           text: typeof o.text === "string" ? o.text : "",
           source: typeof o.source_name === "string" ? o.source_name : "",
+          sourceUrl: typeof o.source_url === "string" ? o.source_url : "",
           group: typeof o.group === "string" ? o.group : "",
           similarity: typeof o.similarity === "number" ? o.similarity : 0,
         };

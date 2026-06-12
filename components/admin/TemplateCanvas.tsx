@@ -26,6 +26,7 @@ import {
   type ColorMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import ReactMarkdown from "react-markdown";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { getHelperLines, HelperLines } from "./helper-lines";
@@ -1017,7 +1018,8 @@ function NodeEditModal({
 
 // ---- AI assistant -----------------------------------------------------------
 
-type ChatTurn = { role: "user" | "assistant"; text: string };
+type ChatSource = { name: string; path: string };
+type ChatTurn = { role: "user" | "assistant"; text: string; sources?: ChatSource[] };
 
 function CanvasAssistant({
   buildGraph,
@@ -1084,7 +1086,14 @@ function CanvasAssistant({
           buf = buf.slice(sep + 2);
           const line = frame.split("\n").find((l) => l.startsWith("data:"));
           if (!line) continue;
-          let ev: { type?: string; text?: string; reply?: string; proposedGraph?: TemplateGraph | null; error?: string };
+          let ev: {
+            type?: string;
+            text?: string;
+            reply?: string;
+            proposedGraph?: TemplateGraph | null;
+            sources?: ChatSource[];
+            error?: string;
+          };
           try {
             ev = JSON.parse(line.slice(5).trim());
           } catch {
@@ -1094,7 +1103,17 @@ function CanvasAssistant({
             live += ev.text;
             setAssistant(live);
           } else if (ev.type === "done") {
-            if (ev.reply) setAssistant(ev.reply);
+            const sources = ev.sources ?? [];
+            const finalText = ev.reply || live || "(no response)";
+            setMessages((m) => {
+              const copy = m.slice();
+              copy[copy.length - 1] = {
+                role: "assistant",
+                text: finalText,
+                sources: sources.length ? sources : undefined,
+              };
+              return copy;
+            });
             graph = ev.proposedGraph ?? null;
           } else if (ev.type === "error") {
             throw new Error(ev.error || "Assistant error");
@@ -1124,20 +1143,42 @@ function CanvasAssistant({
       {open && (
         <div className="px-4 pb-3">
           {messages.length > 0 && (
-            <div className="max-h-44 overflow-y-auto space-y-2 mb-2">
-              {messages.map((m, i) => (
-                <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
-                  <span
-                    className={`inline-block rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap ${
-                      m.role === "user"
-                        ? "bg-dewey-primary text-dewey-primary-fg"
-                        : "bg-dewey-surface-2 text-dewey-ink"
-                    }`}
-                  >
-                    {m.text}
-                  </span>
-                </div>
-              ))}
+            <div className="max-h-56 overflow-y-auto space-y-2 mb-2">
+              {messages.map((m, i) =>
+                m.role === "user" ? (
+                  <div key={i} className="text-right">
+                    <span className="inline-block rounded-lg px-3 py-1.5 text-sm bg-dewey-primary text-dewey-primary-fg whitespace-pre-wrap">
+                      {m.text}
+                    </span>
+                  </div>
+                ) : (
+                  <div key={i} className="text-left">
+                    <div className="inline-block max-w-[90%] rounded-lg px-3 py-1.5 bg-dewey-surface-2 text-dewey-ink">
+                      <div className="chat-md text-sm">
+                        <ReactMarkdown>{m.text || "…"}</ReactMarkdown>
+                      </div>
+                      {m.sources && m.sources.length > 0 && (
+                        <div className="mt-1.5 pt-1.5 border-t border-dewey-border text-xs">
+                          <span className="text-dewey-mute">Sources: </span>
+                          {m.sources.map((s, j) => (
+                            <a
+                              key={j}
+                              href={pathWithBase(
+                                `/api/admin/rag/source?path=${encodeURIComponent(s.path)}`
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-dewey-accent hover:underline mr-2 break-all"
+                            >
+                              {s.name}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              )}
             </div>
           )}
 
