@@ -24,6 +24,7 @@ type User = {
   system_role: SystemRole;
   district_id: number | null;
   school_id: number | null;
+  school_ids: number[];
   role: string | null;
   about: string | null;
   settings: Record<string, unknown>;
@@ -171,8 +172,8 @@ export function AdminUserManager() {
     if (filterRole !== "all" && u.system_role !== filterRole) return false;
     if (filterDistrict !== null && u.district_id !== filterDistrict) return false;
     if (filterSchool === "districtwide") {
-      if (u.school_id !== null) return false;
-    } else if (typeof filterSchool === "number" && u.school_id !== filterSchool) {
+      if (u.school_ids.length > 0) return false;
+    } else if (typeof filterSchool === "number" && !u.school_ids.includes(filterSchool)) {
       return false;
     }
     if (q) {
@@ -188,12 +189,15 @@ export function AdminUserManager() {
   const filtersActive =
     q !== "" || filterRole !== "all" || filterDistrict !== null || filterSchool !== "all";
 
-  // Resolve a user's district/school to display names from the loaded org tree.
+  // Resolve a user's district + buildings to display names from the org tree.
   const orgLabel = (u: User): string => {
     const d = districts.find((x) => x.id === u.district_id);
     if (!d) return "Unassigned";
-    const s = d.schools.find((x) => x.id === u.school_id);
-    return s ? `${d.name} · ${s.name}` : `${d.name} · District-wide`;
+    if (u.school_ids.length === 0) return `${d.name} · District-wide`;
+    const names = u.school_ids
+      .map((sid) => d.schools.find((x) => x.id === sid)?.name)
+      .filter(Boolean);
+    return `${d.name} · ${names.join(", ")}`;
   };
 
   return (
@@ -372,17 +376,27 @@ export function AdminUserManager() {
 function OrgPickers({
   districts,
   districtId,
-  schoolId,
+  schoolIds,
   onChange,
 }: {
   districts: DistrictWithSchools[];
   districtId: number | null;
-  schoolId: number | null;
-  onChange: (next: { district_id: number | null; school_id: number | null }) => void;
+  schoolIds: number[];
+  onChange: (next: { district_id: number | null; school_ids: number[] }) => void;
 }) {
   const schools = districts.find((d) => d.id === districtId)?.schools ?? [];
+  const districtWide = schoolIds.length === 0;
+
+  const toggle = (sid: number) =>
+    onChange({
+      district_id: districtId,
+      school_ids: schoolIds.includes(sid)
+        ? schoolIds.filter((s) => s !== sid)
+        : [...schoolIds, sid],
+    });
+
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="space-y-3">
       <div>
         <label className="dewey-label">District</label>
         <select
@@ -390,8 +404,8 @@ function OrgPickers({
           value={districtId ?? ""}
           onChange={(e) => {
             const next = e.target.value === "" ? null : Number(e.target.value);
-            // Changing district clears any now-invalid school.
-            onChange({ district_id: next, school_id: null });
+            // Changing district clears now-invalid buildings.
+            onChange({ district_id: next, school_ids: [] });
           }}
         >
           <option value="">— unassigned —</option>
@@ -401,23 +415,38 @@ function OrgPickers({
         </select>
       </div>
       <div>
-        <label className="dewey-label">School</label>
-        <select
-          className="dewey-input"
-          value={schoolId ?? ""}
-          disabled={districtId === null}
-          onChange={(e) =>
-            onChange({
-              district_id: districtId,
-              school_id: e.target.value === "" ? null : Number(e.target.value),
-            })
-          }
-        >
-          <option value="">— unassigned —</option>
-          {schools.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
+        <label className="dewey-label">Buildings</label>
+        {districtId === null ? (
+          <p className="text-xs text-dewey-mute">Select a district first.</p>
+        ) : (
+          <>
+            <label className="flex items-center gap-2 text-sm text-dewey-ink">
+              <input
+                type="checkbox"
+                checked={districtWide}
+                onChange={() => onChange({ district_id: districtId, school_ids: [] })}
+              />
+              District-wide (all buildings)
+            </label>
+            {schools.length > 0 && (
+              <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-dewey-border p-2">
+                {schools.map((s) => (
+                  <label key={s.id} className="flex items-center gap-2 text-sm text-dewey-ink">
+                    <input
+                      type="checkbox"
+                      checked={schoolIds.includes(s.id)}
+                      onChange={() => toggle(s.id)}
+                    />
+                    {s.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-xs text-dewey-mute">
+              Check one or more buildings, or leave all unchecked for district-wide.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );
@@ -468,7 +497,7 @@ function UserCreateModal({
   const [password, setPassword] = useState("");
   const [systemRole, setSystemRole] = useState<SystemRole>("partner");
   const [districtId, setDistrictId] = useState<number | null>(null);
-  const [schoolId, setSchoolId] = useState<number | null>(null);
+  const [schoolIds, setSchoolIds] = useState<number[]>([]);
   const [role, setRole] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -491,7 +520,7 @@ function UserCreateModal({
           password,
           system_role: systemRole,
           district_id: districtId,
-          school_id: schoolId,
+          school_ids: schoolIds,
           role,
         },
       });
@@ -563,10 +592,10 @@ function UserCreateModal({
         <OrgPickers
           districts={districts}
           districtId={districtId}
-          schoolId={schoolId}
-          onChange={({ district_id, school_id }) => {
+          schoolIds={schoolIds}
+          onChange={({ district_id, school_ids }) => {
             setDistrictId(district_id);
-            setSchoolId(school_id);
+            setSchoolIds(school_ids);
           }}
         />
       </div>
@@ -607,7 +636,7 @@ function UserEditModal({
   const [email, setEmail] = useState(user.email ?? "");
   const [systemRole, setSystemRole] = useState<SystemRole>(user.system_role);
   const [districtId, setDistrictId] = useState<number | null>(user.district_id);
-  const [schoolId, setSchoolId] = useState<number | null>(user.school_id);
+  const [schoolIds, setSchoolIds] = useState<number[]>(user.school_ids ?? []);
   const [role, setRole] = useState(user.role ?? "");
   const [about, setAbout] = useState(user.about ?? "");
   const [newPassword, setNewPassword] = useState("");
@@ -716,7 +745,7 @@ function UserEditModal({
         email,
         system_role: systemRole,
         district_id: districtId,
-        school_id: schoolId,
+        school_ids: schoolIds,
         role,
         about,
         // Array overrides; null clears the override (inherit system defaults).
@@ -793,10 +822,10 @@ function UserEditModal({
         <OrgPickers
           districts={districts}
           districtId={districtId}
-          schoolId={schoolId}
-          onChange={({ district_id, school_id }) => {
+          schoolIds={schoolIds}
+          onChange={({ district_id, school_ids }) => {
             setDistrictId(district_id);
-            setSchoolId(school_id);
+            setSchoolIds(school_ids);
           }}
         />
         <div>

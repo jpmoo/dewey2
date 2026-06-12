@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { getMessageRecipients, type SystemRole } from "@/lib/db";
+import { getMessageRecipients } from "@/lib/db";
+import { getSystemSettings } from "@/lib/settings";
 import { findOrCreateThread, listThreadsForUser, postMessage } from "@/lib/messages";
 
 /** Threads the user participates in. Admins see every thread (oversight). */
@@ -44,13 +45,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Write a message" }, { status: 400 });
   }
 
+  const settings = await getSystemSettings();
   const allowedIds = new Set(
-    (
-      await getMessageRecipients({
-        id: meId,
-        system_role: session.user.system_role as SystemRole,
-      })
-    ).map((r) => r.id)
+    (await getMessageRecipients(meId, settings.message_permissions)).map((r) => r.id)
   );
   if (!recipientIds.every((id) => allowedIds.has(id))) {
     return NextResponse.json({ error: "You can't message one of those users" }, { status: 403 });

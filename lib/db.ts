@@ -1,6 +1,7 @@
 import { getPool } from "@/lib/pg";
 import { hashPassword } from "@/lib/password";
 import type { CoachingTemplate, TemplateGraph, TemplateScope } from "@/lib/templates";
+import type { MessagePermissions, RoleMessagePerms } from "@/lib/settings";
 import { EMPTY_GRAPH } from "@/lib/templates";
 
 // ============================================================
@@ -30,7 +31,10 @@ export interface User {
   email: string | null;
   system_role: SystemRole;
   district_id: number | null;
+  /** Legacy "primary" building (first of school_ids); null = district-wide. */
   school_id: number | null;
+  /** All buildings this user belongs to. Empty (with a district) = district-wide. */
+  school_ids: number[];
   role: string | null;
   about: string | null;
   settings: Record<string, unknown>;
@@ -49,6 +53,9 @@ function rowToUser(row: Record<string, unknown>): User {
     system_role: (row.system_role as SystemRole) ?? "partner",
     district_id: (row.district_id as number | null) ?? null,
     school_id: (row.school_id as number | null) ?? null,
+    school_ids: Array.isArray(row.school_ids)
+      ? (row.school_ids as number[]).filter((n) => n != null)
+      : [],
     role: (row.role as string | null) ?? null,
     about: (row.about as string | null) ?? null,
     settings: (row.settings as Record<string, unknown>) ?? {},
@@ -291,6 +298,29 @@ export function ensureSchema(): Promise<void> {
           created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_ai_messages_conv ON ai_messages (conversation_id, id);
+
+        -- A user can belong to multiple buildings (schools). user_schools is the
+        -- authoritative set; users.school_id is kept as a denormalized "primary"
+        -- building for legacy displays. Zero rows + a district_id = district-wide.
+        CREATE TABLE IF NOT EXISTS user_schools (
+          user_id   INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+          school_id INTEGER NOT NULL REFERENCES schools (id) ON DELETE CASCADE,
+          PRIMARY KEY (user_id, school_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_schools_school ON user_schools (school_id);
+
+        -- Backfill from the legacy single school_id, but only for users who have
+        -- no building rows yet (so it never clobbers multi-building edits).
+        INSERT INTO user_schools (user_id, school_id)
+          SELECT u.id, u.school_id FROM users u
+           WHERE u.school_id IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM user_schools us WHERE us.user_id = u.id)
+          ON CONFLICT DO NOTHING;
+
+        -- Admin-configurable messaging permissions (who coaches/partners can DM).
+        ALTER TABLE system_settings
+          ADD COLUMN IF NOT EXISTS message_permissions JSONB NOT NULL DEFAULT
+            '{"coach":{"partner_same_school":true,"partner_district":false,"coach_same_school":true,"coach_district":true},"partner":{"partner_same_school":false,"partner_district":false,"coach_same_school":true,"coach_district":false}}';
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
@@ -413,13 +443,60 @@ export async function hasAdmin(): Promise<boolean> {
   return (await getAdminCount()) > 0;
 }
 
+/** Populate each user's school_ids (their buildings) in one batch query. */
+async function attachSchoolIds(users: User[]): Promise<User[]> {
+  if (users.length === 0) return users;
+  const pool = getPool();
+  const ids = users.map((u) => u.id);
+  const res = await pool.query(
+    "SELECT user_id, school_id FROM user_schools WHERE user_id = ANY($1::int[]) ORDER BY school_id",
+    [ids]
+  );
+  const byUser = new Map<number, number[]>();
+  for (const r of res.rows) {
+    const list = byUser.get(r.user_id) ?? [];
+    list.push(r.school_id as number);
+    byUser.set(r.user_id, list);
+  }
+  for (const u of users) u.school_ids = byUser.get(u.id) ?? [];
+  return users;
+}
+
+export async function getUserSchoolIds(userId: number): Promise<number[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "SELECT school_id FROM user_schools WHERE user_id = $1 ORDER BY school_id",
+    [userId]
+  );
+  return res.rows.map((r) => r.school_id as number);
+}
+
+/** Replace a user's buildings and keep users.school_id synced to the primary. */
+export async function setUserSchools(userId: number, schoolIds: number[]): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  const ids = Array.from(new Set(schoolIds.filter((n) => Number.isFinite(n))));
+  await pool.query("DELETE FROM user_schools WHERE user_id = $1", [userId]);
+  for (const sid of ids) {
+    await pool.query(
+      "INSERT INTO user_schools (user_id, school_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+      [userId, sid]
+    );
+  }
+  await pool.query("UPDATE users SET school_id = $2, updated_at = NOW() WHERE id = $1", [
+    userId,
+    ids[0] ?? null,
+  ]);
+}
+
 export async function getAllUsers(): Promise<User[]> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
     `SELECT ${USER_COLUMNS} FROM users WHERE deleted_at IS NULL ORDER BY id`
   );
-  return res.rows.map(rowToUser);
+  return attachSchoolIds(res.rows.map(rowToUser));
 }
 
 export async function getUserById(id: number): Promise<User | null> {
@@ -429,7 +506,8 @@ export async function getUserById(id: number): Promise<User | null> {
     `SELECT ${USER_COLUMNS} FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [id]
   );
-  return res.rows[0] ? rowToUser(res.rows[0]) : null;
+  if (!res.rows[0]) return null;
+  return (await attachSchoolIds([rowToUser(res.rows[0])]))[0];
 }
 
 /** Includes password_hash — for auth only. Never expose this shape to clients. */
@@ -457,6 +535,8 @@ export interface CreateUserParams {
   system_role: SystemRole;
   district_id?: number | null;
   school_id?: number | null;
+  /** Buildings the user belongs to. Empty (with a district) = district-wide. */
+  school_ids?: number[];
   role?: string | null;
   about?: string | null;
 }
@@ -497,7 +577,12 @@ export async function createUser(params: CreateUserParams): Promise<User> {
       params.about ?? null,
     ]
   );
-  return rowToUser(res.rows[0]);
+  const created = rowToUser(res.rows[0]);
+  // Buildings: explicit school_ids win; otherwise mirror the legacy single school.
+  const buildings =
+    params.school_ids ?? (params.school_id != null ? [params.school_id] : []);
+  await setUserSchools(created.id, buildings);
+  return (await getUserById(created.id)) ?? created;
 }
 
 export interface UpdateUserParams {
@@ -507,6 +592,8 @@ export interface UpdateUserParams {
   system_role?: SystemRole;
   district_id?: number | null;
   school_id?: number | null;
+  /** Replace the user's buildings. Empty (with a district) = district-wide. */
+  schoolIds?: number[];
   role?: string | null;
   about?: string | null;
   password?: string;
@@ -534,7 +621,10 @@ export async function updateUser(id: number, params: UpdateUserParams): Promise<
   if (params.email !== undefined) push("email", params.email?.trim() || null);
   if (params.system_role !== undefined) push("system_role", params.system_role);
   if (params.district_id !== undefined) push("district_id", params.district_id);
-  if (params.school_id !== undefined) push("school_id", params.school_id);
+  // school_id is synced by setUserSchools when schoolIds is given; only honor the
+  // legacy single school_id when no building set is provided.
+  if (params.school_id !== undefined && params.schoolIds === undefined)
+    push("school_id", params.school_id);
   if (params.role !== undefined) push("role", params.role?.trim() || null);
   if (params.about !== undefined) push("about", params.about);
   if (params.password) push("password_hash", await hashPassword(params.password));
@@ -549,20 +639,24 @@ export async function updateUser(id: number, params: UpdateUserParams): Promise<
     }
   }
 
-  if (sets.length === 0) {
-    const current = await getUserById(id);
-    if (!current) throw new Error("User not found");
-    return current;
+  if (sets.length > 0) {
+    sets.push("updated_at = NOW()");
+    values.push(id);
+    const res = await pool.query(
+      `UPDATE users SET ${sets.join(", ")} WHERE id = $${i} RETURNING id`,
+      values
+    );
+    if (!res.rows[0]) throw new Error("User not found");
   }
 
-  sets.push("updated_at = NOW()");
-  values.push(id);
-  const res = await pool.query(
-    `UPDATE users SET ${sets.join(", ")} WHERE id = $${i} RETURNING ${USER_COLUMNS}`,
-    values
-  );
-  if (!res.rows[0]) throw new Error("User not found");
-  return rowToUser(res.rows[0]);
+  // Apply the building set (also syncs the primary school_id).
+  if (params.schoolIds !== undefined) {
+    await setUserSchools(id, params.schoolIds);
+  }
+
+  const updated = await getUserById(id);
+  if (!updated) throw new Error("User not found");
+  return updated;
 }
 
 /** Soft-delete a user (hide the account). The username stays reserved. */
@@ -592,57 +686,112 @@ export async function restoreUser(id: number): Promise<boolean> {
 
 export interface DirectoryPartner extends User {
   district_name: string | null;
-  school_name: string | null;
+  school_names: string[];
+}
+
+interface DistrictUserRow {
+  id: number;
+  full_name: string;
+  username: string;
+  nickname: string | null;
+  email: string | null;
+  role: string | null;
+  about: string | null;
+  system_role: SystemRole;
+  district_name: string | null;
+  school_ids: number[];
+  school_names: string[];
+}
+
+/** Users in a district (coaches/partners) with their building ids + names. */
+async function getDistrictUsersWithBuildings(
+  districtId: number,
+  excludeUserId: number,
+  roles: SystemRole[]
+): Promise<DistrictUserRow[]> {
+  const pool = getPool();
+  const res = await pool.query(
+    `SELECT u.id, u.full_name, u.username, u.nickname, u.email, u.role, u.about,
+            u.system_role, d.name AS district_name,
+            COALESCE(array_agg(us.school_id) FILTER (WHERE us.school_id IS NOT NULL), '{}') AS school_ids,
+            COALESCE(array_agg(s.name)       FILTER (WHERE s.name IS NOT NULL), '{}')      AS school_names
+       FROM users u
+       LEFT JOIN districts d ON d.id = u.district_id
+       LEFT JOIN user_schools us ON us.user_id = u.id
+       LEFT JOIN schools s ON s.id = us.school_id
+      WHERE u.deleted_at IS NULL AND u.id <> $1 AND u.district_id = $2
+        AND u.system_role = ANY($3::text[])
+      GROUP BY u.id, d.name
+      ORDER BY u.full_name`,
+    [excludeUserId, districtId, roles]
+  );
+  return res.rows.map((r) => ({
+    id: r.id as number,
+    full_name: r.full_name as string,
+    username: r.username as string,
+    nickname: (r.nickname as string | null) ?? null,
+    email: (r.email as string | null) ?? null,
+    role: (r.role as string | null) ?? null,
+    about: (r.about as string | null) ?? null,
+    system_role: r.system_role as SystemRole,
+    district_name: (r.district_name as string | null) ?? null,
+    school_ids: (r.school_ids as number[]) ?? [],
+    school_names: (r.school_names as string[]) ?? [],
+  }));
 }
 
 /**
- * Partners visible to a coach. A school-assigned coach sees partners in their
- * school; a district-wide coach (no school) sees every partner in the district.
- * Returns the partners (with district/school names) plus the schools in the
- * coach's district for the directory's school filter, and the directory scope.
+ * Partners visible to a coach. A building-assigned coach sees partners who share
+ * at least one of their buildings (plus any district-wide partners); a
+ * district-wide coach sees every partner in the district. Returns the partners
+ * (with building names), the district's schools for filtering, and the scope.
  */
 export async function getCoachDirectory(coach: {
+  id: number;
   district_id: number | null;
-  school_id: number | null;
 }): Promise<{
   partners: DirectoryPartner[];
   schools: School[];
   scope: "school" | "district" | "none";
 }> {
-  const pool = getPool();
   await ensureSchema();
-
   if (coach.district_id == null) {
     return { partners: [], schools: [], scope: "none" };
   }
 
-  const scope: "school" | "district" = coach.school_id != null ? "school" : "district";
-  const params: unknown[] = [coach.district_id];
-  let where = "u.system_role = 'partner' AND u.deleted_at IS NULL AND u.district_id = $1";
-  if (scope === "school") {
-    params.push(coach.school_id);
-    where += " AND u.school_id = $2";
-  }
+  const coachBuildings = await getUserSchoolIds(coach.id);
+  const districtWide = coachBuildings.length === 0;
+  const rows = await getDistrictUsersWithBuildings(coach.district_id, coach.id, ["partner"]);
 
-  const res = await pool.query(
-    `SELECT ${USER_COLUMNS.split(", ").map((c) => `u.${c}`).join(", ")},
-            d.name AS district_name, s.name AS school_name
-       FROM users u
-       LEFT JOIN districts d ON d.id = u.district_id
-       LEFT JOIN schools s ON s.id = u.school_id
-      WHERE ${where}
-      ORDER BY u.full_name`,
-    params
-  );
+  const coachSet = new Set(coachBuildings);
+  const visible = rows.filter((r) => {
+    if (districtWide) return true;
+    // A partner with no building is district-wide → visible to everyone.
+    if (r.school_ids.length === 0) return true;
+    return r.school_ids.some((sid) => coachSet.has(sid));
+  });
 
-  const partners: DirectoryPartner[] = res.rows.map((r) => ({
-    ...rowToUser(r),
-    district_name: (r.district_name as string | null) ?? null,
-    school_name: (r.school_name as string | null) ?? null,
+  const partners: DirectoryPartner[] = visible.map((r) => ({
+    id: r.id,
+    username: r.username,
+    full_name: r.full_name,
+    nickname: r.nickname,
+    email: r.email,
+    system_role: r.system_role,
+    district_id: coach.district_id,
+    school_id: r.school_ids[0] ?? null,
+    school_ids: r.school_ids,
+    role: r.role,
+    about: r.about,
+    settings: {},
+    created_at: "",
+    updated_at: "",
+    district_name: r.district_name,
+    school_names: r.school_names,
   }));
 
   const schools = await getSchools(coach.district_id);
-  return { partners, schools, scope };
+  return { partners, schools, scope: districtWide ? "district" : "school" };
 }
 
 /** Other coaches in the same district (for the "share a template" picker). */
@@ -676,41 +825,18 @@ export interface RecipientOption {
   username: string;
   system_role: SystemRole;
   district_name: string | null;
-  school_name: string | null;
+  school_names: string[];
 }
 
-/**
- * Users the given user is allowed to start a message thread with:
- *   - admin   → anyone
- *   - coach   → any other coach (any school/district) and any admin
- *   - partner → any admin
- * Everyone can message an admin. Partnership-based recipients (a coach's
- * partners / a partner's coaches) will be added once Partnerships exist.
- */
-export async function getMessageRecipients(me: {
-  id: number;
-  system_role: SystemRole;
-}): Promise<RecipientOption[]> {
+/** All admin accounts as recipient options (everyone can message an admin). */
+async function getAdminRecipients(excludeUserId: number): Promise<RecipientOption[]> {
   const pool = getPool();
-  await ensureSchema();
-
-  const params: unknown[] = [me.id];
-  let roleClause = "";
-  if (me.system_role === "coach") {
-    roleClause = "AND u.system_role IN ('coach', 'admin')";
-  } else if (me.system_role === "partner") {
-    roleClause = "AND u.system_role = 'admin'";
-  } // admin → no role restriction
-
   const res = await pool.query(
-    `SELECT u.id, u.full_name, u.username, u.system_role,
-            d.name AS district_name, s.name AS school_name
-       FROM users u
-       LEFT JOIN districts d ON d.id = u.district_id
-       LEFT JOIN schools s ON s.id = u.school_id
-      WHERE u.deleted_at IS NULL AND u.id <> $1 ${roleClause}
-      ORDER BY u.system_role, u.full_name`,
-    params
+    `SELECT u.id, u.full_name, u.username, u.system_role, d.name AS district_name
+       FROM users u LEFT JOIN districts d ON d.id = u.district_id
+      WHERE u.deleted_at IS NULL AND u.system_role = 'admin' AND u.id <> $1
+      ORDER BY u.full_name`,
+    [excludeUserId]
   );
   return res.rows.map((r) => ({
     id: r.id as number,
@@ -718,8 +844,82 @@ export async function getMessageRecipients(me: {
     username: r.username as string,
     system_role: r.system_role as SystemRole,
     district_name: (r.district_name as string | null) ?? null,
-    school_name: (r.school_name as string | null) ?? null,
+    school_names: [],
   }));
+}
+
+/**
+ * Users the given user may start a message thread with, governed by the admin's
+ * messaging-permission matrix and building membership:
+ *   - admin   → anyone
+ *   - coach/partner → admins (always), plus the partners/coaches allowed by the
+ *     matrix. "same school" = shares ≥1 building (a district-wide member, with no
+ *     specific building, counts as sharing). "district" = anyone in the district.
+ */
+export async function getMessageRecipients(
+  meId: number,
+  permissions: MessagePermissions
+): Promise<RecipientOption[]> {
+  await ensureSchema();
+  const me = await getUserById(meId);
+  if (!me) return [];
+
+  if (me.system_role === "admin") {
+    const pool = getPool();
+    const res = await pool.query(
+      `SELECT u.id, u.full_name, u.username, u.system_role, d.name AS district_name,
+              COALESCE(array_agg(s.name) FILTER (WHERE s.name IS NOT NULL), '{}') AS school_names
+         FROM users u
+         LEFT JOIN districts d ON d.id = u.district_id
+         LEFT JOIN user_schools us ON us.user_id = u.id
+         LEFT JOIN schools s ON s.id = us.school_id
+        WHERE u.deleted_at IS NULL AND u.id <> $1
+        GROUP BY u.id, d.name
+        ORDER BY u.full_name`,
+      [meId]
+    );
+    return res.rows.map((r) => ({
+      id: r.id as number,
+      full_name: r.full_name as string,
+      username: r.username as string,
+      system_role: r.system_role as SystemRole,
+      district_name: (r.district_name as string | null) ?? null,
+      school_names: (r.school_names as string[]) ?? [],
+    }));
+  }
+
+  const out = new Map<number, RecipientOption>();
+  // Everyone can message an admin.
+  for (const a of await getAdminRecipients(meId)) out.set(a.id, a);
+
+  const perms: RoleMessagePerms | undefined =
+    me.system_role === "coach" || me.system_role === "partner"
+      ? permissions[me.system_role]
+      : undefined;
+  if (perms && me.district_id != null) {
+    const myBuildings = new Set(me.school_ids);
+    const iAmDistrictWide = me.school_ids.length === 0;
+    const rows = await getDistrictUsersWithBuildings(me.district_id, meId, ["coach", "partner"]);
+    for (const r of rows) {
+      const role = r.system_role === "coach" ? "coach" : "partner";
+      const districtAllowed = perms[`${role}_district`];
+      const sameSchoolAllowed = perms[`${role}_same_school`];
+      const sharesBuilding =
+        iAmDistrictWide || r.school_ids.length === 0 || r.school_ids.some((s) => myBuildings.has(s));
+      if (districtAllowed || (sameSchoolAllowed && sharesBuilding)) {
+        out.set(r.id, {
+          id: r.id,
+          full_name: r.full_name,
+          username: r.username,
+          system_role: r.system_role,
+          district_name: r.district_name,
+          school_names: r.school_names,
+        });
+      }
+    }
+  }
+
+  return Array.from(out.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
 }
 
 // ============================================================

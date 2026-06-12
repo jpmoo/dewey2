@@ -50,6 +50,9 @@ export async function POST(request: NextRequest) {
       email: typeof body.email === "string" ? body.email : null,
       system_role,
       district_id: numOrNull(body.district_id),
+      school_ids: Array.isArray(body.school_ids)
+        ? body.school_ids.map((v: unknown) => Number(v)).filter((n: number) => Number.isFinite(n))
+        : undefined,
       school_id: numOrNull(body.school_id),
       role: typeof body.role === "string" ? body.role : null,
       about: typeof body.about === "string" ? body.about : null,

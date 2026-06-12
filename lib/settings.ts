@@ -6,6 +6,50 @@ import { ensureSchema, ensureSystemSettingsRow } from "@/lib/db";
  * the Ollama connection + selected models, the Anthropic key, RAG config, and
  * the default theme. Updated in place; never inserted twice.
  */
+/** Which scopes a role may message, per target role. */
+export interface RoleMessagePerms {
+  partner_same_school: boolean;
+  partner_district: boolean;
+  coach_same_school: boolean;
+  coach_district: boolean;
+}
+export interface MessagePermissions {
+  coach: RoleMessagePerms;
+  partner: RoleMessagePerms;
+}
+
+export const DEFAULT_MESSAGE_PERMISSIONS: MessagePermissions = {
+  coach: {
+    partner_same_school: true,
+    partner_district: false,
+    coach_same_school: true,
+    coach_district: true,
+  },
+  partner: {
+    partner_same_school: false,
+    partner_district: false,
+    coach_same_school: true,
+    coach_district: false,
+  },
+};
+
+function coercePerms(v: unknown): MessagePermissions {
+  const role = (r: unknown, d: RoleMessagePerms): RoleMessagePerms => {
+    const o = (r ?? {}) as Record<string, unknown>;
+    return {
+      partner_same_school: o.partner_same_school === true,
+      partner_district: o.partner_district === true,
+      coach_same_school: o.coach_same_school === true,
+      coach_district: o.coach_district === true,
+    };
+  };
+  const obj = (v ?? {}) as Record<string, unknown>;
+  return {
+    coach: role(obj.coach, DEFAULT_MESSAGE_PERMISSIONS.coach),
+    partner: role(obj.partner, DEFAULT_MESSAGE_PERMISSIONS.partner),
+  };
+}
+
 export interface SystemSettings {
   ollama_url: string | null;
   ollama_compliance_model: string | null;
@@ -16,6 +60,7 @@ export interface SystemSettings {
   /** Collections selected as the platform-wide default for retrieval. */
   rag_default_collections: string[];
   default_theme: string;
+  message_permissions: MessagePermissions;
   settings: Record<string, unknown>;
   updated_at: string;
 }
@@ -33,6 +78,7 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
       ? (row.rag_default_collections as string[])
       : [],
     default_theme: (row.default_theme as string | null) ?? "light",
+    message_permissions: coercePerms(row.message_permissions),
     settings: (row.settings as Record<string, unknown>) ?? {},
     updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
   };
@@ -66,6 +112,7 @@ export interface UpdateSystemSettingsParams {
   rag_default_threshold?: number;
   rag_default_collections?: string[];
   default_theme?: string;
+  message_permissions?: MessagePermissions;
   settings?: Record<string, unknown>;
 }
 
@@ -97,6 +144,8 @@ export async function updateSystemSettings(
   if (params.rag_default_collections !== undefined)
     push("rag_default_collections", JSON.stringify(params.rag_default_collections));
   if (params.default_theme !== undefined) push("default_theme", params.default_theme);
+  if (params.message_permissions !== undefined)
+    push("message_permissions", JSON.stringify(params.message_permissions));
   if (params.settings !== undefined) push("settings", JSON.stringify(params.settings));
 
   if (sets.length === 0) return getSystemSettings();

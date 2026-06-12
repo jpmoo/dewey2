@@ -13,8 +13,9 @@ type Partner = {
   about: string | null;
   district_id: number | null;
   school_id: number | null;
+  school_ids: number[];
   district_name: string | null;
-  school_name: string | null;
+  school_names: string[];
   created_at: string;
 };
 
@@ -63,8 +64,8 @@ export function CoachDirectory() {
   const filtered = partners.filter((p) => {
     if (districtWide) {
       if (filterSchool === "districtwide") {
-        if (p.school_id !== null) return false;
-      } else if (typeof filterSchool === "number" && p.school_id !== filterSchool) {
+        if (p.school_ids.length > 0) return false;
+      } else if (typeof filterSchool === "number" && !p.school_ids.includes(filterSchool)) {
         return false;
       }
     }
@@ -163,8 +164,8 @@ export function CoachDirectory() {
                       {p.role && <span className="ml-2 text-xs text-dewey-mute">· {p.role}</span>}
                     </div>
                     <div className="truncate text-xs text-dewey-mute">
-                      {p.school_name
-                        ? `${p.district_name} · ${p.school_name}`
+                      {p.school_names.length > 0
+                        ? `${p.district_name} · ${p.school_names.join(", ")}`
                         : `${p.district_name ?? "Unassigned"} · District-wide`}
                     </div>
                   </div>
@@ -202,7 +203,9 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
           <Row label="Email">{partner.email || "—"}</Row>
           <Row label="Nickname">{partner.nickname || "—"}</Row>
           <Row label="District">{partner.district_name || "—"}</Row>
-          <Row label="School">{partner.school_name || "District-wide"}</Row>
+          <Row label="Buildings">
+            {partner.school_names.length > 0 ? partner.school_names.join(", ") : "District-wide"}
+          </Row>
           {partner.about && (
             <div>
               <dt className="text-dewey-mute">Coaching context</dt>

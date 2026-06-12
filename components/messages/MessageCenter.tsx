@@ -225,7 +225,7 @@ type Recipient = {
   username: string;
   system_role: string;
   district_name: string | null;
-  school_name: string | null;
+  school_names: string[];
 };
 
 /** Start a new direct message to an allowed recipient. */
@@ -252,8 +252,8 @@ function ComposeModal({
   }, []);
 
   const orgLabel = (r: Recipient) =>
-    r.school_name
-      ? `${r.district_name} · ${r.school_name}`
+    r.school_names.length > 0
+      ? `${r.district_name} · ${r.school_names.join(", ")}`
       : r.district_name
       ? `${r.district_name} · District-wide`
       : "";

@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
 
+type RolePerms = {
+  partner_same_school: boolean;
+  partner_district: boolean;
+  coach_same_school: boolean;
+  coach_district: boolean;
+};
+type MessagePermissions = { coach: RolePerms; partner: RolePerms };
+
 type SettingsView = {
   ollama_url: string | null;
   ollama_compliance_model: string | null;
@@ -11,11 +19,34 @@ type SettingsView = {
   rag_default_threshold: number;
   rag_default_collections: string[];
   default_theme: string;
+  message_permissions: MessagePermissions;
   anthropic_api_key_set: boolean;
   anthropic_api_key_from_env: boolean;
 };
 
 const THEMES = ["light", "dark"];
+
+const EMPTY_PERMS: MessagePermissions = {
+  coach: {
+    partner_same_school: false,
+    partner_district: false,
+    coach_same_school: false,
+    coach_district: false,
+  },
+  partner: {
+    partner_same_school: false,
+    partner_district: false,
+    coach_same_school: false,
+    coach_district: false,
+  },
+};
+
+const PERM_ROWS: { key: keyof RolePerms; label: string }[] = [
+  { key: "partner_same_school", label: "Any partner in a shared building" },
+  { key: "partner_district", label: "Any partner district-wide" },
+  { key: "coach_same_school", label: "Any coach in a shared building" },
+  { key: "coach_district", label: "Any coach district-wide" },
+];
 
 /** Claude options for the coaching model. The Ollama coaching model is ignored when one of these is selected. */
 const CLAUDE_COACHING_MODELS = [
@@ -39,6 +70,7 @@ export function AdminSettings() {
   const [ragUrl, setRagUrl] = useState("");
   const [ragThreshold, setRagThreshold] = useState(0.5);
   const [defaultTheme, setDefaultTheme] = useState("light");
+  const [perms, setPerms] = useState<MessagePermissions>(EMPTY_PERMS);
 
   // RAG collections: the live list from the server plus the selected defaults.
   const [defaultCollections, setDefaultCollections] = useState<string[]>([]);
@@ -61,6 +93,7 @@ export function AdminSettings() {
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
       setDefaultCollections(settings.rag_default_collections ?? []);
       setDefaultTheme(settings.default_theme ?? "light");
+      if (settings.message_permissions) setPerms(settings.message_permissions);
       setKeyFromEnv(settings.anthropic_api_key_from_env);
       setKeyIsSet(settings.anthropic_api_key_set);
     } catch (e) {
@@ -128,6 +161,7 @@ export function AdminSettings() {
         rag_default_threshold: ragThreshold,
         rag_default_collections: defaultCollections,
         default_theme: defaultTheme,
+        message_permissions: perms,
       };
       // Only send the key when the admin actually typed one.
       if (anthropicKey.trim() !== "") body.anthropic_api_key = anthropicKey;
@@ -149,8 +183,12 @@ export function AdminSettings() {
     ragThreshold,
     defaultCollections,
     defaultTheme,
+    perms,
     load,
   ]);
+
+  const togglePerm = (role: "coach" | "partner", key: keyof RolePerms) =>
+    setPerms((p) => ({ ...p, [role]: { ...p[role], [key]: !p[role][key] } }));
 
   if (loading) return <p className="text-dewey-mute">Loading settings…</p>;
 
@@ -360,6 +398,39 @@ export function AdminSettings() {
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+        </div>
+
+        {/* Messaging permissions */}
+        <div>
+          <label className="dewey-label">Messaging permissions</label>
+          <p className="mb-2 text-xs text-dewey-mute">
+            Who coaches and partners can start a message with. Everyone can always message an admin,
+            and admins can message anyone.
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {(["coach", "partner"] as const).map((role) => (
+              <div key={role} className="rounded-md border border-dewey-border p-3">
+                <div className="mb-2 text-sm font-medium capitalize text-dewey-ink">
+                  A {role} can message:
+                </div>
+                <div className="space-y-1.5">
+                  {PERM_ROWS.map((row) => (
+                    <label
+                      key={row.key}
+                      className="flex items-center gap-2 text-sm text-dewey-ink"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={perms[role][row.key]}
+                        onChange={() => togglePerm(role, row.key)}
+                      />
+                      {row.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

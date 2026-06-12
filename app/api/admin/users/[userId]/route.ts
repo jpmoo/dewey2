@@ -55,7 +55,11 @@ export async function PATCH(
   if ("email" in body) update.email = body.email == null ? null : String(body.email);
   if (ROLES.includes(body.system_role)) update.system_role = body.system_role;
   if ("district_id" in body) update.district_id = numOrNull(body.district_id);
-  if ("school_id" in body) update.school_id = numOrNull(body.school_id);
+  if (Array.isArray(body.school_ids))
+    update.schoolIds = body.school_ids
+      .map((v: unknown) => Number(v))
+      .filter((n: number) => Number.isFinite(n));
+  else if ("school_id" in body) update.school_id = numOrNull(body.school_id);
   if ("role" in body) update.role = body.role == null ? null : String(body.role);
   if ("about" in body) update.about = body.about == null ? null : String(body.about);
   // null = clear override (inherit system defaults); array = per-user override.
@@ -108,6 +112,11 @@ export async function PATCH(
       changes.push("district");
     if (update.school_id !== undefined && update.school_id !== user.school_id)
       changes.push("school");
+    if (update.schoolIds !== undefined) {
+      const before = [...user.school_ids].sort().join(",");
+      const after = [...update.schoolIds].sort().join(",");
+      if (before !== after) changes.push("buildings");
+    }
     if (update.about !== undefined && (update.about || "") !== (user.about || ""))
       changes.push("about");
     if (update.ragCollectionsOverride !== undefined) changes.push("RAG collections");

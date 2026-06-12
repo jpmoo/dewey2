@@ -13,8 +13,8 @@ export async function GET() {
   const { session } = guard;
 
   const directory = await getCoachDirectory({
+    id: Number(session.user.id),
     district_id: session.user.district_id ?? null,
-    school_id: session.user.school_id ?? null,
   });
   return NextResponse.json(directory);
 }
