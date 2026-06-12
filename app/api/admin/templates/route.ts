@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
 import { createTemplate, getTemplates } from "@/lib/db";
+import type { TemplateGraph } from "@/lib/templates";
 
 export async function GET() {
   const guard = await requireAdmin();
@@ -18,9 +19,21 @@ export async function POST(request: NextRequest) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) return NextResponse.json({ error: "Template name is required" }, { status: 400 });
 
+  // Optional initial canvas graph (when creating from the canvas on first save).
+  let graph: TemplateGraph | undefined;
+  if (body.graph && typeof body.graph === "object") {
+    const g = body.graph as Record<string, unknown>;
+    graph = {
+      nodes: Array.isArray(g.nodes) ? g.nodes : [],
+      edges: Array.isArray(g.edges) ? g.edges : [],
+      phases: Array.isArray(g.phases) ? g.phases : [],
+    } as TemplateGraph;
+  }
+
   const template = await createTemplate({
     name,
     description: typeof body.description === "string" ? body.description : null,
+    graph,
     createdBy: Number(session.user.id),
   });
   return NextResponse.json({ template });

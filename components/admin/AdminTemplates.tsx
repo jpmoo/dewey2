@@ -23,7 +23,8 @@ export function AdminTemplates() {
   const [templates, setTemplates] = useState<CoachingTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  // number = edit existing; "new" = unsaved draft; null = list view.
+  const [editing, setEditing] = useState<number | "new" | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -44,20 +45,8 @@ export function AdminTemplates() {
     load();
   }, [load]);
 
-  const createNew = useCallback(async () => {
-    setBusy(true);
-    try {
-      const { template } = await apiFetch<{ template: CoachingTemplate }>(
-        "/api/admin/templates",
-        { method: "POST", body: { name: "Untitled template" } }
-      );
-      setEditingId(template.id);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to create template");
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  // Open a blank canvas; nothing is persisted until the user hits Save.
+  const createNew = useCallback(() => setEditing("new"), []);
 
   const remove = useCallback(
     async (t: CoachingTemplate) => {
@@ -75,12 +64,12 @@ export function AdminTemplates() {
     [load]
   );
 
-  if (editingId !== null) {
+  if (editing !== null) {
     return (
       <TemplateCanvas
-        templateId={editingId}
+        templateId={editing === "new" ? null : editing}
         onClose={async () => {
-          setEditingId(null);
+          setEditing(null);
           await load();
         }}
       />
@@ -119,7 +108,7 @@ export function AdminTemplates() {
               <button
                 type="button"
                 className="min-w-0 text-left flex-1 cursor-pointer"
-                onClick={() => setEditingId(t.id)}
+                onClick={() => setEditing(t.id)}
               >
                 <div className="font-medium">{t.name}</div>
                 {t.description && (
@@ -134,7 +123,7 @@ export function AdminTemplates() {
                 <button
                   type="button"
                   className="text-xs text-dewey-accent hover:underline"
-                  onClick={() => setEditingId(t.id)}
+                  onClick={() => setEditing(t.id)}
                 >
                   Edit
                 </button>

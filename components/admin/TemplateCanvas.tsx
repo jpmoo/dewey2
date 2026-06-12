@@ -31,6 +31,7 @@ import {
   type ActivityCategory,
   type Gating,
 } from "@/lib/activities";
+import { EMPTY_GRAPH } from "@/lib/templates";
 import type { CoachingTemplate, TemplateGraph, TemplatePhase } from "@/lib/templates";
 
 // Colors cycled through as phases are created.
@@ -72,26 +73,26 @@ function newId(prefix: string): string {
 // ---- Custom node ------------------------------------------------------------
 
 function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
-  // Activities in a phase share the phase color; ungrouped ones use their category color.
-  const color = data.phaseColor || CATEGORY_META[data.category]?.color || "#6b6b6b";
+  // The top stripe encodes the activity category; the border/chip reflect the phase.
+  const catColor = CATEGORY_META[data.category]?.color ?? "#6b6b6b";
   return (
     <div
       className="rounded-md border bg-dewey-surface text-dewey-ink shadow-sm text-xs"
       style={{
-        borderColor: color,
+        borderColor: data.phaseColor || catColor,
         borderWidth: selected ? 2 : 1,
         minWidth: 150,
       }}
     >
       <Handle type="target" position={Position.Top} />
-      <div className="h-1 rounded-t" style={{ background: color }} />
+      <div className="h-1 rounded-t" style={{ background: catColor }} />
       <div className="px-2 py-1.5">
         <div className="font-medium leading-tight">{data.label}</div>
         <div className="text-[10px] text-dewey-mute mt-0.5">{data.gating}</div>
         {data.phaseName && (
           <div
             className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] text-white"
-            style={{ background: color }}
+            style={{ background: data.phaseColor || catColor }}
           >
             {data.phaseName}
           </div>
@@ -120,6 +121,10 @@ function CanvasInner({
   const [phases, setPhases] = useState<TemplatePhase[]>(template.graph.phases ?? []);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // null until the template exists in the DB (a "new" template is created on first Save).
+  const [savedId, setSavedId] = useState<number | null>(template.id > 0 ? template.id : null);
+  // Snapshot of the last-saved state; set on mount and after each save to detect unsaved changes.
+  const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
   const [dragPhaseIndex, setDragPhaseIndex] = useState<number | null>(null);
@@ -453,21 +458,47 @@ function CanvasInner({
     [setNodes, setEdges]
   );
 
-  // ---- Save ----
+  // A stable snapshot of the current editor state, for change detection.
+  const currentSnapshot = JSON.stringify({ name, graph: buildGraph() });
+  // Baseline = state as of the last save (or initial load). Unsaved if it diverges.
+  useEffect(() => {
+    setSavedSnapshot(currentSnapshot);
+    // Only on mount — the baseline is the loaded/empty template.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const dirty = savedSnapshot !== null && currentSnapshot !== savedSnapshot;
+
+  // ---- Save: create on first save (new template), then patch ----
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      await apiFetch(`/api/admin/templates/${template.id}`, {
-        method: "PATCH",
-        body: { name, graph: buildGraph() },
-      });
+      const graph = buildGraph();
+      if (savedId == null) {
+        const { template: created } = await apiFetch<{ template: CoachingTemplate }>(
+          "/api/admin/templates",
+          { method: "POST", body: { name, graph } }
+        );
+        setSavedId(created.id);
+      } else {
+        await apiFetch(`/api/admin/templates/${savedId}`, {
+          method: "PATCH",
+          body: { name, graph },
+        });
+      }
+      setSavedSnapshot(JSON.stringify({ name, graph }));
       setSavedAt(new Date().toLocaleTimeString());
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
-  }, [buildGraph, name, template.id]);
+  }, [buildGraph, name, savedId]);
+
+  // Warn before discarding unsaved work.
+  const handleClose = useCallback(() => {
+    if (dirty && !confirm("You have unsaved changes. Close without saving?")) return;
+    onClose();
+  }, [dirty, onClose]);
 
   // ---- Grouping-button state, derived from the current selection ----
   const selectedNodes = nodes.filter((n) => n.selected);
@@ -522,11 +553,15 @@ function CanvasInner({
           Remove from phase
         </button>
         <div className="ml-auto flex items-center gap-3">
-          {savedAt && <span className="text-xs text-dewey-mute">Saved {savedAt}</span>}
+          {dirty ? (
+            <span className="text-xs text-amber-600">Unsaved changes</span>
+          ) : savedAt ? (
+            <span className="text-xs text-dewey-mute">Saved {savedAt}</span>
+          ) : null}
           <button type="button" className="dewey-btn-primary w-auto" onClick={save} disabled={saving}>
             {saving ? "Saving…" : "Save"}
           </button>
-          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+          <button type="button" className="dewey-btn-secondary" onClick={handleClose}>
             Close
           </button>
         </div>
@@ -1009,13 +1044,26 @@ export function TemplateCanvas({
   templateId,
   onClose,
 }: {
-  templateId: number;
+  templateId: number | null; // null = a new, not-yet-saved template
   onClose: () => void;
 }) {
-  const [template, setTemplate] = useState<CoachingTemplate | null>(null);
+  const [template, setTemplate] = useState<CoachingTemplate | null>(
+    templateId === null
+      ? {
+          id: 0, // 0 = unsaved; created on first Save
+          name: "Untitled template",
+          description: null,
+          graph: EMPTY_GRAPH,
+          created_by: null,
+          created_at: "",
+          updated_at: "",
+        }
+      : null
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (templateId === null) return; // new template — nothing to load
     let cancelled = false;
     apiFetch<{ template: CoachingTemplate }>(`/api/admin/templates/${templateId}`)
       .then((d) => {
