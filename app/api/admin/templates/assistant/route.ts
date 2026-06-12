@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
-import { chatComplete, type ChatMessage } from "@/lib/ai";
+import { chatStream, type ChatMessage } from "@/lib/ai";
 import { queryRagDefault, formatRagContext } from "@/lib/rag";
 import { ACTIVITY_TYPES, ACTIVITY_BY_KEY } from "@/lib/activities";
 import type { TemplateGraph } from "@/lib/templates";
 
 const PHASE_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db2777"];
+
+// Marker separating the conversational reply (streamed live) from the proposed
+// graph JSON (parsed server-side at the end).
+const GRAPH_MARKER = "===GRAPH===";
 
 function buildSystemPrompt(): string {
   const catalog = ACTIVITY_TYPES.map(
@@ -24,23 +28,19 @@ You can:
 2. Suggest activity instructions (descriptions) and phase exit conditions.
 3. Create or revise an arc of phases and activities from a description.
 
-RESPONSE FORMAT — respond with a SINGLE JSON object and nothing else:
-{
-  "reply": "<concise conversational answer for the admin>",
-  "proposedGraph": null OR {
-    "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN" | "REVIEWED", "instructions": "<what the partner does>", "phaseId": "p1" | null } ],
-    "edges": [ { "source": "n1", "target": "n2" } ],
-    "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ]
-  }
-}
+RESPONSE FORMAT:
+- First write a brief conversational reply to the admin, in plain prose.
+- If (and ONLY if) you are proposing concrete additions/changes to the canvas, then output a line containing exactly:
+${GRAPH_MARKER}
+followed by a single JSON object:
+{ "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "phaseId": "p1"|null } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }
+- For questions or advice with no canvas change, do NOT output the marker or any JSON.
 
 Rules:
-- Set "proposedGraph" to null unless you are proposing concrete additions/changes the admin can apply. For pure questions or advice, use null and put the content in "reply".
 - Use ONLY activityKey values from the list below. Never invent new activities or keys; the activity taxonomy is fixed.
 - Do NOT provide labels — each activity's label is fixed by its type.
 - Give each node a unique id; reference phases by the ids you define in "phases".
 - Do NOT include positions/coordinates — the canvas lays activities out automatically.
-- Keep "reply" brief; the proposed graph carries the detail.
 
 Available activity types:
 ${catalog}`;
@@ -86,7 +86,7 @@ function sanitizeProposed(raw: unknown): TemplateGraph | null {
     nodes.push({
       id: typeof no.id === "string" && no.id ? no.id : `n_${++autoId}`,
       activityKey: key,
-      label: def.label, // labels are fixed by activity type; ignore any model-provided label
+      label: def.label, // labels are fixed by activity type
       gating: no.gating === "OPEN" || no.gating === "REVIEWED" ? no.gating : def.defaultGating,
       instructions: typeof no.instructions === "string" ? no.instructions : "",
       phaseId,
@@ -123,7 +123,7 @@ function sanitizeProposed(raw: unknown): TemplateGraph | null {
   return { nodes, edges, phases };
 }
 
-/** Pull a JSON object out of a model reply that may be fenced or have surrounding prose. */
+/** Pull a JSON object out of model text that may be fenced or have surrounding prose. */
 function extractJsonObject(text: string): Record<string, unknown> | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const body = (fenced ? fenced[1] : text).trim();
@@ -161,6 +161,17 @@ export async function POST(request: NextRequest) {
       content: String(h.text ?? ""),
     }));
 
+  // Ground the call in the org's documents via RAGDoll (default collections).
+  const tStart = Date.now();
+  let system = buildSystemPrompt();
+  const chunks = await queryRagDefault(message).catch(() => []);
+  const tRag = Date.now();
+  if (chunks.length > 0) {
+    system +=
+      "\n\nRelevant excerpts from the organization's documents — ground your suggestions in these where applicable, and refer to document names when useful:\n" +
+      formatRagContext(chunks);
+  }
+
   const messages: ChatMessage[] = [
     ...history,
     {
@@ -169,27 +180,71 @@ export async function POST(request: NextRequest) {
     },
   ];
 
-  // Ground the call in the org's documents via RAGDoll (default collections).
-  let system = buildSystemPrompt();
-  const chunks = await queryRagDefault(message).catch(() => []);
-  if (chunks.length > 0) {
-    system +=
-      "\n\nRelevant excerpts from the organization's documents — ground your suggestions in these where applicable, and refer to document names when useful:\n" +
-      formatRagContext(chunks);
-  }
+  const encoder = new TextEncoder();
+  const send = (controller: ReadableStreamDefaultController, obj: unknown) =>
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
-  try {
-    const { text } = await chatComplete({ system, messages, maxTokens: 4096 });
-    const parsed = extractJsonObject(text);
-    if (!parsed) {
-      // Model didn't return JSON — surface its text as the reply, no graph change.
-      return NextResponse.json({ reply: text.trim() || "(no response)", proposedGraph: null });
-    }
-    const reply = typeof parsed.reply === "string" ? parsed.reply : text.trim();
-    const proposedGraph = sanitizeProposed(parsed.proposedGraph);
-    return NextResponse.json({ reply, proposedGraph });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Assistant request failed";
-    return NextResponse.json({ error: msg }, { status: 502 });
-  }
+  const stream = new ReadableStream({
+    async start(controller) {
+      let full = "";
+      let sentLen = 0; // prose chars already streamed
+      let graphStarted = false;
+      let firstTokenAt = 0;
+      try {
+        for await (const delta of chatStream({ system, messages, maxTokens: 4096 })) {
+          if (!firstTokenAt) firstTokenAt = Date.now();
+          full += delta;
+          if (graphStarted) continue;
+          const mi = full.indexOf(GRAPH_MARKER);
+          if (mi !== -1) {
+            const prose = full.slice(0, mi);
+            if (prose.length > sentLen) {
+              send(controller, { type: "text", text: prose.slice(sentLen) });
+              sentLen = prose.length;
+            }
+            graphStarted = true;
+          } else {
+            // Hold back a marker-length tail so we never stream a partial marker.
+            const safe = Math.max(sentLen, full.length - (GRAPH_MARKER.length - 1));
+            if (safe > sentLen) {
+              send(controller, { type: "text", text: full.slice(sentLen, safe) });
+              sentLen = safe;
+            }
+          }
+        }
+
+        const mi = full.indexOf(GRAPH_MARKER);
+        if (mi === -1 && full.length > sentLen) {
+          send(controller, { type: "text", text: full.slice(sentLen) });
+        }
+        const reply = (mi !== -1 ? full.slice(0, mi) : full).trim();
+        const proposedGraph =
+          mi !== -1 ? sanitizeProposed(extractJsonObject(full.slice(mi + GRAPH_MARKER.length))) : null;
+
+        const tEnd = Date.now();
+        console.info(
+          `[assistant] rag=${tRag - tStart}ms ttft=${firstTokenAt ? firstTokenAt - tRag : 0}ms model=${
+            firstTokenAt ? tEnd - firstTokenAt : 0
+          }ms total=${tEnd - tStart}ms`
+        );
+
+        send(controller, { type: "done", reply: reply || "(no response)", proposedGraph });
+      } catch (e) {
+        send(controller, {
+          type: "error",
+          error: e instanceof Error ? e.message : "Assistant request failed",
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    },
+  });
 }

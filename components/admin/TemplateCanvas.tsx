@@ -27,6 +27,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { apiFetch } from "@/lib/api-client";
+import { pathWithBase } from "@/lib/base-path";
 import { getHelperLines, HelperLines } from "./helper-lines";
 import {
   ACTIVITY_TYPES,
@@ -1040,20 +1041,65 @@ function CanvasAssistant({
     setInput("");
     setProposed(null);
     const history = messages;
-    setMessages((m) => [...m, { role: "user", text: q }]);
+    // Append the user turn and an empty assistant turn we fill as tokens stream in.
+    setMessages((m) => [...m, { role: "user", text: q }, { role: "assistant", text: "" }]);
     setLoading(true);
+
+    const setAssistant = (text: string) =>
+      setMessages((m) => {
+        const copy = m.slice();
+        copy[copy.length - 1] = { role: "assistant", text };
+        return copy;
+      });
+
     try {
-      const res = await apiFetch<{ reply: string; proposedGraph: TemplateGraph | null }>(
-        "/api/admin/templates/assistant",
-        { method: "POST", body: { graph: buildGraph(), message: q, history } }
-      );
-      setMessages((m) => [...m, { role: "assistant", text: res.reply || "(no response)" }]);
-      if (res.proposedGraph) setProposed(res.proposedGraph);
+      const res = await fetch(pathWithBase("/api/admin/templates/assistant"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ graph: buildGraph(), message: q, history }),
+      });
+      if (!res.ok || !res.body) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let live = "";
+      let graph: TemplateGraph | null = null;
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buf.indexOf("\n\n")) !== -1) {
+          const frame = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const line = frame.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          let ev: { type?: string; text?: string; reply?: string; proposedGraph?: TemplateGraph | null; error?: string };
+          try {
+            ev = JSON.parse(line.slice(5).trim());
+          } catch {
+            continue;
+          }
+          if (ev.type === "text" && ev.text) {
+            live += ev.text;
+            setAssistant(live);
+          } else if (ev.type === "done") {
+            if (ev.reply) setAssistant(ev.reply);
+            graph = ev.proposedGraph ?? null;
+          } else if (ev.type === "error") {
+            throw new Error(ev.error || "Assistant error");
+          }
+        }
+      }
+
+      if (graph) setProposed(graph);
     } catch (e) {
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", text: e instanceof Error ? e.message : "Request failed" },
-      ]);
+      setAssistant(e instanceof Error ? e.message : "Request failed");
     } finally {
       setLoading(false);
     }
