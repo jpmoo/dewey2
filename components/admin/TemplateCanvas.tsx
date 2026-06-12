@@ -175,7 +175,7 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
   const catColor = CATEGORY_META[data.category]?.color ?? "#6b6b6b";
   const description = data.instructions || ACTIVITY_BY_KEY[data.activityKey]?.defaultInstructions || "";
   const artifact = data.artifact || ACTIVITY_BY_KEY[data.activityKey]?.defaultArtifact || "";
-  const tip = artifact ? `${description}\n\nExpected: ${artifact}` : description;
+  const tip = [description, artifact && `Expected: ${artifact}`].filter(Boolean).join("\n\n");
   return (
     <div
       className="rounded-md border bg-dewey-surface text-dewey-ink shadow-sm text-xs"
@@ -746,7 +746,9 @@ function CanvasInner({
                     }}
                     onDoubleClick={() => addActivity(a.key, { x: 80, y: 80 })}
                     className="text-xs px-2 py-1 rounded border border-dewey-border bg-dewey-surface cursor-grab hover:bg-dewey-surface-2"
-                    title={a.defaultInstructions}
+                    title={[a.defaultInstructions, a.defaultArtifact && `Expected: ${a.defaultArtifact}`]
+                      .filter(Boolean)
+                      .join("\n\n")}
                   >
                     {a.label}
                   </div>
