@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import ReactMarkdown from "react-markdown";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
@@ -115,6 +116,11 @@ export function MessageCenter() {
       setLoading(false);
     }
   }, [search, showArchived]);
+
+  // Warm the AI models so the first @dewey reply isn't a cold start.
+  useEffect(() => {
+    fetch(pathWithBase("/api/admin/ai/warmup"), { method: "POST" }).catch(() => {});
+  }, []);
 
   // Reload (debounced) when the search or archived view changes, and poll.
   useEffect(() => {
@@ -285,6 +291,7 @@ export function MessageCenter() {
                 threadId={activeId}
                 meId={meId}
                 archived={showArchived}
+                isAdmin={isAdmin}
                 onPreview={setPreview}
                 onPosted={loadThreads}
                 onArchived={() => {
@@ -487,6 +494,19 @@ function ComposeModal({
   );
 }
 
+/** Compact last-message timestamp: time today, else a short date. */
+function formatLastTime(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+
 function threadTitle(t: ThreadSummary, meId: number | null): string {
   if (t.subject) return t.subject;
   const others = t.participants.filter((p) => p.id !== meId).map((p) => p.full_name);
@@ -535,13 +555,21 @@ function ThreadListItem({
           )}
         </div>
         {t.last_message && (
-          <div
-            className={`mt-0.5 truncate text-xs ${
-              t.unread ? "text-dewey-ink" : "text-dewey-mute"
-            }`}
-          >
-            {t.last_message.body}
-          </div>
+          <>
+            <div
+              className={`mt-0.5 truncate text-xs ${
+                t.unread ? "text-dewey-ink" : "text-dewey-mute"
+              }`}
+            >
+              {t.last_message.sender_name && (
+                <span className="font-medium">{t.last_message.sender_name}: </span>
+              )}
+              {t.last_message.body}
+            </div>
+            <div className="mt-0.5 text-[10px] text-dewey-mute">
+              {formatLastTime(t.last_message.created_at)}
+            </div>
+          </>
         )}
       </button>
     </li>
@@ -552,6 +580,7 @@ export function ThreadPane({
   threadId,
   meId,
   archived,
+  isAdmin = false,
   onPreview,
   onPosted,
   onArchived,
@@ -559,6 +588,7 @@ export function ThreadPane({
   threadId: number;
   meId: number | null;
   archived: boolean;
+  isAdmin?: boolean;
   onPreview: (a: AttachmentMeta) => void;
   onPosted: () => void;
   onArchived: () => void;
@@ -570,6 +600,8 @@ export function ThreadPane({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Only auto-scroll on new messages when already near the bottom.
   const stick = useRef(true);
+  // Show a typing indicator while an @dewey reply is being generated.
+  const [deweyThinking, setDeweyThinking] = useState(false);
   // Partnership-plan UI.
   const [picking, setPicking] = useState(false);
   const [openPlan, setOpenPlan] = useState<{ id: number; name: string; phase: string | null } | null>(
@@ -577,6 +609,8 @@ export function ThreadPane({
   );
   const isPartnership = thread?.kind === "partnership";
   const amCoach = isPartnership && thread?.created_by === meId;
+  // Coach or admin may manage a partnership's lifecycle (done/abandon/archive).
+  const canManage = isPartnership && (amCoach || isAdmin);
   const ended = thread?.status === "done" || thread?.status === "abandoned";
 
   const toggleArchive = async () => {
@@ -651,11 +685,11 @@ export function ThreadPane({
     return () => clearInterval(t);
   }, [fetchThread]);
 
-  // Keep the newest message in view, unless the reader has scrolled up.
+  // Keep the newest message (or the typing bubble) in view, unless scrolled up.
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, deweyThinking]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -713,8 +747,8 @@ export function ThreadPane({
                 + Add plan
               </button>
             )}
-            {/* Partnership lifecycle (coach only). */}
-            {amCoach && !ended && (
+            {/* Partnership lifecycle (coach or admin). */}
+            {canManage && !ended && (
               <>
                 <button
                   type="button"
@@ -732,7 +766,7 @@ export function ThreadPane({
                 </button>
               </>
             )}
-            {amCoach && ended && !archived && (
+            {canManage && ended && !archived && (
               <button
                 type="button"
                 className="text-xs text-dewey-accent hover:underline"
@@ -741,9 +775,9 @@ export function ThreadPane({
                 Reopen
               </button>
             )}
-            {/* Archive: non-partnership = anyone; partnership = coach, only once
-                it's ended (or to unarchive). */}
-            {(!isPartnership || (amCoach && (ended || archived))) && (
+            {/* Archive: non-partnership = anyone; partnership = coach/admin, only
+                once it's ended (or to unarchive). */}
+            {(!isPartnership || (canManage && (ended || archived))) && (
               <button
                 type="button"
                 className="text-xs text-dewey-accent hover:underline"
@@ -782,6 +816,25 @@ export function ThreadPane({
               />
             ))
           )}
+          {deweyThinking && (
+            <div className="flex justify-start">
+              <div className="max-w-[min(75%,620px)]">
+                <div className="mb-0.5 flex items-center gap-1.5 text-[11px] text-dewey-mute">
+                  <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-dewey-accent/20 text-[11px]">
+                    🤖
+                  </span>
+                  <span className="font-medium text-dewey-ink">@dewey</span>
+                </div>
+                <div className="rounded-lg border border-dewey-border bg-dewey-accent/10 px-3 py-2">
+                  <span className="typing-dots" aria-label="@dewey is typing">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -790,7 +843,15 @@ export function ThreadPane({
           System notice — replies are disabled.
         </div>
       ) : (
-        <Composer threadId={threadId} onSent={onSent} onRefresh={() => fetchThread(false)} />
+        <Composer
+          threadId={threadId}
+          onSent={onSent}
+          onRefresh={() => fetchThread(false)}
+          onDeweyPending={(pending) => {
+            setDeweyThinking(pending);
+            if (pending) stick.current = true;
+          }}
+        />
       )}
 
       {picking && (
@@ -895,7 +956,14 @@ function MessageBubble({
                 : "bg-dewey-surface text-dewey-ink"
             } border border-dewey-border`}
           >
-            {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
+            {m.body &&
+              (m.is_ai ? (
+                <div className="chat-md text-sm">
+                  <ReactMarkdown>{m.body}</ReactMarkdown>
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap">{m.body}</p>
+              ))}
             {m.attachments.length > 0 && (
               <div className="mt-2 space-y-2">
                 {m.attachments.map((a) => (
@@ -961,10 +1029,12 @@ function Composer({
   threadId,
   onSent,
   onRefresh,
+  onDeweyPending,
 }: {
   threadId: number;
   onSent: () => void;
   onRefresh: () => void;
+  onDeweyPending: (pending: boolean) => void;
 }) {
   const dialog = useDialog();
   const [body, setBody] = useState("");
@@ -1040,7 +1110,11 @@ function Composer({
   const send = async () => {
     if (sending) return;
     if (!body.trim() && files.length === 0) return;
+    // @dewey generates within the request, so show the typing indicator until
+    // the response (which includes the AI reply) returns.
+    const willDewey = /(^|\s)@dewey\b/i.test(body);
     setSending(true);
+    if (willDewey) onDeweyPending(true);
     try {
       const form = new FormData();
       form.append("body", body);
@@ -1060,6 +1134,7 @@ function Composer({
       dialog.alert(e instanceof Error ? e.message : "Failed to send");
     } finally {
       setSending(false);
+      if (willDewey) onDeweyPending(false);
     }
   };
 

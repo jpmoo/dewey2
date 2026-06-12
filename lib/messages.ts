@@ -566,7 +566,9 @@ export async function listThreadsForUser(
 
   // Last message + count per thread.
   const lastRes = await pool.query(
-    `SELECT m.thread_id, m.body, m.created_at, u.full_name AS sender_name
+    `SELECT m.thread_id, m.body, m.created_at,
+            CASE WHEN m.is_ai THEN '@dewey'
+                 ELSE COALESCE(NULLIF(u.nickname, ''), u.full_name) END AS sender_name
        FROM messages m
        LEFT JOIN users u ON u.id = m.sender_id
        JOIN (

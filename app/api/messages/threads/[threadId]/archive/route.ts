@@ -27,9 +27,9 @@ export async function POST(
   // marked done or abandoned. Anyone may unarchive their own view.
   const thread = await getThreadMeta(id);
   if (thread?.kind === "partnership" && archived) {
-    if (thread.created_by !== userId) {
+    if (thread.created_by !== userId && !isAdmin) {
       return NextResponse.json(
-        { error: "Only the coach can archive a partnership." },
+        { error: "Only the coach or an admin can archive a partnership." },
         { status: 403 }
       );
     }

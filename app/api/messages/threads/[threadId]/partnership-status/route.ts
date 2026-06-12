@@ -23,12 +23,13 @@ export async function POST(
   }
 
   const me = Number(session.user.id);
+  const isAdmin = session.user.system_role === "admin";
   const thread = await getThreadMeta(id);
   if (!thread || thread.kind !== "partnership") {
     return NextResponse.json({ error: "Not a partnership" }, { status: 404 });
   }
-  if (thread.created_by !== me) {
-    return NextResponse.json({ error: "Only the coach can change this." }, { status: 403 });
+  if (thread.created_by !== me && !isAdmin) {
+    return NextResponse.json({ error: "Only the coach or an admin can change this." }, { status: 403 });
   }
 
   await setThreadStatus(id, status === "active" ? null : status);
