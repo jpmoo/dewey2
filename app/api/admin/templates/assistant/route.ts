@@ -27,7 +27,7 @@ RESPONSE FORMAT — respond with a SINGLE JSON object and nothing else:
 {
   "reply": "<concise conversational answer for the admin>",
   "proposedGraph": null OR {
-    "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "label": "<short label>", "gating": "OPEN" | "REVIEWED", "instructions": "<what the partner does>", "phaseId": "p1" | null } ],
+    "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN" | "REVIEWED", "instructions": "<what the partner does>", "phaseId": "p1" | null } ],
     "edges": [ { "source": "n1", "target": "n2" } ],
     "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ]
   }
@@ -35,7 +35,8 @@ RESPONSE FORMAT — respond with a SINGLE JSON object and nothing else:
 
 Rules:
 - Set "proposedGraph" to null unless you are proposing concrete additions/changes the admin can apply. For pure questions or advice, use null and put the content in "reply".
-- Use ONLY activityKey values from the list below. Never invent keys.
+- Use ONLY activityKey values from the list below. Never invent new activities or keys; the activity taxonomy is fixed.
+- Do NOT provide labels — each activity's label is fixed by its type.
 - Give each node a unique id; reference phases by the ids you define in "phases".
 - Do NOT include positions/coordinates — the canvas lays activities out automatically.
 - Keep "reply" brief; the proposed graph carries the detail.
@@ -84,7 +85,7 @@ function sanitizeProposed(raw: unknown): TemplateGraph | null {
     nodes.push({
       id: typeof no.id === "string" && no.id ? no.id : `n_${++autoId}`,
       activityKey: key,
-      label: typeof no.label === "string" && no.label ? no.label : def.label,
+      label: def.label, // labels are fixed by activity type; ignore any model-provided label
       gating: no.gating === "OPEN" || no.gating === "REVIEWED" ? no.gating : def.defaultGating,
       instructions: typeof no.instructions === "string" ? no.instructions : "",
       phaseId,

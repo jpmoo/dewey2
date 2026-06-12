@@ -72,25 +72,26 @@ function newId(prefix: string): string {
 // ---- Custom node ------------------------------------------------------------
 
 function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
-  const catColor = CATEGORY_META[data.category]?.color ?? "#6b6b6b";
+  // Activities in a phase share the phase color; ungrouped ones use their category color.
+  const color = data.phaseColor || CATEGORY_META[data.category]?.color || "#6b6b6b";
   return (
     <div
       className="rounded-md border bg-dewey-surface text-dewey-ink shadow-sm text-xs"
       style={{
-        borderColor: data.phaseColor || catColor,
+        borderColor: color,
         borderWidth: selected ? 2 : 1,
         minWidth: 150,
       }}
     >
       <Handle type="target" position={Position.Top} />
-      <div className="h-1 rounded-t" style={{ background: catColor }} />
+      <div className="h-1 rounded-t" style={{ background: color }} />
       <div className="px-2 py-1.5">
         <div className="font-medium leading-tight">{data.label}</div>
         <div className="text-[10px] text-dewey-mute mt-0.5">{data.gating}</div>
         {data.phaseName && (
           <div
             className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] text-white"
-            style={{ background: data.phaseColor || catColor }}
+            style={{ background: color }}
           >
             {data.phaseName}
           </div>
@@ -435,7 +436,8 @@ function CanvasInner({
             position: n.position,
             data: {
               activityKey: n.activityKey,
-              label: n.label,
+              // Labels are fixed by activity type — never custom.
+              label: ACTIVITY_BY_KEY[n.activityKey]?.label ?? n.label,
               category: cat,
               gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
               instructions: n.instructions ?? "",
@@ -815,7 +817,6 @@ function NodeEditModal({
   onClose: () => void;
 }) {
   const def = ACTIVITY_BY_KEY[node.data.activityKey];
-  const [label, setLabel] = useState(node.data.label);
   const [gating, setGating] = useState<Gating>(node.data.gating);
   const [instructions, setInstructions] = useState(node.data.instructions);
 
@@ -829,15 +830,10 @@ function NodeEditModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div>
-          <h3 className="text-lg font-semibold">Edit activity</h3>
+          <h3 className="text-lg font-semibold">{def?.label ?? node.data.activityKey}</h3>
           <p className="text-xs text-dewey-mute">
-            {def?.label ?? node.data.activityKey} · {CATEGORY_META[node.data.category]?.label}
+            {CATEGORY_META[node.data.category]?.label} · activity type is fixed
           </p>
-        </div>
-
-        <div>
-          <label className="dewey-label">Label</label>
-          <input className="dewey-input" value={label} onChange={(e) => setLabel(e.target.value)} />
         </div>
 
         <div>
@@ -872,7 +868,7 @@ function NodeEditModal({
           <button
             type="button"
             className="dewey-btn-primary w-auto"
-            onClick={() => onSave({ label: label.trim() || def?.label || "Activity", gating, instructions })}
+            onClick={() => onSave({ gating, instructions })}
           >
             Done
           </button>
