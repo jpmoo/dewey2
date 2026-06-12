@@ -30,7 +30,7 @@ You can:
 
 RESPONSE FORMAT:
 - First write a brief conversational reply to the admin, in plain prose.
-- If (and ONLY if) you are proposing concrete additions/changes to the canvas, then output a line containing exactly:
+- If (and ONLY if) you are proposing concrete additions/changes to the canvas, end that prose reply with a colon (e.g. "Here's the arc I'd build:") and then, on the next line, output a line containing exactly:
 ${GRAPH_MARKER}
 followed by a single JSON object:
 { "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "artifact": "<what the partner produces>", "phaseId": "p1"|null } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }
@@ -200,6 +200,9 @@ export async function POST(request: NextRequest) {
       let graphStarted = false;
       let firstTokenAt = 0;
       try {
+        // Surface the RAG source links up front, before any model output streams.
+        if (sources.length > 0) send(controller, { type: "sources", sources });
+
         for await (const delta of chatStream({ system, messages, maxTokens: 4096 })) {
           if (!firstTokenAt) firstTokenAt = Date.now();
           full += delta;
@@ -239,7 +242,7 @@ export async function POST(request: NextRequest) {
           }ms total=${tEnd - tStart}ms`
         );
 
-        send(controller, { type: "done", reply: reply || "(no response)", proposedGraph, sources });
+        send(controller, { type: "done", reply: reply || "(no response)", proposedGraph });
       } catch (e) {
         send(controller, {
           type: "error",

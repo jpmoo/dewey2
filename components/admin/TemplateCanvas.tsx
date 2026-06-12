@@ -1091,12 +1091,15 @@ function CanvasAssistant({
     setMessages((m) => [...m, { role: "user", text: q }, { role: "assistant", text: "" }]);
     setLoading(true);
 
-    const setAssistant = (text: string) =>
+    // Update the trailing assistant turn, preserving any fields (e.g. sources)
+    // already attached to it.
+    const patchAssistant = (patch: Partial<ChatTurn>) =>
       setMessages((m) => {
         const copy = m.slice();
-        copy[copy.length - 1] = { role: "assistant", text };
+        copy[copy.length - 1] = { ...copy[copy.length - 1], role: "assistant", ...patch };
         return copy;
       });
+    const setAssistant = (text: string) => patchAssistant({ text });
 
     try {
       const res = await fetch(pathWithBase("/api/admin/templates/assistant"), {
@@ -1141,20 +1144,13 @@ function CanvasAssistant({
           if (ev.type === "text" && ev.text) {
             live += ev.text;
             setAssistant(live);
+          } else if (ev.type === "sources") {
+            const srcs = ev.sources ?? [];
+            patchAssistant({ sources: srcs.length ? srcs : undefined });
           } else if (ev.type === "graph_start") {
             setConstructing(true);
           } else if (ev.type === "done") {
-            const sources = ev.sources ?? [];
-            const finalText = ev.reply || live || "(no response)";
-            setMessages((m) => {
-              const copy = m.slice();
-              copy[copy.length - 1] = {
-                role: "assistant",
-                text: finalText,
-                sources: sources.length ? sources : undefined,
-              };
-              return copy;
-            });
+            patchAssistant({ text: ev.reply || live || "(no response)" });
             graph = ev.proposedGraph ?? null;
           } else if (ev.type === "error") {
             throw new Error(ev.error || "Assistant error");
