@@ -12,7 +12,6 @@ import {
   Position,
   MarkerType,
   SelectionMode,
-  ConnectionMode,
   addEdge,
   applyNodeChanges,
   useNodesState,
@@ -186,13 +185,15 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
         minWidth: 150,
       }}
     >
-      <Handle type="target" position={Position.Top} />
+      {/* Top handle only ends connections; bottom only starts them — so the
+          drag preview snaps to the target handle and never flips. */}
+      <Handle type="target" position={Position.Top} isConnectableStart={false} />
       <div className="h-1 rounded-t" style={{ background: catColor }} />
       <div className="px-2 py-1.5">
         <div className="font-medium leading-tight">{data.label}</div>
         <div className="text-[10px] text-dewey-mute mt-0.5">{data.gating}</div>
       </div>
-      <Handle type="source" position={Position.Bottom} />
+      <Handle type="source" position={Position.Bottom} isConnectableEnd={false} />
     </div>
   );
 }
@@ -290,29 +291,12 @@ function CanvasInner({
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // React Flow assigns source/target by handle type, not drag direction. We
-  // capture the node the drag STARTED on and force it to be the source, so flow
-  // always follows the direction you draw and the arrowhead lands on the target.
-  const connectStart = useRef<string | null>(null);
-  const onConnectStart = useCallback(
-    (_: unknown, params: { nodeId?: string | null }) => {
-      connectStart.current = params.nodeId ?? null;
-    },
-    []
-  );
+  // Handles are constrained (source = bottom/start only, target = top/end only)
+  // so strict mode resolves source/target by handle and flow follows the draw.
   const onConnect = useCallback(
     (c: Connection) => {
-      let { source, target, sourceHandle, targetHandle } = c;
-      const start = connectStart.current;
-      if (start && target === start && source !== start) {
-        // RF made the start node the target — swap so it's the source.
-        [source, target] = [target, source];
-        [sourceHandle, targetHandle] = [targetHandle, sourceHandle];
-      }
-      if (!source || !target || source === target) return;
-      setEdges((eds) =>
-        addEdge({ source, target, sourceHandle, targetHandle, id: newId("e"), markerEnd: ARROW }, eds)
-      );
+      if (!c.source || !c.target || c.source === c.target) return;
+      setEdges((eds) => addEdge({ ...c, id: newId("e"), markerEnd: ARROW }, eds));
     },
     [setEdges]
   );
@@ -766,15 +750,10 @@ function CanvasInner({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onConnectStart={onConnectStart}
             onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
             nodeTypes={nodeTypes}
             colorMode={colorMode}
             defaultEdgeOptions={{ markerEnd: ARROW }}
-            // Loose mode: the node you drag FROM is the source, the node you
-            // drop ON is the target — so flow follows draw direction and the
-            // arrowhead always lands on the target (the next activity).
-            connectionMode={ConnectionMode.Loose}
             selectionOnDrag
             panOnDrag={[1, 2]}
             panOnScroll
