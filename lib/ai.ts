@@ -107,6 +107,56 @@ async function callOllama(p: {
 }
 
 // ============================================================
+// Warmup
+// ============================================================
+
+/**
+ * Pre-load the configured coaching model so the first real call doesn't pay a
+ * cold start. No-op for Claude (hosted). For Ollama, posts an empty prompt with
+ * keep_alive so the model loads into VRAM and stays resident.
+ */
+export async function warmCoachingModel(): Promise<{
+  warmed: boolean;
+  model?: string;
+  ms?: number;
+  error?: string;
+}> {
+  const settings = await getSystemSettings();
+  const selected = (settings.ollama_coaching_model ?? "").trim();
+  const sep = selected.indexOf(":");
+  const backend = sep === -1 ? "" : selected.slice(0, sep).toLowerCase();
+  const modelId = sep === -1 ? selected : selected.slice(sep + 1);
+
+  if (backend !== "ollama") return { warmed: false }; // Claude needs no warmup
+  const url = (settings.ollama_url ?? "").trim();
+  if (!url || !modelId) return { warmed: false };
+
+  const t0 = Date.now();
+  try {
+    const res = await fetch(`${url.replace(/\/$/, "")}/api/generate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: modelId,
+        prompt: "",
+        stream: false,
+        keep_alive: "30m",
+        think: false,
+      }),
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      return { warmed: false, model: modelId, error: body.error || `HTTP ${res.status}` };
+    }
+    await res.json().catch(() => ({}));
+    return { warmed: true, model: modelId, ms: Date.now() - t0 };
+  } catch (e) {
+    return { warmed: false, model: modelId, error: e instanceof Error ? e.message : "warmup failed" };
+  }
+}
+
+// ============================================================
 // Streaming
 // ============================================================
 

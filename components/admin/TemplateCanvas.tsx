@@ -1035,6 +1035,11 @@ function CanvasAssistant({
   const [proposed, setProposed] = useState<TemplateGraph | null>(null);
   const [previewing, setPreviewing] = useState(false);
 
+  // Wake the coaching model when the canvas opens so the first call is warm.
+  useEffect(() => {
+    fetch(pathWithBase("/api/admin/ai/warmup"), { method: "POST" }).catch(() => {});
+  }, []);
+
   const send = useCallback(async () => {
     const q = input.trim();
     if (!q || loading) return;
