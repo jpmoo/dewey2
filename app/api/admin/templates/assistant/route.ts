@@ -33,7 +33,7 @@ RESPONSE FORMAT:
 - If (and ONLY if) you are proposing concrete additions/changes to the canvas, then output a line containing exactly:
 ${GRAPH_MARKER}
 followed by a single JSON object:
-{ "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "phaseId": "p1"|null } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }
+{ "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "artifact": "<what the partner produces>", "phaseId": "p1"|null } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }
 - For questions or advice with no canvas change, do NOT output the marker or any JSON.
 
 Rules:
@@ -52,6 +52,7 @@ interface ProposedNode {
   label: string;
   gating: "OPEN" | "REVIEWED";
   instructions: string;
+  artifact: string;
   phaseId: string | null;
   position: { x: number; y: number };
 }
@@ -92,6 +93,8 @@ function sanitizeProposed(raw: unknown): TemplateGraph | null {
         typeof no.instructions === "string" && no.instructions
           ? no.instructions
           : def.defaultInstructions,
+      artifact:
+        typeof no.artifact === "string" && no.artifact ? no.artifact : def.defaultArtifact,
       phaseId,
       position: { x: 0, y: 0 },
     });

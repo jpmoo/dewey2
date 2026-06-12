@@ -155,6 +155,7 @@ type ActivityNodeData = {
   category: ActivityCategory;
   gating: Gating;
   instructions: string;
+  artifact: string;
   phaseId?: string | null;
   phaseName?: string | null;
   phaseColor?: string | null;
@@ -173,10 +174,12 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
   // The top stripe encodes the activity category; the border/chip reflect the phase.
   const catColor = CATEGORY_META[data.category]?.color ?? "#6b6b6b";
   const description = data.instructions || ACTIVITY_BY_KEY[data.activityKey]?.defaultInstructions || "";
+  const artifact = data.artifact || ACTIVITY_BY_KEY[data.activityKey]?.defaultArtifact || "";
+  const tip = artifact ? `${description}\n\nExpected: ${artifact}` : description;
   return (
     <div
       className="rounded-md border bg-dewey-surface text-dewey-ink shadow-sm text-xs"
-      title={description || undefined}
+      title={tip || undefined}
       style={{
         borderColor: data.phaseColor || catColor,
         borderWidth: selected ? 2 : 1,
@@ -242,6 +245,7 @@ function CanvasInner({
             category: cat,
             gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
             instructions: n.instructions ?? "",
+            artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
             phaseId: n.phaseId ?? null,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
@@ -328,6 +332,7 @@ function CanvasInner({
           category: def.category,
           gating: def.defaultGating,
           instructions: def.defaultInstructions,
+          artifact: def.defaultArtifact,
           phaseId: null,
           phaseName: null,
           phaseColor: null,
@@ -498,6 +503,7 @@ function CanvasInner({
         phaseId: n.data.phaseId ?? null,
         gating: n.data.gating,
         instructions: n.data.instructions,
+        artifact: n.data.artifact,
       })),
       edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
       phases,
@@ -524,6 +530,7 @@ function CanvasInner({
               category: cat,
               gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
               instructions: n.instructions ?? "",
+              artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
               phaseId: n.phaseId ?? null,
               phaseName: phase?.name ?? null,
               phaseColor: phase?.color ?? null,
@@ -572,6 +579,7 @@ function CanvasInner({
             category: cat,
             gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
             instructions: n.instructions ?? "",
+            artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
             phaseId,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
@@ -970,6 +978,7 @@ function NodeEditModal({
   const def = ACTIVITY_BY_KEY[node.data.activityKey];
   const [gating, setGating] = useState<Gating>(node.data.gating);
   const [instructions, setInstructions] = useState(node.data.instructions);
+  const [artifact, setArtifact] = useState(node.data.artifact);
 
   return (
     <div
@@ -1012,6 +1021,19 @@ function NodeEditModal({
           />
         </div>
 
+        <div>
+          <label className="dewey-label">Expected artifact / product</label>
+          <textarea
+            className="dewey-input min-h-[64px]"
+            value={artifact}
+            onChange={(e) => setArtifact(e.target.value)}
+            placeholder="What the partner produces (e.g. reading notes, a goal statement, a recording)…"
+          />
+          <p className="text-xs text-dewey-mute mt-1">
+            The output the coach reviews and the phase-exit check evaluates.
+          </p>
+        </div>
+
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="dewey-btn-secondary" onClick={onClose}>
             Cancel
@@ -1019,7 +1041,7 @@ function NodeEditModal({
           <button
             type="button"
             className="dewey-btn-primary w-auto"
-            onClick={() => onSave({ gating, instructions })}
+            onClick={() => onSave({ gating, instructions, artifact })}
           >
             Done
           </button>
@@ -1293,6 +1315,7 @@ function PreviewModal({
             category: cat,
             gating: n.gating ?? "REVIEWED",
             instructions: n.instructions ?? "",
+            artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
             phaseId: n.phaseId ?? null,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,

@@ -17,6 +17,8 @@ export interface TemplateNode {
   gating?: "OPEN" | "REVIEWED";
   /** Coach-authored instructions / prompt shown to the partner. */
   instructions?: string;
+  /** What the partner is expected to produce in this activity. */
+  artifact?: string;
 }
 
 export interface TemplateEdge {
