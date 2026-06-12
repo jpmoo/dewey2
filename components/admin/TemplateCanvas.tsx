@@ -165,14 +165,36 @@ function CanvasInner({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<ActivityNodeData>>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
+  // React Flow assigns source/target by handle type, not drag direction. We
+  // capture the node the drag STARTED on and force it to be the source, so flow
+  // always follows the direction you draw and the arrowhead lands on the target.
+  const connectStart = useRef<string | null>(null);
+  const onConnectStart = useCallback(
+    (_: unknown, params: { nodeId?: string | null }) => {
+      connectStart.current = params.nodeId ?? null;
+    },
+    []
+  );
   const onConnect = useCallback(
-    (c: Connection) => setEdges((eds) => addEdge({ ...c, id: newId("e"), markerEnd: ARROW }, eds)),
+    (c: Connection) => {
+      let { source, target, sourceHandle, targetHandle } = c;
+      const start = connectStart.current;
+      if (start && target === start && source !== start) {
+        // RF made the start node the target — swap so it's the source.
+        [source, target] = [target, source];
+        [sourceHandle, targetHandle] = [targetHandle, sourceHandle];
+      }
+      if (!source || !target || source === target) return;
+      setEdges((eds) =>
+        addEdge({ source, target, sourceHandle, targetHandle, id: newId("e"), markerEnd: ARROW }, eds)
+      );
+    },
     [setEdges]
   );
 
   // A translucent "cloud" behind each phase, sized to its members' bounding box
   // (plus padding and a strip for the label). Recomputed as nodes move/measure.
-  const LABEL_STRIP = 16;
+  const LABEL_STRIP = 30;
   const PAD = 26;
   const phaseClouds = useMemo(() => {
     return phases
@@ -254,6 +276,21 @@ function CanvasInner({
     },
     [setNodes]
   );
+
+  // Remove the selected activities from whatever phase they're in.
+  const removeSelectedFromPhase = useCallback(() => {
+    const ids = new Set(
+      nodes.filter((n) => n.selected && n.data.phaseId).map((n) => n.id)
+    );
+    if (ids.size === 0) return;
+    setNodes((nds) =>
+      nds.map((n) =>
+        ids.has(n.id)
+          ? { ...n, data: { ...n.data, phaseId: null, phaseName: null, phaseColor: null } }
+          : n
+      )
+    );
+  }, [nodes, setNodes]);
 
   // ---- Grouping: create a new phase, or add unphased nodes to an existing one ----
   // Disallowed when the selection spans more than one phase.
@@ -383,6 +420,7 @@ function CanvasInner({
     : selectedNodes.length === 0
     ? "Select activities first (box-select or shift-click)"
     : undefined;
+  const someSelectedInPhase = selectedNodes.some((n) => n.data.phaseId);
 
   const editingNode = editingNodeId ? nodes.find((n) => n.id === editingNodeId) : null;
 
@@ -404,6 +442,15 @@ function CanvasInner({
           title={groupTitle}
         >
           {groupLabel}
+        </button>
+        <button
+          type="button"
+          className="dewey-btn-secondary"
+          onClick={removeSelectedFromPhase}
+          disabled={!someSelectedInPhase}
+          title="Remove the selected activities from their phase"
+        >
+          Remove from phase
         </button>
         <div className="ml-auto flex items-center gap-3">
           {savedAt && <span className="text-xs text-dewey-mute">Saved {savedAt}</span>}
@@ -460,6 +507,7 @@ function CanvasInner({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onConnectStart={onConnectStart}
             onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
             nodeTypes={nodeTypes}
             colorMode={colorMode}
@@ -497,8 +545,8 @@ function CanvasInner({
                   <span
                     style={{
                       position: "absolute",
-                      top: 5,
-                      left: 14,
+                      top: 10,
+                      left: 20,
                       fontSize: 11,
                       fontWeight: 600,
                       color: c.color,
