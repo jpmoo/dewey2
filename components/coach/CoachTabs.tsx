@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CoachDirectory } from "./CoachDirectory";
 import { CoachTemplates } from "./CoachTemplates";
+import { CoachPartnerships } from "./CoachPartnerships";
 import { MessageCenter } from "@/components/messages/MessageCenter";
 
 type Tab = "messages" | "partnerships" | "directory" | "canvas";
@@ -43,23 +44,9 @@ export function CoachTabs() {
       </nav>
 
       {tab === "messages" && <MessageCenter />}
-      {tab === "partnerships" && (
-        <Placeholder
-          title="Partnerships"
-          blurb="Your open and archived partnerships will live here — each one a coaching journey you've started with a partner from a plan. Coming soon."
-        />
-      )}
+      {tab === "partnerships" && <CoachPartnerships />}
       {tab === "directory" && <CoachDirectory />}
       {tab === "canvas" && <CoachTemplates />}
     </div>
-  );
-}
-
-function Placeholder({ title, blurb }: { title: string; blurb: string }) {
-  return (
-    <section>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mt-2 max-w-prose text-sm text-dewey-mute">{blurb}</p>
-    </section>
   );
 }

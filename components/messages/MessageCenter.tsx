@@ -31,6 +31,13 @@ type ThreadSummary = {
   message_count: number;
 };
 
+type Invitation = {
+  thread_id: number;
+  coach_name: string | null;
+  member_names: string[];
+  created_at: string;
+};
+
 const STATUS_BADGE: Record<string, string> = {
   open: "bg-amber-100 text-amber-800",
   approved: "bg-green-100 text-green-800",
@@ -59,6 +66,7 @@ export function MessageCenter() {
   const [composing, setComposing] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
 
   const loadThreads = useCallback(async () => {
     try {
@@ -66,9 +74,15 @@ export function MessageCenter() {
       if (search.trim()) params.set("q", search.trim());
       if (showArchived) params.set("archived", "1");
       const qs = params.toString();
-      const d = await apiFetch<{ threads: ThreadSummary[]; isAdmin: boolean }>(
-        `/api/messages/threads${qs ? `?${qs}` : ""}`
-      );
+      const [d, inv] = await Promise.all([
+        apiFetch<{ threads: ThreadSummary[]; isAdmin: boolean }>(
+          `/api/messages/threads${qs ? `?${qs}` : ""}`
+        ),
+        apiFetch<{ invitations: Invitation[] }>("/api/messages/invitations").catch(() => ({
+          invitations: [] as Invitation[],
+        })),
+      ]);
+      setInvitations(inv.invitations ?? []);
       setThreads(d.threads);
       setIsAdmin(d.isAdmin);
       setError(null);
@@ -103,6 +117,23 @@ export function MessageCenter() {
     [loadThreads]
   );
 
+  const respondInvite = useCallback(
+    async (threadId: number, accept: boolean) => {
+      try {
+        await fetch(pathWithBase(`/api/messages/threads/${threadId}/respond`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ accept }),
+        });
+      } catch {
+        /* ignore */
+      }
+      await loadThreads();
+      if (accept) setActiveId(threadId);
+    },
+    [loadThreads]
+  );
+
   return (
     // Full-bleed: break out of the centered max-w container so the messenger is
     // much wider than the other tabs.
@@ -124,6 +155,42 @@ export function MessageCenter() {
           + New message
         </button>
       </div>
+
+      {invitations.length > 0 && (
+        <div className="mb-3 space-y-2">
+          {invitations.map((inv) => (
+            <div
+              key={inv.thread_id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
+            >
+              <div className="min-w-0 text-sm text-amber-900">
+                <span className="font-medium">{inv.coach_name ?? "A coach"}</span> invited you to a
+                partnership
+                {inv.member_names.length > 1 && (
+                  <span className="text-amber-800"> with {inv.member_names.join(", ")}</span>
+                )}
+                .
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700"
+                  onClick={() => respondInvite(inv.thread_id, true)}
+                >
+                  Accept
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-amber-300 px-3 py-1 text-xs text-amber-900 hover:bg-amber-100"
+                  onClick={() => respondInvite(inv.thread_id, false)}
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {error ? (
         <p className="text-red-600">{error}</p>
@@ -449,7 +516,7 @@ function ThreadListItem({
   );
 }
 
-function ThreadPane({
+export function ThreadPane({
   threadId,
   meId,
   archived,
@@ -592,7 +659,7 @@ function ThreadPane({
           System notice — replies are disabled.
         </div>
       ) : (
-        <Composer threadId={threadId} onSent={onSent} />
+        <Composer threadId={threadId} onSent={onSent} onRefresh={() => fetchThread(false)} />
       )}
     </>
   );
@@ -679,12 +746,81 @@ function Attachment({
   );
 }
 
-function Composer({ threadId, onSent }: { threadId: number; onSent: () => void }) {
+type AddableUser = { id: number; full_name: string; username: string; system_role: string };
+
+function Composer({
+  threadId,
+  onSent,
+  onRefresh,
+}: {
+  threadId: number;
+  onSent: () => void;
+  onRefresh: () => void;
+}) {
   const dialog = useDialog();
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+
+  // @-mention: when the word at the caret starts with "@", search addable users.
+  const [mention, setMention] = useState<string | null>(null);
+  const [matches, setMatches] = useState<AddableUser[]>([]);
+
+  useEffect(() => {
+    if (mention === null) {
+      setMatches([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      fetch(pathWithBase(`/api/messages/threads/${threadId}/addable?q=${encodeURIComponent(mention)}`))
+        .then((r) => (r.ok ? r.json() : { users: [] }))
+        .then((d) => {
+          if (!cancelled) setMatches(d.users ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setMatches([]);
+        });
+    }, 150);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [mention, threadId]);
+
+  const onBodyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const v = e.target.value;
+    setBody(v);
+    const caret = e.target.selectionStart ?? v.length;
+    const m = /(^|\s)@(\w*)$/.exec(v.slice(0, caret));
+    setMention(m ? m[2] : null);
+  };
+
+  const pickMention = async (u: AddableUser) => {
+    // Replace the partial "@word" before the caret with "@username ".
+    const el = textRef.current;
+    const caret = el?.selectionStart ?? body.length;
+    const before = body.slice(0, caret).replace(/@(\w*)$/, `@${u.username} `);
+    setBody(before + body.slice(caret));
+    setMention(null);
+    setMatches([]);
+    try {
+      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/participants`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: u.id }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't add");
+      }
+      onRefresh();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't add that person");
+    }
+  };
 
   const addFiles = (list: FileList | null) => {
     if (!list) return;
@@ -719,7 +855,26 @@ function Composer({ threadId, onSent }: { threadId: number; onSent: () => void }
   };
 
   return (
-    <div className="border-t border-dewey-border bg-dewey-surface px-3 py-2">
+    <div className="relative border-t border-dewey-border bg-dewey-surface px-3 py-2">
+      {mention !== null && matches.length > 0 && (
+        <ul className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-md border border-dewey-border bg-dewey-surface shadow-lg">
+          {matches.map((u) => (
+            <li key={u.id}>
+              <button
+                type="button"
+                className="block w-full px-3 py-2 text-left text-sm hover:bg-dewey-surface-2"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pickMention(u);
+                }}
+              >
+                <span className="font-medium text-dewey-ink">{u.full_name}</span>
+                <span className="ml-1 text-xs text-dewey-mute">@{u.username} · {u.system_role}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       {files.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {files.map((f, i) => (
@@ -757,13 +912,14 @@ function Composer({ threadId, onSent }: { threadId: number; onSent: () => void }
           onChange={(e) => addFiles(e.target.files)}
         />
         <textarea
+          ref={textRef}
           className="dewey-input min-h-[38px] flex-1 resize-none"
           rows={1}
-          placeholder="Write a message…"
+          placeholder="Write a message…  @ to add someone"
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={onBodyChange}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            if (e.key === "Enter" && !e.shiftKey && mention === null) {
               e.preventDefault();
               send();
             }
@@ -782,7 +938,7 @@ function Composer({ threadId, onSent }: { threadId: number; onSent: () => void }
   );
 }
 
-function AttachmentLightbox({
+export function AttachmentLightbox({
   attachment,
   onClose,
 }: {

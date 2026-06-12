@@ -1,5 +1,6 @@
 import { getPool } from "@/lib/pg";
-import { ensureSchema, getAdminIds, logUserEvent } from "@/lib/db";
+import { ensureSchema, getAdminIds, getMessageRecipients, logUserEvent } from "@/lib/db";
+import { getSystemSettings } from "@/lib/settings";
 
 /**
  * Messaging data layer: threads, messages, and DB-stored file attachments.
@@ -164,23 +165,281 @@ export async function setThreadStatus(threadId: number, status: ThreadStatus): P
 // Access
 // ============================================================
 
-/** Admins can read any thread; everyone else only threads they participate in. */
+/**
+ * Admins can read any thread; everyone else only threads they participate in.
+ * For partnership threads, an invited member must have accepted (the creating
+ * coach always has access) — a pending/declined invitation can't read the thread.
+ */
 export async function canAccessThread(
   threadId: number,
   userId: number,
   isAdmin: boolean
 ): Promise<boolean> {
+  const pool = getPool();
   if (isAdmin) {
-    const pool = getPool();
     const res = await pool.query("SELECT 1 FROM message_threads WHERE id = $1 LIMIT 1", [threadId]);
     return res.rows.length > 0;
   }
-  const pool = getPool();
   const res = await pool.query(
-    "SELECT 1 FROM thread_participants WHERE thread_id = $1 AND user_id = $2 LIMIT 1",
+    `SELECT t.kind, t.created_by, p.accepted
+       FROM message_threads t
+       JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $2
+      WHERE t.id = $1 AND t.deleted_at IS NULL LIMIT 1`,
     [threadId, userId]
   );
-  return res.rows.length > 0;
+  const r = res.rows[0];
+  if (!r) return false;
+  if (r.kind === "partnership" && r.accepted !== true && r.created_by !== userId) return false;
+  return true;
+}
+
+// ============================================================
+// Adding participants (@-mention) + partnership invitations
+// ============================================================
+
+/** Participant ids whose messaging rights count toward "who can add someone". */
+async function activeParticipantIds(threadId: number): Promise<number[]> {
+  const pool = getPool();
+  const res = await pool.query(
+    `SELECT p.user_id
+       FROM thread_participants p
+       JOIN message_threads t ON t.id = p.thread_id
+      WHERE p.thread_id = $1
+        AND (t.kind <> 'partnership' OR p.accepted = TRUE OR t.created_by = p.user_id)`,
+    [threadId]
+  );
+  return res.rows.map((r) => r.user_id as number);
+}
+
+export interface AddableUser {
+  id: number;
+  full_name: string;
+  username: string;
+  system_role: string;
+}
+
+/**
+ * Users the requester may add to a thread by @username: the union of everyone
+ * the thread's active members may message (only one member needs the right),
+ * minus current participants. For partnership threads, only the coach may add.
+ */
+export async function getThreadAddableUsers(
+  threadId: number,
+  requesterId: number,
+  q: string
+): Promise<AddableUser[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const meta = await pool.query(
+    "SELECT kind, created_by FROM message_threads WHERE id = $1 AND deleted_at IS NULL",
+    [threadId]
+  );
+  const t = meta.rows[0];
+  if (!t) return [];
+  const part = await pool.query(
+    "SELECT 1 FROM thread_participants WHERE thread_id = $1 AND user_id = $2",
+    [threadId, requesterId]
+  );
+  if (!part.rows[0]) return [];
+  if (t.kind === "partnership" && t.created_by !== requesterId) return [];
+
+  const settings = await getSystemSettings();
+  const memberIds = await activeParticipantIds(threadId);
+  const current = new Set(
+    (
+      await pool.query("SELECT user_id FROM thread_participants WHERE thread_id = $1", [threadId])
+    ).rows.map((r) => r.user_id as number)
+  );
+
+  const union = new Map<number, AddableUser>();
+  for (const mid of memberIds) {
+    const recs = await getMessageRecipients(mid, settings.message_permissions);
+    for (const r of recs) {
+      if (current.has(r.id)) continue;
+      union.set(r.id, {
+        id: r.id,
+        full_name: r.full_name,
+        username: r.username,
+        system_role: r.system_role,
+      });
+    }
+  }
+  const needle = q.trim().toLowerCase();
+  let list = Array.from(union.values());
+  if (needle) list = list.filter((u) => `${u.full_name} ${u.username}`.toLowerCase().includes(needle));
+  return list.sort((a, b) => a.full_name.localeCompare(b.full_name)).slice(0, 8);
+}
+
+/** Add a user to a thread under the union rule. Returns whether it created a
+ *  pending invitation (partnership threads) vs. a full participant. */
+export async function addUserToThread(
+  threadId: number,
+  requesterId: number,
+  targetId: number
+): Promise<{ ok: boolean; pending: boolean; error?: string }> {
+  const pool = getPool();
+  await ensureSchema();
+  const meta = await pool.query(
+    "SELECT kind, created_by FROM message_threads WHERE id = $1 AND deleted_at IS NULL",
+    [threadId]
+  );
+  const t = meta.rows[0];
+  if (!t) return { ok: false, pending: false, error: "Not found" };
+  const part = await pool.query(
+    "SELECT 1 FROM thread_participants WHERE thread_id = $1 AND user_id = $2",
+    [threadId, requesterId]
+  );
+  if (!part.rows[0]) return { ok: false, pending: false, error: "Not a participant" };
+  if (t.kind === "partnership" && t.created_by !== requesterId)
+    return { ok: false, pending: false, error: "Only the coach can add to a partnership" };
+
+  const already = await pool.query(
+    "SELECT 1 FROM thread_participants WHERE thread_id = $1 AND user_id = $2",
+    [threadId, targetId]
+  );
+  if (already.rows[0]) return { ok: true, pending: false };
+
+  const settings = await getSystemSettings();
+  const memberIds = await activeParticipantIds(threadId);
+  let allowed = false;
+  for (const mid of memberIds) {
+    const recs = await getMessageRecipients(mid, settings.message_permissions);
+    if (recs.some((r) => r.id === targetId)) {
+      allowed = true;
+      break;
+    }
+  }
+  if (!allowed) return { ok: false, pending: false, error: "No one here can message that user" };
+
+  // accepted defaults NULL → a pending invitation for partnership threads.
+  await pool.query(
+    "INSERT INTO thread_participants (thread_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    [threadId, targetId]
+  );
+  await pool.query("UPDATE message_threads SET updated_at = NOW() WHERE id = $1", [threadId]);
+  return { ok: true, pending: t.kind === "partnership" };
+}
+
+export interface InvitationView {
+  thread_id: number;
+  coach_name: string | null;
+  member_names: string[];
+  created_at: string;
+}
+
+/** Pending partnership invitations for a user (accepted IS NULL). */
+export async function getPendingInvitations(userId: number): Promise<InvitationView[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT t.id AS thread_id, t.created_at, u.full_name AS coach_name
+       FROM message_threads t
+       JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1 AND p.accepted IS NULL
+       LEFT JOIN users u ON u.id = t.created_by
+      WHERE t.kind = 'partnership' AND t.deleted_at IS NULL
+      ORDER BY t.created_at DESC`,
+    [userId]
+  );
+  const out: InvitationView[] = [];
+  for (const r of res.rows) {
+    const members = await pool.query(
+      `SELECT u.full_name FROM thread_participants p JOIN users u ON u.id = p.user_id
+        WHERE p.thread_id = $1 ORDER BY u.full_name`,
+      [r.thread_id]
+    );
+    out.push({
+      thread_id: r.thread_id as number,
+      coach_name: (r.coach_name as string | null) ?? null,
+      member_names: members.rows.map((m) => m.full_name as string),
+      created_at: toIso(r.created_at),
+    });
+  }
+  return out;
+}
+
+/** Accept or decline a partnership invitation. */
+export async function respondToInvitation(
+  threadId: number,
+  userId: number,
+  accept: boolean
+): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `UPDATE thread_participants p SET accepted = $3
+       FROM message_threads t
+      WHERE p.thread_id = $1 AND p.user_id = $2 AND p.thread_id = t.id
+        AND t.kind = 'partnership' AND p.accepted IS NULL`,
+    [threadId, userId, accept]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export interface PartnershipMember {
+  id: number;
+  full_name: string;
+  accepted: boolean | null;
+}
+export interface PartnershipCard {
+  thread_id: number;
+  created_at: string;
+  members: PartnershipMember[];
+}
+
+/** Partnerships a user can see: ones they created (coach) or accepted (partner). */
+export async function getPartnershipsForUser(userId: number): Promise<PartnershipCard[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const threads = await pool.query(
+    `SELECT DISTINCT t.id, t.created_at
+       FROM message_threads t
+       JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
+      WHERE t.kind = 'partnership' AND t.deleted_at IS NULL
+        AND (t.created_by = $1 OR p.accepted = TRUE)
+      ORDER BY t.created_at DESC`,
+    [userId]
+  );
+  const out: PartnershipCard[] = [];
+  for (const t of threads.rows) {
+    const members = await pool.query(
+      `SELECT u.id, u.full_name, p.accepted
+         FROM thread_participants p JOIN users u ON u.id = p.user_id
+        WHERE p.thread_id = $1 ORDER BY u.full_name`,
+      [t.id]
+    );
+    out.push({
+      thread_id: t.id as number,
+      created_at: toIso(t.created_at),
+      members: members.rows.map((m) => ({
+        id: m.id as number,
+        full_name: m.full_name as string,
+        accepted: (m.accepted as boolean | null) ?? null,
+      })),
+    });
+  }
+  return out;
+}
+
+/** Create a partnership thread: coach is auto-accepted, partners are invited. */
+export async function createPartnership(
+  coachId: number,
+  partnerIds: number[],
+  message: string
+): Promise<number> {
+  const pool = getPool();
+  await ensureSchema();
+  const threadId = await createThread({
+    kind: "partnership",
+    subject: "Partnership",
+    createdBy: coachId,
+    participantIds: partnerIds,
+  });
+  await pool.query(
+    "UPDATE thread_participants SET accepted = TRUE WHERE thread_id = $1 AND user_id = $2",
+    [threadId, coachId]
+  );
+  await postMessage({ threadId, senderId: coachId, body: message });
+  return threadId;
 }
 
 // ============================================================
@@ -205,6 +464,9 @@ export async function listThreadsForUser(
   let join = "LEFT JOIN coaching_templates ct ON ct.id = t.template_id";
   if (!isAdmin) {
     join = "JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1 " + join;
+    // Hide partnership threads the user hasn't accepted (they appear as
+    // invitations instead); the creating coach always sees their own.
+    where.push("(t.kind <> 'partnership' OR p.accepted = TRUE OR t.created_by = $1)");
   }
   // Per-user archive state (admins archive their own oversight view too).
   where.push(

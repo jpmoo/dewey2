@@ -229,6 +229,10 @@ export function ensureSchema(): Promise<void> {
           PRIMARY KEY (thread_id, user_id)
         );
 
+        -- Invitation state for partnership threads: NULL = invited/pending,
+        -- TRUE = accepted, FALSE = declined. Ignored for non-partnership threads.
+        ALTER TABLE thread_participants ADD COLUMN IF NOT EXISTS accepted BOOLEAN;
+
         CREATE TABLE IF NOT EXISTS messages (
           id         BIGSERIAL PRIMARY KEY,
           thread_id  INTEGER NOT NULL REFERENCES message_threads (id) ON DELETE CASCADE,

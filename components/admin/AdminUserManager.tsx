@@ -86,6 +86,7 @@ const ACTION_LABELS: Record<string, string> = {
   template_approved: "Approved a plan",
   template_rejected: "Rejected a plan",
   compliance_flagged: "Compliance screen flagged a message",
+  partnership_created: "Created a partnership",
   restored: "Restored",
 };
 
