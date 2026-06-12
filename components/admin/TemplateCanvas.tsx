@@ -1176,7 +1176,15 @@ function CanvasAssistant({
                   <div key={i} className="text-left">
                     <div className="inline-block max-w-[90%] rounded-lg px-3 py-1.5 bg-dewey-surface-2 text-dewey-ink">
                       <div className="chat-md text-sm">
-                        <ReactMarkdown>{m.text || "…"}</ReactMarkdown>
+                        {i === messages.length - 1 && loading && !m.text ? (
+                          <span className="typing-dots" aria-label="Assistant is typing">
+                            <span />
+                            <span />
+                            <span />
+                          </span>
+                        ) : (
+                          <ReactMarkdown>{m.text || "…"}</ReactMarkdown>
+                        )}
                       </div>
                       {i === messages.length - 1 && constructing && (
                         <div className="mt-1 text-xs text-dewey-mute italic animate-pulse">
