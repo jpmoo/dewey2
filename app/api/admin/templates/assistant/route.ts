@@ -209,6 +209,8 @@ export async function POST(request: NextRequest) {
               sentLen = prose.length;
             }
             graphStarted = true;
+            // Let the client show a "constructing graph" note while the JSON streams.
+            send(controller, { type: "graph_start" });
           } else {
             // Hold back a marker-length tail so we never stream a partial marker.
             const safe = Math.max(sentLen, full.length - (GRAPH_MARKER.length - 1));

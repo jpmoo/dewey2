@@ -1030,6 +1030,7 @@ function CanvasAssistant({
   const [loading, setLoading] = useState(false);
   const [proposed, setProposed] = useState<TemplateGraph | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const [constructing, setConstructing] = useState(false);
 
   // Wake the coaching model when the canvas opens so the first call is warm.
   useEffect(() => {
@@ -1041,6 +1042,7 @@ function CanvasAssistant({
     if (!q || loading) return;
     setInput("");
     setProposed(null);
+    setConstructing(false);
     const history = messages;
     // Append the user turn and an empty assistant turn we fill as tokens stream in.
     setMessages((m) => [...m, { role: "user", text: q }, { role: "assistant", text: "" }]);
@@ -1096,6 +1098,8 @@ function CanvasAssistant({
           if (ev.type === "text" && ev.text) {
             live += ev.text;
             setAssistant(live);
+          } else if (ev.type === "graph_start") {
+            setConstructing(true);
           } else if (ev.type === "done") {
             const sources = ev.sources ?? [];
             const finalText = ev.reply || live || "(no response)";
@@ -1120,6 +1124,7 @@ function CanvasAssistant({
       setAssistant(e instanceof Error ? e.message : "Request failed");
     } finally {
       setLoading(false);
+      setConstructing(false);
     }
   }, [input, loading, messages, buildGraph]);
 
@@ -1151,6 +1156,11 @@ function CanvasAssistant({
                       <div className="chat-md text-sm">
                         <ReactMarkdown>{m.text || "…"}</ReactMarkdown>
                       </div>
+                      {i === messages.length - 1 && constructing && (
+                        <div className="mt-1 text-xs text-dewey-mute italic animate-pulse">
+                          Constructing graph…
+                        </div>
+                      )}
                       {m.sources && m.sources.length > 0 && (
                         <div className="mt-1.5 pt-1.5 border-t border-dewey-border text-xs">
                           <span className="text-dewey-mute">Sources: </span>
