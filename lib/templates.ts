@@ -53,11 +53,21 @@ export interface TemplateGraph {
 
 export const EMPTY_GRAPH: TemplateGraph = { nodes: [], edges: [], phases: [] };
 
+/**
+ * Template visibility:
+ *   - "global"   — admin-authored, available to every coach (read-only to coaches)
+ *   - "personal" — a coach's own template, editable only by its owner
+ */
+export type TemplateScope = "global" | "personal";
+
 export interface CoachingTemplate {
   id: number;
   name: string;
   description: string | null;
   graph: TemplateGraph;
+  scope: TemplateScope;
+  /** The coach who owns a personal template; null for global/admin templates. */
+  owner_id: number | null;
   created_by: number | null;
   created_at: string;
   updated_at: string;

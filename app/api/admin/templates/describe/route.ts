@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/guard";
+import { requireCoachOrAdmin } from "@/lib/guard";
 import { summarizeWithComplianceModel } from "@/lib/ai";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
 import type { TemplateGraph } from "@/lib/templates";
@@ -11,7 +11,7 @@ import type { TemplateGraph } from "@/lib/templates";
  * Returns { description: "" } on any failure so the save dialog can still open.
  */
 export async function POST(request: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireCoachOrAdmin();
   if (guard instanceof NextResponse) return guard;
 
   const body = await request.json().catch(() => ({}));

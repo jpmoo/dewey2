@@ -1,6 +1,6 @@
 import { getPool } from "@/lib/pg";
 import { hashPassword } from "@/lib/password";
-import type { CoachingTemplate, TemplateGraph } from "@/lib/templates";
+import type { CoachingTemplate, TemplateGraph, TemplateScope } from "@/lib/templates";
 import { EMPTY_GRAPH } from "@/lib/templates";
 
 // ============================================================
@@ -170,6 +170,19 @@ export function ensureSchema(): Promise<void> {
           created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
           updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        -- Template visibility (added after the original schema). 'global'
+        -- templates are admin-authored and visible to all coaches; 'personal'
+        -- templates belong to the owning coach. Pre-existing rows default to
+        -- 'global', preserving the original "available to all coaches" behavior.
+        ALTER TABLE coaching_templates
+          ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'global'
+            CHECK (scope IN ('global', 'personal'));
+        ALTER TABLE coaching_templates
+          ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users (id) ON DELETE CASCADE;
+
+        CREATE INDEX IF NOT EXISTS idx_coaching_templates_owner
+          ON coaching_templates (owner_id);
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
@@ -411,6 +424,65 @@ export async function deleteUser(id: number): Promise<boolean> {
 }
 
 // ============================================================
+// Coach partner directory
+// ============================================================
+
+export interface DirectoryPartner extends User {
+  district_name: string | null;
+  school_name: string | null;
+}
+
+/**
+ * Partners visible to a coach. A school-assigned coach sees partners in their
+ * school; a district-wide coach (no school) sees every partner in the district.
+ * Returns the partners (with district/school names) plus the schools in the
+ * coach's district for the directory's school filter, and the directory scope.
+ */
+export async function getCoachDirectory(coach: {
+  district_id: number | null;
+  school_id: number | null;
+}): Promise<{
+  partners: DirectoryPartner[];
+  schools: School[];
+  scope: "school" | "district" | "none";
+}> {
+  const pool = getPool();
+  await ensureSchema();
+
+  if (coach.district_id == null) {
+    return { partners: [], schools: [], scope: "none" };
+  }
+
+  const scope: "school" | "district" = coach.school_id != null ? "school" : "district";
+  const params: unknown[] = [coach.district_id];
+  let where = "u.system_role = 'partner' AND u.district_id = $1";
+  if (scope === "school") {
+    params.push(coach.school_id);
+    where += " AND u.school_id = $2";
+  }
+
+  const res = await pool.query(
+    `SELECT ${USER_COLUMNS.split(", ").map((c) => `u.${c}`).join(", ")},
+            d.name AS district_name, s.name AS school_name
+       FROM users u
+       LEFT JOIN districts d ON d.id = u.district_id
+       LEFT JOIN schools s ON s.id = u.school_id
+      WHERE ${where}
+      ORDER BY u.full_name`,
+    params
+  );
+
+  const partners: DirectoryPartner[] = res.rows.map((r) => ({
+    ...rowToUser(r),
+    district_name: (r.district_name as string | null) ?? null,
+    school_name: (r.school_name as string | null) ?? null,
+  }));
+
+  const schools = await getSchools(coach.district_id);
+  return { partners, schools, scope };
+}
+
+// ============================================================
 // Coaching templates
 // ============================================================
 
@@ -425,17 +497,50 @@ function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
       edges: Array.isArray(graph.edges) ? graph.edges : [],
       phases: Array.isArray(graph.phases) ? graph.phases : [],
     },
+    scope: ((row.scope as string) === "personal" ? "personal" : "global") as TemplateScope,
+    owner_id: (row.owner_id as number | null) ?? null,
     created_by: (row.created_by as number | null) ?? null,
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
   };
 }
 
+/** Admin-facing list: the global templates available to every coach. */
 export async function getTemplates(): Promise<CoachingTemplate[]> {
   const pool = getPool();
   await ensureSchema();
-  const res = await pool.query("SELECT * FROM coaching_templates ORDER BY name");
+  const res = await pool.query(
+    "SELECT * FROM coaching_templates WHERE scope = 'global' ORDER BY name"
+  );
   return res.rows.map(rowToTemplate);
+}
+
+/** Coach-facing list: every global template plus the coach's own personal ones. */
+export async function getTemplatesForCoach(coachId: number): Promise<CoachingTemplate[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT * FROM coaching_templates
+      WHERE scope = 'global' OR owner_id = $1
+      ORDER BY scope = 'global' DESC, name`,
+    [coachId]
+  );
+  return res.rows.map(rowToTemplate);
+}
+
+/**
+ * Load a template a coach is allowed to see: their own personal one, or any
+ * global template (read-only to them). Returns null if it exists but is another
+ * coach's personal template.
+ */
+export async function getTemplateForCoach(
+  id: number,
+  coachId: number
+): Promise<CoachingTemplate | null> {
+  const t = await getTemplate(id);
+  if (!t) return null;
+  if (t.scope === "global") return t;
+  return t.owner_id === coachId ? t : null;
 }
 
 export async function getTemplate(id: number): Promise<CoachingTemplate | null> {
@@ -450,20 +555,69 @@ export async function createTemplate(params: {
   description?: string | null;
   graph?: TemplateGraph;
   createdBy?: number | null;
+  scope?: TemplateScope;
+  ownerId?: number | null;
 }): Promise<CoachingTemplate> {
   const pool = getPool();
   await ensureSchema();
+  const scope: TemplateScope = params.scope ?? "global";
   const res = await pool.query(
-    `INSERT INTO coaching_templates (name, description, graph, created_by)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
+    `INSERT INTO coaching_templates (name, description, graph, created_by, scope, owner_id)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
     [
       params.name.trim(),
       params.description?.trim() || null,
       JSON.stringify(params.graph ?? EMPTY_GRAPH),
       params.createdBy ?? null,
+      scope,
+      scope === "personal" ? params.ownerId ?? null : null,
     ]
   );
   return rowToTemplate(res.rows[0]);
+}
+
+/** Update a coach's own personal template only. Returns null if not owned. */
+export async function updateCoachTemplate(
+  id: number,
+  coachId: number,
+  params: { name?: string; description?: string | null; graph?: TemplateGraph }
+): Promise<CoachingTemplate | null> {
+  const owned = await getTemplate(id);
+  if (!owned || owned.scope !== "personal" || owned.owner_id !== coachId) return null;
+  return updateTemplate(id, params);
+}
+
+/** Delete a coach's own personal template only. */
+export async function deleteCoachTemplate(id: number, coachId: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `DELETE FROM coaching_templates
+      WHERE id = $1 AND scope = 'personal' AND owner_id = $2`,
+    [id, coachId]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+/**
+ * Duplicate any template the coach can see (a global one or their own) into a
+ * new personal, editable copy owned by the coach. Returns null if the source
+ * isn't visible to them.
+ */
+export async function duplicateTemplateForCoach(
+  sourceId: number,
+  coachId: number
+): Promise<CoachingTemplate | null> {
+  const source = await getTemplateForCoach(sourceId, coachId);
+  if (!source) return null;
+  return createTemplate({
+    name: `${source.name} (copy)`,
+    description: source.description,
+    graph: source.graph,
+    createdBy: coachId,
+    scope: "personal",
+    ownerId: coachId,
+  });
 }
 
 export async function updateTemplate(

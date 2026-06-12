@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/guard";
+import { requireCoachOrAdmin } from "@/lib/guard";
 import { getSystemSettings } from "@/lib/settings";
 
 /**
@@ -8,7 +8,7 @@ import { getSystemSettings } from "@/lib/settings";
  * `path` is the RAGDoll fetch path, e.g. "/fetch/group/file.pdf".
  */
 export async function GET(request: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireCoachOrAdmin();
   if (guard instanceof NextResponse) return guard;
 
   const path = request.nextUrl.searchParams.get("path") ?? "";

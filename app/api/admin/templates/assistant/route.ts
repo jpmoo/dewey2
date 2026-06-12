@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/guard";
+import { requireCoachOrAdmin } from "@/lib/guard";
 import { chatStream, complianceCheck, type ChatMessage } from "@/lib/ai";
 import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
 import { ACTIVITY_TYPES, ACTIVITY_BY_KEY } from "@/lib/activities";
@@ -153,7 +153,7 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
 }
 
 export async function POST(request: NextRequest) {
-  const guard = await requireAdmin();
+  const guard = await requireCoachOrAdmin();
   if (guard instanceof NextResponse) return guard;
 
   const body = await request.json().catch(() => ({}));

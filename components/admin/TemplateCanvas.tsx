@@ -208,9 +208,12 @@ const nodeTypes = { activity: ActivityNode };
 function CanvasInner({
   template,
   onClose,
+  templatesBase,
 }: {
   template: CoachingTemplate;
   onClose: () => void;
+  /** CRUD base path: "/api/admin/templates" (admin) or "/api/coach/templates" (coach). */
+  templatesBase: string;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
@@ -697,12 +700,12 @@ function CanvasInner({
       const desc = descDraft.trim() || null;
       if (savedId == null) {
         const { template: created } = await apiFetch<{ template: CoachingTemplate }>(
-          "/api/admin/templates",
+          templatesBase,
           { method: "POST", body: { name, description: desc, graph } }
         );
         setSavedId(created.id);
       } else {
-        await apiFetch(`/api/admin/templates/${savedId}`, {
+        await apiFetch(`${templatesBase}/${savedId}`, {
           method: "PATCH",
           body: { name, description: desc, graph },
         });
@@ -716,7 +719,7 @@ function CanvasInner({
     } finally {
       setSaving(false);
     }
-  }, [buildGraph, name, savedId, descDraft]);
+  }, [buildGraph, name, savedId, descDraft, templatesBase]);
 
   // Warn before discarding unsaved work.
   const handleClose = useCallback(() => {
@@ -874,7 +877,19 @@ function CanvasInner({
             <HelperLines horizontal={helperLineH} vertical={helperLineV} />
             <Controls>
               <ControlButton onClick={clearCanvas} title="Clear canvas">
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {/* Inline fill:none overrides React Flow's default
+                    `.react-flow__controls-button svg { fill: currentColor }`,
+                    which would otherwise fill the ring into a solid disc. */}
+                <svg
+                  viewBox="0 0 24 24"
+                  width="15"
+                  height="15"
+                  style={{ fill: "none" }}
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <circle cx="12" cy="12" r="9" />
                   <path d="M15 9l-6 6M9 9l6 6" />
                 </svg>
@@ -1605,9 +1620,12 @@ function PreviewModal({
 export function TemplateCanvas({
   templateId,
   onClose,
+  templatesBase = "/api/admin/templates",
 }: {
   templateId: number | null; // null = a new, not-yet-saved template
   onClose: () => void;
+  /** CRUD base. Defaults to the admin namespace; coaches pass "/api/coach/templates". */
+  templatesBase?: string;
 }) {
   const [template, setTemplate] = useState<CoachingTemplate | null>(
     templateId === null
@@ -1616,6 +1634,8 @@ export function TemplateCanvas({
           name: "Untitled template",
           description: null,
           graph: EMPTY_GRAPH,
+          scope: "personal",
+          owner_id: null,
           created_by: null,
           created_at: "",
           updated_at: "",
@@ -1627,7 +1647,7 @@ export function TemplateCanvas({
   useEffect(() => {
     if (templateId === null) return; // new template — nothing to load
     let cancelled = false;
-    apiFetch<{ template: CoachingTemplate }>(`/api/admin/templates/${templateId}`)
+    apiFetch<{ template: CoachingTemplate }>(`${templatesBase}/${templateId}`)
       .then((d) => {
         if (!cancelled) setTemplate(d.template);
       })
@@ -1637,7 +1657,7 @@ export function TemplateCanvas({
     return () => {
       cancelled = true;
     };
-  }, [templateId]);
+  }, [templateId, templatesBase]);
 
   if (error) {
     return (
@@ -1659,7 +1679,161 @@ export function TemplateCanvas({
 
   return (
     <ReactFlowProvider>
-      <CanvasInner template={template} onClose={onClose} />
+      <CanvasInner template={template} onClose={onClose} templatesBase={templatesBase} />
     </ReactFlowProvider>
+  );
+}
+
+// ---- Read-only viewer -------------------------------------------------------
+
+/**
+ * A full-screen, locked view of a template's canvas. Coaches see global
+ * templates this way: the graph is rendered exactly as on the editor but nothing
+ * is draggable/editable. Actions let them duplicate it into an editable personal
+ * copy (or, later, apply it to a partnership).
+ */
+export function TemplateReadOnly({
+  templateId,
+  templatesBase = "/api/admin/templates",
+  onClose,
+  onDuplicate,
+  duplicating = false,
+}: {
+  templateId: number;
+  templatesBase?: string;
+  onClose: () => void;
+  /** Make an editable personal copy. */
+  onDuplicate: () => void;
+  duplicating?: boolean;
+}) {
+  const [template, setTemplate] = useState<CoachingTemplate | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [colorMode, setColorMode] = useState<ColorMode>("light");
+
+  useEffect(() => {
+    setColorMode(document.documentElement.classList.contains("dark") ? "dark" : "light");
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ template: CoachingTemplate }>(`${templatesBase}/${templateId}`)
+      .then((d) => {
+        if (!cancelled) setTemplate(d.template);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load template");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId, templatesBase]);
+
+  const graph = template?.graph ?? EMPTY_GRAPH;
+  const nodes: Node<ActivityNodeData>[] = useMemo(
+    () =>
+      (graph.nodes ?? []).map((n) => {
+        const phase = graph.phases?.find((p) => p.id === n.phaseId);
+        const cat = ACTIVITY_BY_KEY[n.activityKey]?.category ?? "reflecting";
+        return {
+          id: n.id,
+          type: "activity",
+          position: n.position,
+          data: {
+            activityKey: n.activityKey,
+            label: ACTIVITY_BY_KEY[n.activityKey]?.label ?? n.label,
+            category: cat,
+            gating: n.gating ?? "REVIEWED",
+            instructions: n.instructions ?? "",
+            artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
+            phaseId: n.phaseId ?? null,
+            phaseName: phase?.name ?? null,
+            phaseColor: phase?.color ?? null,
+          },
+        };
+      }),
+    [graph]
+  );
+  const edges: Edge[] = useMemo(
+    () =>
+      (graph.edges ?? []).map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? undefined,
+        targetHandle: e.targetHandle ?? undefined,
+        markerEnd: ARROW,
+      })),
+    [graph]
+  );
+
+  if (error) {
+    return (
+      <div className="fixed inset-0 z-50 bg-dewey-cream flex flex-col items-center justify-center gap-3">
+        <p className="text-red-600">{error}</p>
+        <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    );
+  }
+  if (!template) {
+    return (
+      <div className="fixed inset-0 z-50 bg-dewey-cream flex items-center justify-center">
+        <p className="text-dewey-mute">Loading template…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-dewey-cream">
+      <div className="flex items-center gap-3 border-b border-dewey-border px-4 py-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="truncate text-sm font-semibold text-dewey-ink">{template.name}</h2>
+            <span className="rounded bg-dewey-surface-2 px-2 py-0.5 text-xs text-dewey-mute">
+              {template.scope === "global" ? "Global template" : "Read-only"}
+            </span>
+          </div>
+          {template.description && (
+            <p className="truncate text-xs text-dewey-mute">{template.description}</p>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="hidden sm:inline text-xs text-dewey-mute">
+            Locked — duplicate to make changes
+          </span>
+          <button
+            type="button"
+            className="dewey-btn-primary w-auto"
+            onClick={onDuplicate}
+            disabled={duplicating}
+          >
+            {duplicating ? "Duplicating…" : "Duplicate to edit"}
+          </button>
+          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 min-h-0">
+        <ReactFlowProvider>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            colorMode={colorMode}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            fitView
+            proOptions={{ hideAttribution: true }}
+          >
+            <PhaseClouds phases={graph.phases ?? []} />
+            <Background />
+            <Controls showInteractive={false} />
+          </ReactFlow>
+        </ReactFlowProvider>
+      </div>
+    </div>
   );
 }
