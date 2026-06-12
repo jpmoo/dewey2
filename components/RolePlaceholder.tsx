@@ -1,5 +1,6 @@
 import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ProfileButton } from "@/components/ProfileButton";
 
 /**
  * Shared shell for the not-yet-built coach/partner interfaces. Confirms auth +
@@ -25,6 +26,7 @@ export function RolePlaceholder({
         <p className="text-dewey-mute text-sm mb-6 text-balance">{blurb}</p>
         <div className="flex items-center justify-center gap-4">
           <ThemeToggle className="text-sm text-dewey-mute hover:text-dewey-ink" />
+          <ProfileButton className="text-sm text-dewey-mute hover:text-dewey-ink" />
           <SignOutButton className="text-sm text-dewey-accent hover:underline" />
         </div>
       </div>

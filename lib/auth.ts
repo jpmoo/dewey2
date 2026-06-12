@@ -100,6 +100,21 @@ export const authOptions: NextAuthOptions = {
             delete token.impersonatorName;
           }
         }
+
+        // Reload the current identity from the DB (e.g. after a self profile
+        // edit) so the name/nickname in the UI update without re-login.
+        else if (action === "refresh") {
+          const current = await getUserById(Number(token.sub));
+          if (current) {
+            const keepImpersonator = token.impersonatorId;
+            const keepImpersonatorName = token.impersonatorName;
+            applyUserToToken(token, current);
+            if (keepImpersonator) {
+              token.impersonatorId = keepImpersonator;
+              token.impersonatorName = keepImpersonatorName;
+            }
+          }
+        }
       }
 
       return token;

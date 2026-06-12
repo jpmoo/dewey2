@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ProfileButton } from "@/components/ProfileButton";
 import { CoachTabs } from "@/components/coach/CoachTabs";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ export default async function CoachPage() {
         </div>
         <div className="flex items-center gap-4">
           <ThemeToggle className="text-sm text-dewey-mute hover:text-dewey-ink" />
+          <ProfileButton className="text-sm text-dewey-mute hover:text-dewey-ink" />
           <SignOutButton className="text-sm text-dewey-mute hover:text-dewey-ink" />
         </div>
       </header>
