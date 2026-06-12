@@ -1119,7 +1119,10 @@ function CanvasAssistant({
         }
       }
 
-      if (graph) setProposed(graph);
+      if (graph) {
+        setProposed(graph);
+        setPreviewing(true); // pop the preview with discard/add/replace options
+      }
     } catch (e) {
       setAssistant(e instanceof Error ? e.message : "Request failed");
     } finally {
@@ -1186,53 +1189,6 @@ function CanvasAssistant({
             </div>
           )}
 
-          {proposed && (
-            <div className="flex items-center justify-between gap-2 mb-2 rounded-md border border-dewey-accent/40 bg-dewey-accent/10 px-3 py-2 text-sm">
-              <span>
-                The assistant proposed {proposed.nodes.length} activities and{" "}
-                {proposed.phases.length} phases.
-              </span>
-              <span className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  className="dewey-btn-secondary"
-                  onClick={() => setPreviewing(true)}
-                >
-                  Preview
-                </button>
-                <button
-                  type="button"
-                  className="dewey-btn-primary w-auto"
-                  onClick={() => {
-                    onAdd(proposed);
-                    setProposed(null);
-                  }}
-                  title="Append to the current canvas"
-                >
-                  Add to canvas
-                </button>
-                <button
-                  type="button"
-                  className="dewey-btn-secondary"
-                  onClick={() => {
-                    onApply(proposed);
-                    setProposed(null);
-                  }}
-                  title="Replace everything on the canvas"
-                >
-                  Replace canvas
-                </button>
-                <button
-                  type="button"
-                  className="dewey-btn-secondary"
-                  onClick={() => setProposed(null)}
-                >
-                  Discard
-                </button>
-              </span>
-            </div>
-          )}
-
           {previewing && proposed && (
             <PreviewModal
               graph={proposed}
@@ -1246,7 +1202,10 @@ function CanvasAssistant({
                 setProposed(null);
                 setPreviewing(false);
               }}
-              onClose={() => setPreviewing(false)}
+              onDiscard={() => {
+                setProposed(null);
+                setPreviewing(false);
+              }}
             />
           )}
 
@@ -1280,12 +1239,12 @@ function PreviewModal({
   graph,
   onAdd,
   onApply,
-  onClose,
+  onDiscard,
 }: {
   graph: TemplateGraph;
   onAdd: () => void;
   onApply: () => void;
-  onClose: () => void;
+  onDiscard: () => void;
 }) {
   const [colorMode, setColorMode] = useState<ColorMode>("light");
   useEffect(() => {
@@ -1357,14 +1316,14 @@ function PreviewModal({
   return (
     <div
       className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6"
-      onClick={onClose}
+      onClick={onDiscard}
     >
       <div
         className="bg-dewey-surface rounded-lg shadow-xl w-full max-w-4xl h-[70vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-2 border-b border-dewey-border">
-          <h3 className="text-sm font-semibold">Proposed graph — preview</h3>
+          <h3 className="text-sm font-semibold">Proposed arc — preview</h3>
           <span className="text-xs text-dewey-mute">
             {nodes.length} activities · {graph.phases?.length ?? 0} phases
           </span>
@@ -1420,13 +1379,23 @@ function PreviewModal({
           </ReactFlowProvider>
         </div>
         <div className="flex justify-end gap-2 px-4 py-2 border-t border-dewey-border">
-          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-            Close
+          <button type="button" className="dewey-btn-secondary" onClick={onDiscard}>
+            Discard
           </button>
-          <button type="button" className="dewey-btn-secondary" onClick={onApply}>
+          <button
+            type="button"
+            className="dewey-btn-secondary"
+            onClick={onApply}
+            title="Replace everything on the canvas"
+          >
             Replace canvas
           </button>
-          <button type="button" className="dewey-btn-primary w-auto" onClick={onAdd}>
+          <button
+            type="button"
+            className="dewey-btn-primary w-auto"
+            onClick={onAdd}
+            title="Append to the current canvas"
+          >
             Add to canvas
           </button>
         </div>
