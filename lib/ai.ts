@@ -167,6 +167,50 @@ export async function complianceCheck(text: string): Promise<{ allowed: boolean;
 }
 
 // ============================================================
+// Summarization (compliance + summarization model)
+// ============================================================
+
+const SUMMARY_SYSTEM = `You write concise descriptions of coaching templates for an educational coaching platform.
+Given a template's name and an outline of its phases and activities, write a single short paragraph
+(1-3 sentences) describing what the template is for and how it flows. Write plainly for a coach
+choosing a template. Do not invent activities that aren't listed. Respond with ONLY the description text — no labels, no quotes, no preamble.`;
+
+/**
+ * Generate a short description using the configured Ollama compliance +
+ * summarization model. Throws if no model/url is configured so the caller can
+ * fall back to a blank field.
+ */
+export async function summarizeWithComplianceModel(prompt: string): Promise<string> {
+  const settings = await getSystemSettings();
+  const model = (settings.ollama_compliance_model ?? "").trim();
+  const url = (settings.ollama_url ?? "").trim();
+  if (!model || !url) {
+    throw new Error("No compliance/summarization model is configured in System settings.");
+  }
+  const res = await fetch(`${url.replace(/\/$/, "")}/api/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      stream: false,
+      think: false,
+      keep_alive: "30m",
+      messages: [
+        { role: "system", content: SUMMARY_SYSTEM },
+        { role: "user", content: prompt },
+      ],
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Ollama responded ${res.status}`);
+  }
+  const data = (await res.json()) as { message?: { content?: string } };
+  return (data.message?.content ?? "").trim();
+}
+
+// ============================================================
 // Warmup
 // ============================================================
 

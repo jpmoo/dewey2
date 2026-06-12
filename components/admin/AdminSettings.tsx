@@ -202,20 +202,21 @@ export function AdminSettings() {
         </div>
 
         <div>
-          <label className="dewey-label">Compliance model</label>
+          <label className="dewey-label">Compliance and summarization model</label>
           <select
             className="dewey-input"
             value={classModel}
             onChange={(e) => setClassModel(e.target.value)}
           >
-            <option value="">— none (no screening) —</option>
+            <option value="">— none —</option>
             {classOptions.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
           <p className="text-xs text-dewey-mute mt-1">
-            A local Ollama model that screens each message for safety before the coaching model runs.
-            Leave unset to skip screening.
+            A local Ollama model used for two lightweight jobs: screening each message for safety
+            before the coaching model runs, and drafting short summaries such as template
+            descriptions. Leave unset to skip screening and AI-drafted descriptions.
           </p>
         </div>
 

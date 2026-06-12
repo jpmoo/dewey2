@@ -217,8 +217,13 @@ function CanvasInner({
 
   const [name, setName] = useState(template.name);
   const [phases, setPhases] = useState<TemplatePhase[]>(template.graph.phases ?? []);
+  const [description, setDescription] = useState(template.description ?? "");
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  // Save dialog: prompts for a description (pre-drafted by the summarization model).
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [descDraft, setDescDraft] = useState("");
+  const [descLoading, setDescLoading] = useState(false);
   // null until the template exists in the DB (a "new" template is created on first Save).
   const [savedId, setSavedId] = useState<number | null>(template.id > 0 ? template.id : null);
   // Snapshot of the last-saved state; set on mount and after each save to detect unsaved changes.
@@ -308,12 +313,19 @@ function CanvasInner({
   }, []);
   const onConnectEnd = useCallback(() => setIsConnecting(false), []);
 
-  // Tag nodes that already have an outgoing edge so their handles hide on hover
-  // (they can still be a drop target while a connection is being drawn).
+  // An activity has at most one incoming and one outgoing edge. Tag nodes that
+  // are fully connected (both) so their handles hide on hover — a node with only
+  // one of the two still shows handles so the missing direction can be drawn.
   const outSources = useMemo(() => new Set(edges.map((e) => e.source)), [edges]);
+  const inTargets = useMemo(() => new Set(edges.map((e) => e.target)), [edges]);
   const flowNodes = useMemo(
-    () => nodes.map((n) => (outSources.has(n.id) ? { ...n, className: "has-out" } : n)),
-    [nodes, outSources]
+    () =>
+      nodes.map((n) =>
+        outSources.has(n.id) && inTargets.has(n.id)
+          ? { ...n, className: "fully-connected" }
+          : n
+      ),
+    [nodes, outSources, inTargets]
   );
   const onConnect = useCallback(
     (c: Connection) => {
@@ -325,8 +337,9 @@ function CanvasInner({
       }
       if (!source || !target || source === target) return;
       setEdges((eds) => {
-        // One outgoing connection per activity (no duplicates, no fan-out).
+        // At most one outgoing per source and one incoming per target.
         if (eds.some((e) => e.source === source)) return eds;
+        if (eds.some((e) => e.target === target)) return eds;
         return addEdge(
           { source, target, sourceHandle, targetHandle, id: newId("e"), markerEnd: ARROW },
           eds
@@ -654,31 +667,56 @@ function CanvasInner({
   }, []);
   const dirty = savedSnapshot !== null && currentSnapshot !== savedSnapshot;
 
-  // ---- Save: create on first save (new template), then patch ----
-  const save = useCallback(async () => {
+  // ---- Save: confirm a description first, create on first save then patch ----
+  const draftDescription = useCallback(async () => {
+    setDescLoading(true);
+    try {
+      const { description: draft } = await apiFetch<{ description: string }>(
+        "/api/admin/templates/describe",
+        { method: "POST", body: { name, graph: buildGraph() } }
+      );
+      if (draft) setDescDraft(draft);
+    } catch {
+      /* leave the field as-is if the model is unavailable */
+    } finally {
+      setDescLoading(false);
+    }
+  }, [name, buildGraph]);
+
+  const openSaveDialog = useCallback(() => {
+    setDescDraft(description);
+    setSaveOpen(true);
+    // Pre-draft a description with the summarization model when none exists yet.
+    if (!description.trim()) draftDescription();
+  }, [description, draftDescription]);
+
+  const persist = useCallback(async () => {
     setSaving(true);
     try {
       const graph = buildGraph();
+      const desc = descDraft.trim() || null;
       if (savedId == null) {
         const { template: created } = await apiFetch<{ template: CoachingTemplate }>(
           "/api/admin/templates",
-          { method: "POST", body: { name, graph } }
+          { method: "POST", body: { name, description: desc, graph } }
         );
         setSavedId(created.id);
       } else {
         await apiFetch(`/api/admin/templates/${savedId}`, {
           method: "PATCH",
-          body: { name, graph },
+          body: { name, description: desc, graph },
         });
       }
+      setDescription(desc ?? "");
       setSavedSnapshot(JSON.stringify({ name, graph }));
       setSavedAt(new Date().toLocaleTimeString());
+      setSaveOpen(false);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
-  }, [buildGraph, name, savedId]);
+  }, [buildGraph, name, savedId, descDraft]);
 
   // Warn before discarding unsaved work.
   const handleClose = useCallback(() => {
@@ -752,7 +790,12 @@ function CanvasInner({
           ) : savedAt ? (
             <span className="text-xs text-dewey-mute">Saved {savedAt}</span>
           ) : null}
-          <button type="button" className="dewey-btn-primary w-auto" onClick={save} disabled={saving}>
+          <button
+            type="button"
+            className="dewey-btn-primary w-auto"
+            onClick={openSaveDialog}
+            disabled={saving}
+          >
             {saving ? "Saving…" : "Save"}
           </button>
           <button type="button" className="dewey-btn-secondary" onClick={handleClose}>
@@ -945,6 +988,53 @@ function CanvasInner({
           }}
           onClose={() => setEditingPhaseId(null)}
         />
+      )}
+
+      {saveOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-dewey-border bg-dewey-surface p-5 shadow-xl">
+            <h2 className="text-base font-semibold text-dewey-ink">Save template</h2>
+            <p className="mt-1 text-sm text-dewey-mute">
+              Add a description so coaches know what this template is for. We&apos;ve drafted one
+              you can edit.
+            </p>
+            <div className="mt-3 flex items-center justify-between">
+              <label className="dewey-label mb-0">Description</label>
+              <button
+                type="button"
+                className="text-xs text-dewey-accent hover:underline disabled:opacity-50"
+                onClick={draftDescription}
+                disabled={descLoading}
+              >
+                {descLoading ? "Drafting…" : "Regenerate with AI"}
+              </button>
+            </div>
+            <textarea
+              className="dewey-input mt-1 h-28 resize-y"
+              value={descLoading && !descDraft ? "" : descDraft}
+              onChange={(e) => setDescDraft(e.target.value)}
+              placeholder={descLoading ? "Drafting a description…" : "Describe this template…"}
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="dewey-btn-secondary"
+                onClick={() => setSaveOpen(false)}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="dewey-btn-primary w-auto"
+                onClick={persist}
+                disabled={saving}
+              >
+                {saving ? "Saving…" : "Save template"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
