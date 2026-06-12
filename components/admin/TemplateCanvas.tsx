@@ -95,14 +95,6 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
       <div className="px-2 py-1.5">
         <div className="font-medium leading-tight">{data.label}</div>
         <div className="text-[10px] text-dewey-mute mt-0.5">{data.gating}</div>
-        {data.phaseName && (
-          <div
-            className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] text-white"
-            style={{ background: data.phaseColor || catColor }}
-          >
-            {data.phaseName}
-          </div>
-        )}
       </div>
       <Handle type="source" position={Position.Bottom} />
     </div>
