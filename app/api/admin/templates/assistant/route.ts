@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
-import { chatStream, type ChatMessage } from "@/lib/ai";
+import { chatStream, complianceCheck, type ChatMessage } from "@/lib/ai";
 import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
 import { ACTIVITY_TYPES, ACTIVITY_BY_KEY } from "@/lib/activities";
 import type { TemplateGraph } from "@/lib/templates";
@@ -200,6 +200,18 @@ export async function POST(request: NextRequest) {
       let graphStarted = false;
       let firstTokenAt = 0;
       try {
+        // Pre-generation compliance screen — refuse before calling the model.
+        const verdict = await complianceCheck(message);
+        if (!verdict.allowed) {
+          const msg = verdict.reason
+            ? `I can't help with that: ${verdict.reason}`
+            : "I can't help with that request.";
+          send(controller, { type: "text", text: msg });
+          send(controller, { type: "done", reply: msg, proposedGraph: null });
+          controller.close();
+          return;
+        }
+
         // Surface the RAG source links up front, before any model output streams.
         if (sources.length > 0) send(controller, { type: "sources", sources });
 

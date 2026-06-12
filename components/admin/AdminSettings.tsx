@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api-client";
 
 type SettingsView = {
   ollama_url: string | null;
-  ollama_classification_model: string | null;
+  ollama_compliance_model: string | null;
   ollama_coaching_model: string | null;
   rag_url: string | null;
   rag_default_threshold: number;
@@ -55,7 +55,7 @@ export function AdminSettings() {
     try {
       const { settings } = await apiFetch<{ settings: SettingsView }>("/api/admin/settings");
       setOllamaUrl(settings.ollama_url ?? "");
-      setClassModel(settings.ollama_classification_model ?? "");
+      setClassModel(settings.ollama_compliance_model ?? "");
       setCoachingModel(settings.ollama_coaching_model ?? "");
       setRagUrl(settings.rag_url ?? "");
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
@@ -122,7 +122,7 @@ export function AdminSettings() {
     try {
       const body: Record<string, unknown> = {
         ollama_url: ollamaUrl,
-        ollama_classification_model: classModel,
+        ollama_compliance_model: classModel,
         ollama_coaching_model: coachingModel,
         rag_url: ragUrl,
         rag_default_threshold: ragThreshold,
@@ -169,7 +169,7 @@ export function AdminSettings() {
         <h2 className="text-lg font-semibold">System settings</h2>
         <p className="text-sm text-dewey-mute">
           Global configuration shared across the platform: the two-model stack
-          (Ollama for routing/compliance, Claude for coaching), RAG, and the
+          (Ollama for compliance, Claude or Ollama for coaching), RAG, and the
           default theme.
         </p>
       </div>
@@ -202,19 +202,20 @@ export function AdminSettings() {
         </div>
 
         <div>
-          <label className="dewey-label">Classification / summarization model</label>
+          <label className="dewey-label">Compliance model</label>
           <select
             className="dewey-input"
             value={classModel}
             onChange={(e) => setClassModel(e.target.value)}
           >
-            <option value="">— none selected —</option>
+            <option value="">— none (no screening) —</option>
             {classOptions.map((m) => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
           <p className="text-xs text-dewey-mute mt-1">
-            Used for arc classification, compliance screening, and summarization.
+            A local Ollama model that screens each message for safety before the coaching model runs.
+            Leave unset to skip screening.
           </p>
         </div>
 

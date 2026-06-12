@@ -107,53 +107,111 @@ async function callOllama(p: {
 }
 
 // ============================================================
+// Compliance screen
+// ============================================================
+
+const COMPLIANCE_SYSTEM = `You are a content-safety screen for an educational coaching platform.
+Decide whether the following message is appropriate to process. Block content that is harmful,
+abusive, exploitative, hateful, or that seeks to misuse the tool. Ordinary professional
+education/coaching requests are allowed.
+Respond with ONLY a JSON object: {"allowed": true|false, "reason": "<brief reason if blocked>"}.`;
+
+/**
+ * Pre-generation compliance screen using the configured Ollama compliance model.
+ * Returns { allowed } — defaults to allowed when no compliance model is set, and
+ * fails open (allowed, with a logged warning) if the model errors, so a
+ * misconfigured screen never hard-blocks the tool.
+ */
+export async function complianceCheck(text: string): Promise<{ allowed: boolean; reason?: string }> {
+  const settings = await getSystemSettings();
+  const model = (settings.ollama_compliance_model ?? "").trim();
+  const url = (settings.ollama_url ?? "").trim();
+  if (!model || !url || !text.trim()) return { allowed: true };
+
+  try {
+    const res = await fetch(`${url.replace(/\/$/, "")}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        think: false,
+        keep_alive: "30m",
+        format: "json",
+        messages: [
+          { role: "system", content: COMPLIANCE_SYSTEM },
+          { role: "user", content: text },
+        ],
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) {
+      console.warn("[compliance] screen error", res.status);
+      return { allowed: true };
+    }
+    const data = (await res.json()) as { message?: { content?: string } };
+    const raw = data.message?.content ?? "";
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start === -1 || end <= start) return { allowed: true };
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as { allowed?: unknown; reason?: unknown };
+    const allowed = parsed.allowed !== false; // anything but an explicit false is allowed
+    return {
+      allowed,
+      reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
+    };
+  } catch (e) {
+    console.warn("[compliance] screen failed", e instanceof Error ? e.message : e);
+    return { allowed: true };
+  }
+}
+
+// ============================================================
 // Warmup
 // ============================================================
 
-/**
- * Pre-load the configured coaching model so the first real call doesn't pay a
- * cold start. No-op for Claude (hosted). For Ollama, posts an empty prompt with
- * keep_alive so the model loads into VRAM and stays resident.
- */
-export async function warmCoachingModel(): Promise<{
-  warmed: boolean;
-  model?: string;
-  ms?: number;
-  error?: string;
-}> {
-  const settings = await getSystemSettings();
-  const selected = (settings.ollama_coaching_model ?? "").trim();
-  const sep = selected.indexOf(":");
-  const backend = sep === -1 ? "" : selected.slice(0, sep).toLowerCase();
-  const modelId = sep === -1 ? selected : selected.slice(sep + 1);
-
-  if (backend !== "ollama") return { warmed: false }; // Claude needs no warmup
-  const url = (settings.ollama_url ?? "").trim();
-  if (!url || !modelId) return { warmed: false };
-
-  const t0 = Date.now();
+/** Load one Ollama model into VRAM (empty prompt + keep_alive). Best-effort. */
+async function warmOllama(url: string, model: string): Promise<{ model: string; ok: boolean; error?: string }> {
   try {
     const res = await fetch(`${url.replace(/\/$/, "")}/api/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: modelId,
-        prompt: "",
-        stream: false,
-        keep_alive: "30m",
-        think: false,
-      }),
+      body: JSON.stringify({ model, prompt: "", stream: false, keep_alive: "30m", think: false }),
       signal: AbortSignal.timeout(120000),
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      return { warmed: false, model: modelId, error: body.error || `HTTP ${res.status}` };
+      return { model, ok: false, error: body.error || `HTTP ${res.status}` };
     }
     await res.json().catch(() => ({}));
-    return { warmed: true, model: modelId, ms: Date.now() - t0 };
+    return { model, ok: true };
   } catch (e) {
-    return { warmed: false, model: modelId, error: e instanceof Error ? e.message : "warmup failed" };
+    return { model, ok: false, error: e instanceof Error ? e.message : "warmup failed" };
   }
+}
+
+/**
+ * Pre-load the Ollama models in the request path (coaching, if local, and the
+ * compliance screen) so the first real call doesn't pay a cold start. No-op for
+ * a Claude coaching model (hosted).
+ */
+export async function warmCoachingModel(): Promise<{ warmed: string[] }> {
+  const settings = await getSystemSettings();
+  const url = (settings.ollama_url ?? "").trim();
+  if (!url) return { warmed: [] };
+
+  const targets = new Set<string>();
+  const coaching = (settings.ollama_coaching_model ?? "").trim();
+  if (coaching.toLowerCase().startsWith("ollama:")) {
+    const name = coaching.slice(coaching.indexOf(":") + 1).trim();
+    if (name) targets.add(name);
+  }
+  const compliance = (settings.ollama_compliance_model ?? "").trim();
+  if (compliance) targets.add(compliance);
+
+  if (targets.size === 0) return { warmed: [] };
+  const results = await Promise.all(Array.from(targets).map((m) => warmOllama(url, m)));
+  return { warmed: results.filter((r) => r.ok).map((r) => r.model) };
 }
 
 // ============================================================

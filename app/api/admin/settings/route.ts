@@ -20,7 +20,7 @@ export async function GET() {
   return NextResponse.json({
     settings: {
       ollama_url: s.ollama_url,
-      ollama_classification_model: s.ollama_classification_model,
+      ollama_compliance_model: s.ollama_compliance_model,
       ollama_coaching_model: s.ollama_coaching_model,
       rag_url: s.rag_url,
       rag_default_threshold: s.rag_default_threshold,
@@ -49,8 +49,8 @@ export async function PATCH(request: NextRequest) {
 
   const update: Parameters<typeof updateSystemSettings>[0] = {};
   if (typeof body.ollama_url === "string") update.ollama_url = body.ollama_url;
-  if (typeof body.ollama_classification_model === "string")
-    update.ollama_classification_model = body.ollama_classification_model;
+  if (typeof body.ollama_compliance_model === "string")
+    update.ollama_compliance_model = body.ollama_compliance_model;
   if (typeof body.ollama_coaching_model === "string")
     update.ollama_coaching_model = body.ollama_coaching_model;
   if (typeof body.rag_url === "string") update.rag_url = body.rag_url;

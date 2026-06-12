@@ -8,7 +8,7 @@ import { ensureSchema, ensureSystemSettingsRow } from "@/lib/db";
  */
 export interface SystemSettings {
   ollama_url: string | null;
-  ollama_classification_model: string | null;
+  ollama_compliance_model: string | null;
   ollama_coaching_model: string | null;
   anthropic_api_key: string | null;
   rag_url: string | null;
@@ -23,7 +23,7 @@ export interface SystemSettings {
 function rowToSettings(row: Record<string, unknown>): SystemSettings {
   return {
     ollama_url: (row.ollama_url as string | null) ?? null,
-    ollama_classification_model: (row.ollama_classification_model as string | null) ?? null,
+    ollama_compliance_model: (row.ollama_compliance_model as string | null) ?? null,
     ollama_coaching_model: (row.ollama_coaching_model as string | null) ?? null,
     anthropic_api_key: (row.anthropic_api_key as string | null) ?? null,
     rag_url: (row.rag_url as string | null) ?? null,
@@ -59,7 +59,7 @@ export function getEffectiveAnthropicKey(stored: string | null): string | null {
 
 export interface UpdateSystemSettingsParams {
   ollama_url?: string | null;
-  ollama_classification_model?: string | null;
+  ollama_compliance_model?: string | null;
   ollama_coaching_model?: string | null;
   anthropic_api_key?: string | null;
   rag_url?: string | null;
@@ -85,8 +85,8 @@ export async function updateSystemSettings(
   };
 
   if (params.ollama_url !== undefined) push("ollama_url", emptyToNull(params.ollama_url));
-  if (params.ollama_classification_model !== undefined)
-    push("ollama_classification_model", emptyToNull(params.ollama_classification_model));
+  if (params.ollama_compliance_model !== undefined)
+    push("ollama_compliance_model", emptyToNull(params.ollama_compliance_model));
   if (params.ollama_coaching_model !== undefined)
     push("ollama_coaching_model", emptyToNull(params.ollama_coaching_model));
   if (params.anthropic_api_key !== undefined)

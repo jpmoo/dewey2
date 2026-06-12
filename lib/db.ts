@@ -115,7 +115,7 @@ export function ensureSchema(): Promise<void> {
           id                           INTEGER PRIMARY KEY DEFAULT 1
                                          CHECK (id = 1),
           ollama_url                   TEXT,
-          ollama_classification_model  TEXT,
+          ollama_compliance_model      TEXT,
           ollama_coaching_model        TEXT,
           anthropic_api_key            TEXT,
           rag_url                      TEXT,
@@ -130,6 +130,19 @@ export function ensureSchema(): Promise<void> {
         -- bootstrap safe to run against databases created before this column.
         ALTER TABLE system_settings
           ADD COLUMN IF NOT EXISTS rag_default_collections JSONB NOT NULL DEFAULT '[]';
+
+        -- The classification model slot is now the compliance model. Rename on
+        -- upgrade; ADD ensures the column exists either way.
+        DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'system_settings' AND column_name = 'ollama_classification_model')
+             AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_name = 'system_settings' AND column_name = 'ollama_compliance_model') THEN
+            ALTER TABLE system_settings RENAME COLUMN ollama_classification_model TO ollama_compliance_model;
+          END IF;
+        END $$;
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_compliance_model TEXT;
 
         -- Per-user audit log. user_id is the subject; actor_id is who did it
         -- (null for system/self events). Cascades away with the user.
