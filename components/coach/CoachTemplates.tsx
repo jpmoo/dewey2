@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { apiFetch } from "@/lib/api-client";
+import { useDialog } from "@/components/DialogProvider";
 import type { CoachingTemplate } from "@/lib/templates";
 
 const COACH_BASE = "/api/coach/templates";
@@ -31,6 +32,7 @@ function CanvasLoading() {
  * template into an editable copy, and edit/delete their own.
  */
 export function CoachTemplates() {
+  const dialog = useDialog();
   const [templates, setTemplates] = useState<CoachingTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,18 +75,21 @@ export function CoachTemplates() {
         setViewing(null);
         setEditing(template.id);
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to duplicate plan");
+        dialog.alert(e instanceof Error ? e.message : "Failed to duplicate plan");
       } finally {
         setBusy(false);
       }
     },
-    [load]
+    [load, dialog]
   );
 
   const remove = useCallback(
     async (t: CoachingTemplate) => {
       if (
-        !confirm(`Delete "${t.name}"? It will be hidden, and an admin can recover it if needed.`)
+        !(await dialog.confirm(
+          `Delete "${t.name}"? It will be hidden, and an admin can recover it if needed.`,
+          { title: "Delete plan", confirmText: "Delete", danger: true }
+        ))
       )
         return;
       setBusy(true);
@@ -92,12 +97,12 @@ export function CoachTemplates() {
         await apiFetch(`${COACH_BASE}/${t.id}`, { method: "DELETE" });
         await load();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to delete plan");
+        dialog.alert(e instanceof Error ? e.message : "Failed to delete plan");
       } finally {
         setBusy(false);
       }
     },
-    [load]
+    [load, dialog]
   );
 
   // Full-screen canvas / viewer take over the page.

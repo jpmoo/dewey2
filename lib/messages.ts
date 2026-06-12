@@ -1,5 +1,5 @@
 import { getPool } from "@/lib/pg";
-import { ensureSchema } from "@/lib/db";
+import { ensureSchema, getAdminIds, logUserEvent } from "@/lib/db";
 
 /**
  * Messaging data layer: threads, messages, and DB-stored file attachments.
@@ -7,7 +7,12 @@ import { ensureSchema } from "@/lib/db";
  * oversight (see listThreadsForUser / canAccessThread).
  */
 
-export type ThreadKind = "direct" | "template_share" | "template_submission" | "partnership";
+export type ThreadKind =
+  | "direct"
+  | "template_share"
+  | "template_submission"
+  | "partnership"
+  | "compliance";
 export type ThreadStatus = "open" | "approved" | "rejected" | null;
 
 function toIso(v: unknown): string {
@@ -387,6 +392,71 @@ export async function getAttachmentForDownload(
     data: r.data as Buffer,
     threadId: r.thread_id as number,
   };
+}
+
+// ============================================================
+// Compliance flags
+// ============================================================
+
+/**
+ * Record a compliance-screen flag: log it on the flagged user's card and post a
+ * detailed report (the flagged message plus the conversation so far) to a
+ * per-user compliance thread visible only to admins. The flagged user is NOT a
+ * participant, so the internal report never surfaces to them.
+ */
+export async function reportComplianceFlag(params: {
+  userId: number;
+  userName: string;
+  flaggedMessage: string;
+  history: { role: string; content: string }[];
+  context?: string;
+}): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+
+  // Reuse the user's existing compliance thread, else create one (admins only).
+  const existing = await pool.query(
+    `SELECT id FROM message_threads
+      WHERE kind = 'compliance' AND created_by = $1 AND deleted_at IS NULL
+      ORDER BY id LIMIT 1`,
+    [params.userId]
+  );
+  let threadId: number;
+  if (existing.rows[0]) {
+    threadId = existing.rows[0].id as number;
+  } else {
+    const created = await pool.query(
+      `INSERT INTO message_threads (kind, subject, created_by)
+       VALUES ('compliance', $1, $2) RETURNING id`,
+      [`Compliance flags — ${params.userName}`, params.userId]
+    );
+    threadId = created.rows[0].id as number;
+    for (const adminId of await getAdminIds()) {
+      await pool.query(
+        `INSERT INTO thread_participants (thread_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [threadId, adminId]
+      );
+    }
+  }
+
+  const transcript = params.history
+    .map((h) => `${h.role === "assistant" ? "Assistant" : "User"}: ${h.content}`)
+    .join("\n");
+  const body = [
+    `⚠ The compliance screen flagged a message${params.context ? ` (${params.context})` : ""}.`,
+    "",
+    "Flagged message:",
+    params.flaggedMessage,
+    ...(transcript ? ["", "Conversation so far:", transcript] : []),
+  ].join("\n");
+
+  await postMessage({ threadId, senderId: params.userId, body });
+  await logUserEvent({
+    userId: params.userId,
+    actorId: params.userId,
+    action: "compliance_flagged",
+    detail: params.context ?? null,
+  });
 }
 
 // ============================================================

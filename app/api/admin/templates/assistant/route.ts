@@ -3,6 +3,7 @@ import { requireCoachOrAdmin } from "@/lib/guard";
 import { chatStream, complianceCheck, type ChatMessage } from "@/lib/ai";
 import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
 import { ACTIVITY_TYPES, ACTIVITY_BY_KEY } from "@/lib/activities";
+import { reportComplianceFlag } from "@/lib/messages";
 import type { TemplateGraph } from "@/lib/templates";
 
 const PHASE_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db2777"];
@@ -155,6 +156,7 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
 export async function POST(request: NextRequest) {
   const guard = await requireCoachOrAdmin();
   if (guard instanceof NextResponse) return guard;
+  const { session } = guard;
 
   const body = await request.json().catch(() => ({}));
   const message = typeof body.message === "string" ? body.message.trim() : "";
@@ -207,6 +209,14 @@ export async function POST(request: NextRequest) {
         // Pre-generation compliance screen — refuse before calling the model.
         const verdict = await complianceCheck(message);
         if (!verdict.allowed) {
+          // Log the flag and report it (with conversation history) to admins.
+          await reportComplianceFlag({
+            userId: Number(session.user.id),
+            userName: session.user.nickname || session.user.name || session.user.username || "A user",
+            flaggedMessage: message,
+            history,
+            context: "plan assistant",
+          }).catch((e) => console.warn("[assistant] compliance report failed", e));
           send(controller, {
             type: "blocked",
             reason:

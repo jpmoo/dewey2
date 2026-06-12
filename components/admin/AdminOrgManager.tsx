@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
+import { useDialog } from "@/components/DialogProvider";
 
 type School = { id: number; district_id: number; name: string };
 type DistrictWithSchools = { id: number; name: string; schools: School[] };
 
 export function AdminOrgManager() {
+  const dialog = useDialog();
   const [districts, setDistricts] = useState<DistrictWithSchools[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,11 +42,11 @@ export function AdminOrgManager() {
       setNewDistrict("");
       await load();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to add district");
+      dialog.alert(e instanceof Error ? e.message : "Failed to add district");
     } finally {
       setBusy(false);
     }
-  }, [newDistrict, load]);
+  }, [newDistrict, load, dialog]);
 
   const addSchool = useCallback(
     async (districtId: number) => {
@@ -59,20 +61,21 @@ export function AdminOrgManager() {
         setSchoolDrafts((prev) => ({ ...prev, [districtId]: "" }));
         await load();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to add school");
+        dialog.alert(e instanceof Error ? e.message : "Failed to add school");
       } finally {
         setBusy(false);
       }
     },
-    [schoolDrafts, load]
+    [schoolDrafts, load, dialog]
   );
 
   const removeDistrict = useCallback(
     async (d: DistrictWithSchools) => {
       if (
-        !confirm(
-          `Hide "${d.name}"? It will be removed from view but recoverable from the audit log.`
-        )
+        !(await dialog.confirm(
+          `Hide "${d.name}"? It will be removed from view but recoverable from the audit log.`,
+          { title: "Hide district", confirmText: "Hide" }
+        ))
       )
         return;
       setBusy(true);
@@ -80,18 +83,21 @@ export function AdminOrgManager() {
         await apiFetch(`/api/admin/districts/${d.id}`, { method: "DELETE" });
         await load();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to delete district");
+        dialog.alert(e instanceof Error ? e.message : "Failed to delete district");
       } finally {
         setBusy(false);
       }
     },
-    [load]
+    [load, dialog]
   );
 
   const removeSchool = useCallback(
     async (s: School) => {
       if (
-        !confirm(`Hide "${s.name}"? It will be removed from view but recoverable from the audit log.`)
+        !(await dialog.confirm(
+          `Hide "${s.name}"? It will be removed from view but recoverable from the audit log.`,
+          { title: "Hide school", confirmText: "Hide" }
+        ))
       )
         return;
       setBusy(true);
@@ -99,12 +105,12 @@ export function AdminOrgManager() {
         await apiFetch(`/api/admin/schools/${s.id}`, { method: "DELETE" });
         await load();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to delete school");
+        dialog.alert(e instanceof Error ? e.message : "Failed to delete school");
       } finally {
         setBusy(false);
       }
     },
-    [load]
+    [load, dialog]
   );
 
   return (

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/components/SessionProvider";
+import { DialogProvider } from "@/components/DialogProvider";
 import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import { CornerLogo } from "@/components/CornerLogo";
 import { getServerSession } from "next-auth";
@@ -57,11 +58,13 @@ export default async function RootLayout({
     >
       <body className="min-h-screen antialiased font-sans bg-dewey-cream text-dewey-ink">
         <SessionProvider>
-          <ImpersonationBanner />
-          <div className="relative">
-            <CornerLogo />
-            {children}
-          </div>
+          <DialogProvider>
+            <ImpersonationBanner />
+            <div className="relative">
+              <CornerLogo />
+              {children}
+            </div>
+          </DialogProvider>
         </SessionProvider>
       </body>
     </html>

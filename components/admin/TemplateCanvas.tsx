@@ -30,7 +30,12 @@ import "@xyflow/react/dist/style.css";
 import ReactMarkdown from "react-markdown";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
+import { useDialog } from "@/components/DialogProvider";
 import { getHelperLines, HelperLines } from "./helper-lines";
+
+// The v1 "Compliance notice" wording, shown when the screen flags a message.
+const COMPLIANCE_NOTICE =
+  "The conversation is heading in a direction that may violate specific rules or laws about privacy, or trigger records retention requirements in your organization or locale. Remember that Dewey is only meant to be a reflective partner to push your thinking, not an authority for direct answers—particularly in areas like this. If the question or concern you are raising is a true problem of practice that could benefit from coaching and reflection, try rewording it so that it does not potentially lead the conversation into discussion of confidential or otherwise sensitive details. If you have questions about the appropriateness of the topic for discussion in Dewey, please consult your organization's or your own personal qualified legal counsel.";
 import {
   ACTIVITY_TYPES,
   ACTIVITY_BY_KEY,
@@ -215,6 +220,7 @@ function CanvasInner({
   /** CRUD base path: "/api/admin/templates" (admin) or "/api/coach/templates" (coach). */
   templatesBase: string;
 }) {
+  const dialog = useDialog();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -715,21 +721,36 @@ function CanvasInner({
       setSavedAt(new Date().toLocaleTimeString());
       setSaveOpen(false);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to save");
+      dialog.alert(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
-  }, [buildGraph, name, savedId, descDraft, templatesBase]);
+  }, [buildGraph, name, savedId, descDraft, templatesBase, dialog]);
 
   // Warn before discarding unsaved work.
-  const handleClose = useCallback(() => {
-    if (dirty && !confirm("You have unsaved changes. Close without saving?")) return;
+  const handleClose = useCallback(async () => {
+    if (
+      dirty &&
+      !(await dialog.confirm("You have unsaved changes. Close without saving?", {
+        title: "Unsaved changes",
+        confirmText: "Discard",
+        danger: true,
+      }))
+    )
+      return;
     onClose();
-  }, [dirty, onClose]);
+  }, [dirty, onClose, dialog]);
 
   // Clear the whole canvas (activities, edges, and phases).
-  const clearCanvas = useCallback(() => {
-    if (!confirm("Clear the entire canvas? This removes all activities and phases.")) return;
+  const clearCanvas = useCallback(async () => {
+    if (
+      !(await dialog.confirm("Clear the entire canvas? This removes all activities and phases.", {
+        title: "Clear canvas",
+        confirmText: "Clear",
+        danger: true,
+      }))
+    )
+      return;
     setNodes([]);
     setEdges([]);
     setPhases([]);
@@ -1216,6 +1237,7 @@ function CanvasAssistant({
   onApply: (g: TemplateGraph) => void;
   onAdd: (g: TemplateGraph) => void;
 }) {
+  const dialog = useDialog();
   const [open, setOpen] = useState(true);
   const [messages, setMessages] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
@@ -1354,9 +1376,10 @@ function CanvasAssistant({
       }
 
       if (blocked) {
-        // The compliance screen refused the message — drop the empty bubble and warn.
+        // The compliance screen refused the message — drop the empty bubble and
+        // show the standard compliance notice in an in-app modal.
         dropEmptyAssistant();
-        window.alert(blocked);
+        await dialog.alert(COMPLIANCE_NOTICE, { title: "Compliance notice" });
         return;
       }
 
@@ -1365,14 +1388,14 @@ function CanvasAssistant({
         setPreviewing(true); // pop the preview with discard/add/replace options
       }
     } catch (e) {
-      // Surface failures as a popup rather than rendering raw error text inline.
+      // Surface failures as a modal rather than rendering raw error text inline.
       dropEmptyAssistant();
-      window.alert(e instanceof Error ? e.message : "Request failed");
+      await dialog.alert(e instanceof Error ? e.message : "Request failed");
     } finally {
       setLoading(false);
       setConstructing(false);
     }
-  }, [input, loading, messages, buildGraph]);
+  }, [input, loading, messages, buildGraph, dialog]);
 
   return (
     <div className="border-t border-dewey-border bg-dewey-surface">

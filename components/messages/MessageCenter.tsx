@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
+import { useDialog } from "@/components/DialogProvider";
+import { Avatar } from "@/components/Avatar";
 
 type Participant = { id: number; full_name: string; system_role: string };
 type AttachmentMeta = { id: number; filename: string; mime_type: string; size_bytes: number };
@@ -423,7 +425,8 @@ function MessageBubble({
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[80%] ${mine ? "items-end" : "items-start"}`}>
-        <div className="mb-0.5 flex items-center gap-2 text-[11px] text-dewey-mute">
+        <div className="mb-0.5 flex items-center gap-1.5 text-[11px] text-dewey-mute">
+          <Avatar userId={m.sender_id} name={m.sender_name} size={18} />
           <span className="font-medium text-dewey-ink">{m.sender_name ?? "Unknown"}</span>
           <span>{new Date(m.created_at).toLocaleString()}</span>
         </div>
@@ -492,6 +495,7 @@ function Attachment({
 }
 
 function Composer({ threadId, onSent }: { threadId: number; onSent: () => void }) {
+  const dialog = useDialog();
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -523,7 +527,7 @@ function Composer({ threadId, onSent }: { threadId: number; onSent: () => void }
       setFiles([]);
       onSent();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to send");
+      dialog.alert(e instanceof Error ? e.message : "Failed to send");
     } finally {
       setSending(false);
     }

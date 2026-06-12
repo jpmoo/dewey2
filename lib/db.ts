@@ -244,6 +244,14 @@ export function ensureSchema(): Promise<void> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments (message_id);
+
+        -- Profile photos (one per user), stored in-DB as BYTEA.
+        CREATE TABLE IF NOT EXISTS user_avatars (
+          user_id    INTEGER PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+          mime_type  TEXT NOT NULL,
+          data       BYTEA NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
@@ -670,6 +678,45 @@ export async function getMessageRecipients(me: {
     district_name: (r.district_name as string | null) ?? null,
     school_name: (r.school_name as string | null) ?? null,
   }));
+}
+
+// ============================================================
+// Profile photos
+// ============================================================
+
+export async function setUserAvatar(
+  userId: number,
+  mimeType: string,
+  data: Buffer
+): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query(
+    `INSERT INTO user_avatars (user_id, mime_type, data, updated_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (user_id) DO UPDATE
+       SET mime_type = EXCLUDED.mime_type, data = EXCLUDED.data, updated_at = NOW()`,
+    [userId, mimeType, data]
+  );
+}
+
+export async function getUserAvatar(
+  userId: number
+): Promise<{ mimeType: string; data: Buffer } | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "SELECT mime_type, data FROM user_avatars WHERE user_id = $1 LIMIT 1",
+    [userId]
+  );
+  const r = res.rows[0];
+  return r ? { mimeType: r.mime_type as string, data: r.data as Buffer } : null;
+}
+
+export async function deleteUserAvatar(userId: number): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query("DELETE FROM user_avatars WHERE user_id = $1", [userId]);
 }
 
 /** All admin user ids (participants for template submissions). */

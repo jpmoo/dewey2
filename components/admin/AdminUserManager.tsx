@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api-client";
 import { rootPath } from "@/lib/base-path";
+import { useDialog } from "@/components/DialogProvider";
 
 // Opening a template from a log entry shows it in a read-only canvas overlay.
 const TemplateReadOnly = dynamic(
@@ -73,6 +74,7 @@ const ACTION_LABELS: Record<string, string> = {
   template_submitted: "Submitted a plan",
   template_approved: "Approved a plan",
   template_rejected: "Rejected a plan",
+  compliance_flagged: "Compliance screen flagged a message",
   restored: "Restored",
 };
 
@@ -85,6 +87,7 @@ const DELETE_ACTIONS = new Set([
 ]);
 
 export function AdminUserManager() {
+  const dialog = useDialog();
   const { data: session, update } = useSession();
   const currentUserId = session?.user?.id ? parseInt(session.user.id, 10) : null;
 
@@ -128,9 +131,10 @@ export function AdminUserManager() {
   const loginAs = useCallback(
     async (u: User) => {
       if (
-        !confirm(
-          `Log in as ${u.full_name} (@${u.username})? You'll see Dewey as this ${u.system_role}. A banner lets you return to admin.`
-        )
+        !(await dialog.confirm(
+          `Log in as ${u.full_name} (@${u.username})? You'll see Dewey as this ${u.system_role}. A banner lets you return to admin.`,
+          { title: "Log in as user", confirmText: "Log in as" }
+        ))
       )
         return;
       setImpersonating(u.id);
@@ -139,11 +143,11 @@ export function AdminUserManager() {
         // Hard navigation so the dispatcher routes by the now-impersonated role.
         window.location.href = rootPath;
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to switch users");
+        dialog.alert(e instanceof Error ? e.message : "Failed to switch users");
         setImpersonating(null);
       }
     },
-    [update]
+    [update, dialog]
   );
 
   // Schools shown in the filter are strictly those in the chosen district.
@@ -587,6 +591,7 @@ function UserEditModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const dialog = useDialog();
   const [fullName, setFullName] = useState(user.full_name);
   const [nickname, setNickname] = useState(user.nickname ?? "");
   const [email, setEmail] = useState(user.email ?? "");
@@ -703,9 +708,10 @@ function UserEditModal({
 
   const remove = async () => {
     if (
-      !confirm(
-        `Delete ${user.full_name} (@${user.username})? The account will be hidden and recoverable from the audit log.`
-      )
+      !(await dialog.confirm(
+        `Delete ${user.full_name} (@${user.username})? The account will be hidden and recoverable from the audit log.`,
+        { title: "Delete user", confirmText: "Delete", danger: true }
+      ))
     )
       return;
     setDeleting(true);
@@ -919,6 +925,7 @@ function LogRow({
   onOpenTemplate: (id: number) => void;
   onRestored: () => void;
 }) {
+  const dialog = useDialog();
   const [restoring, setRestoring] = useState(false);
   const meta: string[] = [];
   // Skip detail when it just repeats the entity label (e.g. delete entries).
@@ -937,7 +944,7 @@ function LogRow({
       });
       onRestored();
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to restore");
+      dialog.alert(e instanceof Error ? e.message : "Failed to restore");
       setRestoring(false);
     }
   };

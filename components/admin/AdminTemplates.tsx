@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { apiFetch } from "@/lib/api-client";
+import { useDialog } from "@/components/DialogProvider";
 import type { CoachingTemplate } from "@/lib/templates";
 
 // The canvas pulls in React Flow (browser-only), so load it client-side only.
@@ -20,6 +21,7 @@ function CanvasLoading() {
 }
 
 export function AdminTemplates() {
+  const dialog = useDialog();
   const [templates, setTemplates] = useState<CoachingTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +53,10 @@ export function AdminTemplates() {
   const remove = useCallback(
     async (t: CoachingTemplate) => {
       if (
-        !confirm(
-          `Delete "${t.name}"? It will be hidden from coaches but recoverable from the audit log.`
-        )
+        !(await dialog.confirm(
+          `Delete "${t.name}"? It will be hidden from coaches but recoverable from the audit log.`,
+          { title: "Delete plan", confirmText: "Delete", danger: true }
+        ))
       )
         return;
       setBusy(true);
@@ -61,12 +64,12 @@ export function AdminTemplates() {
         await apiFetch(`/api/admin/templates/${t.id}`, { method: "DELETE" });
         await load();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to delete plan");
+        dialog.alert(e instanceof Error ? e.message : "Failed to delete plan");
       } finally {
         setBusy(false);
       }
     },
-    [load]
+    [load, dialog]
   );
 
   if (editing !== null) {
@@ -162,6 +165,7 @@ type Submission = {
 
 /** Pending plan submissions from coaches, with approve/reject + a reply. */
 function SubmissionsPanel({ onDecided }: { onDecided: () => void }) {
+  const dialog = useDialog();
   const [subs, setSubs] = useState<Submission[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
 
@@ -183,9 +187,14 @@ function SubmissionsPanel({ onDecided }: { onDecided: () => void }) {
   const decide = useCallback(
     async (s: Submission, decision: "approve" | "reject") => {
       const verb = decision === "approve" ? "Approve" : "Reject";
-      const message = window.prompt(
-        `${verb} "${s.template_name ?? "template"}" — optional reply to ${s.coach_name ?? "the coach"}:`,
-        ""
+      const message = await dialog.prompt(
+        `Optional reply to ${s.coach_name ?? "the coach"}:`,
+        {
+          title: `${verb} "${s.template_name ?? "plan"}"`,
+          multiline: true,
+          confirmText: verb,
+          placeholder: "Add a note (optional)…",
+        }
       );
       // Cancel on the prompt aborts the decision.
       if (message === null) return;
@@ -198,12 +207,12 @@ function SubmissionsPanel({ onDecided }: { onDecided: () => void }) {
         await load();
         onDecided();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to record decision");
+        dialog.alert(e instanceof Error ? e.message : "Failed to record decision");
       } finally {
         setBusyId(null);
       }
     },
-    [load, onDecided]
+    [load, onDecided, dialog]
   );
 
   if (subs.length === 0) return null;
