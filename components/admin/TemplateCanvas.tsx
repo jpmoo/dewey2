@@ -1108,16 +1108,19 @@ function CanvasAssistant({
   // Resizable transcript height (drag the top border).
   const [transcriptHeight, setTranscriptHeight] = useState(200);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  // Auto-scroll only when the user is already near the bottom.
+  const stickToBottom = useRef(true);
 
   // Wake the coaching model when the canvas opens so the first call is warm.
   useEffect(() => {
     fetch(pathWithBase("/api/admin/ai/warmup"), { method: "POST" }).catch(() => {});
   }, []);
 
-  // Keep the latest message in view as turns are added and tokens stream in.
+  // Keep the latest message in view as turns are added and tokens stream in —
+  // but only if the user hasn't scrolled up to read earlier messages.
   useEffect(() => {
     const el = transcriptRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   // Drag the panel's top border to resize the transcript.
@@ -1146,6 +1149,7 @@ function CanvasAssistant({
     setInput("");
     setProposed(null);
     setConstructing(false);
+    stickToBottom.current = true; // sending always scrolls the new turn into view
     const history = messages;
     // Append the user turn and an empty assistant turn we fill as tokens stream in.
     setMessages((m) => [...m, { role: "user", text: q }, { role: "assistant", text: "" }]);
@@ -1253,6 +1257,10 @@ function CanvasAssistant({
           {messages.length > 0 && (
             <div
               ref={transcriptRef}
+              onScroll={(e) => {
+                const el = e.currentTarget;
+                stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+              }}
               style={{ height: transcriptHeight }}
               className="overflow-y-auto space-y-2 mb-2"
             >
