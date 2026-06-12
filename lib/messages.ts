@@ -55,6 +55,7 @@ export interface ThreadSummary {
   participants: ThreadParticipant[];
   last_message: { body: string; created_at: string; sender_name: string | null } | null;
   message_count: number;
+  unread: boolean;
 }
 
 // ============================================================
@@ -442,6 +443,26 @@ export async function createPartnership(
   return threadId;
 }
 
+/** Audit-log a message-center action with a deep-link to the thread. */
+export async function logThreadEvent(params: {
+  userId: number;
+  actorId: number;
+  action: string;
+  threadId: number;
+  detail?: string | null;
+}): Promise<void> {
+  const meta = await getThreadMeta(params.threadId);
+  await logUserEvent({
+    userId: params.userId,
+    actorId: params.actorId,
+    action: params.action,
+    detail: params.detail ?? null,
+    entityType: "message",
+    entityId: params.threadId,
+    entityLabel: meta?.subject || "Conversation",
+  });
+}
+
 // ============================================================
 // Listing + reading
 // ============================================================
@@ -488,7 +509,18 @@ export async function listThreadsForUser(
   }
 
   const threadsRes = await pool.query(
-    `SELECT t.*, ct.name AS template_name
+    `SELECT t.*, ct.name AS template_name,
+            (
+              EXISTS (SELECT 1 FROM thread_participants tp WHERE tp.thread_id = t.id AND tp.user_id = $1)
+              AND EXISTS (
+                SELECT 1 FROM messages m
+                 WHERE m.thread_id = t.id AND m.deleted_at IS NULL AND m.sender_id <> $1
+                   AND m.created_at > COALESCE(
+                     (SELECT last_read_at FROM thread_participants tpr
+                       WHERE tpr.thread_id = t.id AND tpr.user_id = $1),
+                     '1970-01-01'::timestamptz)
+              )
+            ) AS unread
        FROM message_threads t
        ${join}
       WHERE ${where.join(" AND ")}
@@ -560,7 +592,39 @@ export async function listThreadsForUser(
     participants: byThread.get(t.id) ?? [],
     last_message: lastByThread.get(t.id) ?? null,
     message_count: countByThread.get(t.id) ?? 0,
+    unread: t.unread === true,
   }));
+}
+
+/** Mark a thread read for a user (their participant row). */
+export async function markThreadRead(threadId: number, userId: number): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query(
+    "UPDATE thread_participants SET last_read_at = NOW() WHERE thread_id = $1 AND user_id = $2",
+    [threadId, userId]
+  );
+}
+
+/** Count of the user's threads with unread messages (excludes archived/pending). */
+export async function getUnreadThreadCount(userId: number): Promise<number> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT COUNT(*)::int AS n
+       FROM message_threads t
+       JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
+      WHERE t.deleted_at IS NULL
+        AND (t.kind <> 'partnership' OR p.accepted = TRUE OR t.created_by = $1)
+        AND NOT EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)
+        AND EXISTS (
+          SELECT 1 FROM messages m
+           WHERE m.thread_id = t.id AND m.deleted_at IS NULL AND m.sender_id <> $1
+             AND m.created_at > COALESCE(p.last_read_at, '1970-01-01'::timestamptz)
+        )`,
+    [userId]
+  );
+  return res.rows[0]?.n ?? 0;
 }
 
 /** A single thread's metadata (without messages). */
@@ -599,6 +663,7 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
     })),
     last_message: null,
     message_count: 0,
+    unread: false,
   };
 }
 

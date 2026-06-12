@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCoach } from "@/lib/guard";
-import { getMessageRecipients, logUserEvent } from "@/lib/db";
+import { getMessageRecipients } from "@/lib/db";
 import { getSystemSettings } from "@/lib/settings";
-import { createPartnership } from "@/lib/messages";
+import { createPartnership, logThreadEvent } from "@/lib/messages";
 
 /**
  * Create a partnership: a coach invites one or more partners. Opens a
@@ -37,10 +37,11 @@ export async function POST(request: NextRequest) {
     partnerIds,
     message || `${coachName} invited you to a coaching partnership.`
   );
-  await logUserEvent({
+  await logThreadEvent({
     userId: coachId,
     actorId: coachId,
     action: "partnership_created",
+    threadId,
     detail: `${partnerIds.length} partner(s)`,
   });
   return NextResponse.json({ ok: true, threadId });

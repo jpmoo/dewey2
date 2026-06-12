@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { addAttachment, canAccessThread, postMessage } from "@/lib/messages";
+import { addAttachment, canAccessThread, logThreadEvent, postMessage } from "@/lib/messages";
 
 // Per-file cap. Attachments are stored in the DB, so keep them modest.
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -57,5 +57,13 @@ export async function POST(
       data,
     });
   }
+  const me = Number(session.user.id);
+  await logThreadEvent({
+    userId: me,
+    actorId: me,
+    action: "message_sent",
+    threadId: id,
+    detail: files.length ? `${files.length} attachment(s)` : null,
+  });
   return NextResponse.json({ ok: true, messageId });
 }

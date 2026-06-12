@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { addUserToThread } from "@/lib/messages";
+import { addUserToThread, logThreadEvent } from "@/lib/messages";
 
 /** Add a user to a thread by id (after an @-mention selection). */
 export async function POST(
@@ -19,9 +19,11 @@ export async function POST(
   if (!Number.isFinite(targetId)) {
     return NextResponse.json({ error: "Invalid user" }, { status: 400 });
   }
-  const result = await addUserToThread(id, Number(session.user.id), targetId);
+  const me = Number(session.user.id);
+  const result = await addUserToThread(id, me, targetId);
   if (!result.ok) {
     return NextResponse.json({ error: result.error || "Can't add that user" }, { status: 403 });
   }
+  await logThreadEvent({ userId: me, actorId: me, action: "participant_added", threadId: id });
   return NextResponse.json({ ok: true, pending: result.pending });
 }

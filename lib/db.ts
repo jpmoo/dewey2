@@ -232,6 +232,8 @@ export function ensureSchema(): Promise<void> {
         -- Invitation state for partnership threads: NULL = invited/pending,
         -- TRUE = accepted, FALSE = declined. Ignored for non-partnership threads.
         ALTER TABLE thread_participants ADD COLUMN IF NOT EXISTS accepted BOOLEAN;
+        -- When the user last read the thread (for unread highlighting).
+        ALTER TABLE thread_participants ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ;
 
         CREATE TABLE IF NOT EXISTS messages (
           id         BIGSERIAL PRIMARY KEY,
@@ -302,6 +304,9 @@ export function ensureSchema(): Promise<void> {
           created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_ai_messages_conv ON ai_messages (conversation_id, id);
+        -- Flagged turns (compliance) are kept in the transcript but excluded from
+        -- the model's live context.
+        ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT FALSE;
 
         -- A user can belong to multiple buildings (schools). user_schools is the
         -- authoritative set; users.school_id is kept as a denormalized "primary"

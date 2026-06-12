@@ -284,6 +284,15 @@ export async function POST(request: NextRequest) {
             history: priorMessages.map((m) => ({ role: m.role, content: m.content })),
             context: "plan assistant",
           }).catch((e) => console.warn("[assistant] compliance report failed", e));
+          // Keep the flagged turn in the saved transcript (admin-visible), but
+          // marked flagged so it's excluded from the model's live context.
+          await appendMessage(conversationId, "user", message, true);
+          await appendMessage(
+            conversationId,
+            "assistant",
+            "[This message was flagged by the compliance screen and was not sent to the model.]",
+            true
+          );
           send(controller, {
             type: "blocked",
             reason:

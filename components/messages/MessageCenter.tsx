@@ -29,6 +29,7 @@ type ThreadSummary = {
   participants: Participant[];
   last_message: { body: string; created_at: string; sender_name: string | null } | null;
   message_count: number;
+  unread: boolean;
 };
 
 type Invitation = {
@@ -495,8 +496,15 @@ function ThreadListItem({
         }`}
       >
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-dewey-ink">
-            {threadTitle(t, meId)}
+          <span
+            className={`flex min-w-0 items-center gap-1.5 truncate text-sm text-dewey-ink ${
+              t.unread ? "font-semibold" : "font-medium"
+            }`}
+          >
+            {t.unread && (
+              <span className="h-2 w-2 shrink-0 rounded-full bg-dewey-accent" aria-label="unread" />
+            )}
+            <span className="truncate">{threadTitle(t, meId)}</span>
           </span>
           {t.status && (
             <span
@@ -509,7 +517,13 @@ function ThreadListItem({
           )}
         </div>
         {t.last_message && (
-          <div className="mt-0.5 truncate text-xs text-dewey-mute">{t.last_message.body}</div>
+          <div
+            className={`mt-0.5 truncate text-xs ${
+              t.unread ? "text-dewey-ink" : "text-dewey-mute"
+            }`}
+          >
+            {t.last_message.body}
+          </div>
         )}
       </button>
     </li>

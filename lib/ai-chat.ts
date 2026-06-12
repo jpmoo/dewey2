@@ -15,6 +15,7 @@ export interface AiMessage {
   role: AiRole;
   content: string;
   created_at: string;
+  flagged: boolean;
 }
 
 export interface AiConversation {
@@ -88,34 +89,45 @@ export async function createConversation(params: {
 export async function appendMessage(
   conversationId: number,
   role: AiRole,
-  content: string
+  content: string,
+  flagged = false
 ): Promise<number> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `INSERT INTO ai_messages (conversation_id, role, content) VALUES ($1, $2, $3) RETURNING id`,
-    [conversationId, role, content]
+    `INSERT INTO ai_messages (conversation_id, role, content, flagged)
+     VALUES ($1, $2, $3, $4) RETURNING id`,
+    [conversationId, role, content, flagged]
   );
   await pool.query("UPDATE ai_conversations SET updated_at = NOW() WHERE id = $1", [conversationId]);
   return Number(res.rows[0].id);
 }
 
-export async function getMessages(conversationId: number): Promise<AiMessage[]> {
-  const pool = getPool();
-  await ensureSchema();
-  const res = await pool.query(
-    "SELECT id, role, content, created_at FROM ai_messages WHERE conversation_id = $1 ORDER BY id",
-    [conversationId]
-  );
-  return res.rows.map((r) => ({
+function rowToMessage(r: Record<string, unknown>): AiMessage {
+  return {
     id: Number(r.id),
     role: r.role as AiRole,
     content: r.content as string,
     created_at: toIso(r.created_at),
-  }));
+    flagged: r.flagged === true,
+  };
 }
 
-/** Messages not yet folded into the summary (id > summarized_through). */
+/** Full transcript (includes flagged turns) — for the admin transcript view. */
+export async function getMessages(conversationId: number): Promise<AiMessage[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "SELECT id, role, content, created_at, flagged FROM ai_messages WHERE conversation_id = $1 ORDER BY id",
+    [conversationId]
+  );
+  return res.rows.map(rowToMessage);
+}
+
+/**
+ * Live-context messages (id > summarized_through) — excludes flagged turns so
+ * blocked content never re-enters the model's context.
+ */
 export async function getMessagesAfter(
   conversationId: number,
   afterId: number
@@ -123,16 +135,11 @@ export async function getMessagesAfter(
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `SELECT id, role, content, created_at FROM ai_messages
-      WHERE conversation_id = $1 AND id > $2 ORDER BY id`,
+    `SELECT id, role, content, created_at, flagged FROM ai_messages
+      WHERE conversation_id = $1 AND id > $2 AND flagged = FALSE ORDER BY id`,
     [conversationId, afterId]
   );
-  return res.rows.map((r) => ({
-    id: Number(r.id),
-    role: r.role as AiRole,
-    content: r.content as string,
-    created_at: toIso(r.created_at),
-  }));
+  return res.rows.map(rowToMessage);
 }
 
 /** Link a conversation to a context id once it's known (e.g. after first save). */

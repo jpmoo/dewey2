@@ -12,6 +12,11 @@ const TemplateReadOnly = dynamic(
   () => import("./TemplateCanvas").then((m) => m.TemplateReadOnly),
   { ssr: false }
 );
+// Opening a conversation from a log entry shows it in a read-only modal.
+const ThreadViewer = dynamic(
+  () => import("@/components/messages/ThreadViewer").then((m) => m.ThreadViewer),
+  { ssr: false }
+);
 
 type SystemRole = "admin" | "coach" | "partner";
 
@@ -63,7 +68,13 @@ type ConversationRow = {
   updated_at: string;
   preview: string | null;
 };
-type TranscriptMessage = { id: number; role: "user" | "assistant"; content: string; created_at: string };
+type TranscriptMessage = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+  flagged?: boolean;
+};
 
 const ACTION_LABELS: Record<string, string> = {
   created: "Account created",
@@ -87,6 +98,10 @@ const ACTION_LABELS: Record<string, string> = {
   template_rejected: "Rejected a plan",
   compliance_flagged: "Compliance screen flagged a message",
   partnership_created: "Created a partnership",
+  message_sent: "Sent a message",
+  participant_added: "Added someone to a conversation",
+  invitation_accepted: "Accepted a partnership",
+  invitation_declined: "Declined a partnership",
   restored: "Restored",
 };
 
@@ -112,6 +127,7 @@ export function AdminUserManager() {
   const [creating, setCreating] = useState(false);
   // A template opened from a log entry (read-only overlay).
   const [viewTemplateId, setViewTemplateId] = useState<number | null>(null);
+  const [viewThreadId, setViewThreadId] = useState<number | null>(null);
 
   // Filters.
   const [query, setQuery] = useState("");
@@ -352,12 +368,17 @@ export function AdminUserManager() {
           districts={districts}
           isSelf={currentUserId === editing.id}
           onOpenTemplate={(id) => setViewTemplateId(id)}
+          onOpenThread={(id) => setViewThreadId(id)}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
             await load();
           }}
         />
+      )}
+
+      {viewThreadId != null && (
+        <ThreadViewer threadId={viewThreadId} onClose={() => setViewThreadId(null)} />
       )}
 
       {viewTemplateId != null && (
@@ -621,6 +642,7 @@ function UserEditModal({
   districts,
   isSelf,
   onOpenTemplate,
+  onOpenThread,
   onClose,
   onSaved,
 }: {
@@ -628,6 +650,7 @@ function UserEditModal({
   districts: DistrictWithSchools[];
   isSelf: boolean;
   onOpenTemplate: (id: number) => void;
+  onOpenThread: (id: number) => void;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -909,7 +932,7 @@ function UserEditModal({
             {logsLoading ? (
               <p className="text-xs text-dewey-mute">Loading…</p>
             ) : (
-              <LogEntries logs={logs} onOpenTemplate={onOpenTemplate} onRestored={reloadLogs} />
+              <LogEntries logs={logs} onOpenTemplate={onOpenTemplate} onOpenThread={onOpenThread} onRestored={reloadLogs} />
             )}
           </div>
         </div>
@@ -966,7 +989,7 @@ function UserEditModal({
         <FullLogModal
           userId={user.id}
           userName={user.full_name}
-          onOpenTemplate={onOpenTemplate}
+          onOpenTemplate={onOpenTemplate} onOpenThread={onOpenThread}
           onClose={() => setShowFullLog(false)}
         />
       )}
@@ -1053,13 +1076,18 @@ function TranscriptModal({
                 messages.map((m) => (
                   <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div
-                      className={`max-w-[85%] rounded-lg border border-dewey-border px-3 py-2 text-sm ${
-                        m.role === "user" ? "bg-dewey-accent/15" : "bg-dewey-surface"
+                      className={`max-w-[85%] rounded-lg border px-3 py-2 text-sm ${
+                        m.flagged
+                          ? "border-red-300 bg-red-50"
+                          : `border-dewey-border ${m.role === "user" ? "bg-dewey-accent/15" : "bg-dewey-surface"}`
                       }`}
                     >
                       <div className="mb-0.5 text-[11px] text-dewey-mute">
                         {m.role === "user" ? userName : "Assistant"} ·{" "}
                         {new Date(m.created_at).toLocaleString()}
+                        {m.flagged && (
+                          <span className="ml-1 font-medium text-red-600">· flagged</span>
+                        )}
                       </div>
                       <div className="whitespace-pre-wrap text-dewey-ink">{m.content}</div>
                     </div>
@@ -1082,10 +1110,12 @@ function TranscriptModal({
 function LogEntries({
   logs,
   onOpenTemplate,
+  onOpenThread,
   onRestored,
 }: {
   logs: UserLogView[];
   onOpenTemplate: (id: number) => void;
+  onOpenThread: (id: number) => void;
   onRestored: () => void;
 }) {
   if (logs.length === 0) {
@@ -1094,7 +1124,7 @@ function LogEntries({
   return (
     <ul className="border border-dewey-border rounded-md divide-y divide-dewey-border max-h-44 overflow-y-auto bg-dewey-surface">
       {logs.map((l) => (
-        <LogRow key={l.id} log={l} onOpenTemplate={onOpenTemplate} onRestored={onRestored} />
+        <LogRow key={l.id} log={l} onOpenTemplate={onOpenTemplate} onOpenThread={onOpenThread} onRestored={onRestored} />
       ))}
     </ul>
   );
@@ -1103,10 +1133,12 @@ function LogEntries({
 function LogRow({
   log: l,
   onOpenTemplate,
+  onOpenThread,
   onRestored,
 }: {
   log: UserLogView;
   onOpenTemplate: (id: number) => void;
+  onOpenThread: (id: number) => void;
   onRestored: () => void;
 }) {
   const dialog = useDialog();
@@ -1116,7 +1148,9 @@ function LogRow({
   if (l.detail && l.detail !== l.entity_label) meta.push(l.detail);
   if (l.actor_name && (l.action === "created" || l.action === "updated"))
     meta.push(`by ${l.actor_name}`);
-  const linkable = l.entity_type === "template" && l.entity_id != null;
+  const linksTemplate = l.entity_type === "template" && l.entity_id != null;
+  const linksThread = l.entity_type === "message" && l.entity_id != null;
+  const linkable = linksTemplate || linksThread;
   const restorable = DELETE_ACTIONS.has(l.action) && l.entity_type != null && l.entity_id != null;
 
   const restore = async () => {
@@ -1157,7 +1191,11 @@ function LogRow({
             <button
               type="button"
               className="text-dewey-accent hover:underline"
-              onClick={() => onOpenTemplate(l.entity_id as number)}
+              onClick={() =>
+                linksTemplate
+                  ? onOpenTemplate(l.entity_id as number)
+                  : onOpenThread(l.entity_id as number)
+              }
             >
               {l.entity_label} ↗
             </button>
@@ -1176,11 +1214,13 @@ function FullLogModal({
   userId,
   userName,
   onOpenTemplate,
+  onOpenThread,
   onClose,
 }: {
   userId: number;
   userName: string;
   onOpenTemplate: (id: number) => void;
+  onOpenThread: (id: number) => void;
   onClose: () => void;
 }) {
   const [q, setQ] = useState("");
@@ -1255,7 +1295,7 @@ function FullLogModal({
                 <LogRow
                   key={l.id}
                   log={l}
-                  onOpenTemplate={onOpenTemplate}
+                  onOpenTemplate={onOpenTemplate} onOpenThread={onOpenThread}
                   onRestored={() => setRefreshKey((k) => k + 1)}
                 />
               ))}

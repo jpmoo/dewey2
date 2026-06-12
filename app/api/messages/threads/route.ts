@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
 import { getMessageRecipients } from "@/lib/db";
 import { getSystemSettings } from "@/lib/settings";
-import { findOrCreateThread, listThreadsForUser, postMessage } from "@/lib/messages";
+import { findOrCreateThread, listThreadsForUser, logThreadEvent, postMessage } from "@/lib/messages";
 
 /** Threads the user participates in. Admins see every thread (oversight). */
 export async function GET(request: NextRequest) {
@@ -55,5 +55,6 @@ export async function POST(request: NextRequest) {
 
   const threadId = await findOrCreateThread(meId, recipientIds);
   await postMessage({ threadId, senderId: meId, body: message });
+  await logThreadEvent({ userId: meId, actorId: meId, action: "message_sent", threadId });
   return NextResponse.json({ ok: true, threadId });
 }
