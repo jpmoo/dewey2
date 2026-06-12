@@ -24,7 +24,7 @@ export async function POST(
 
   const coachId = Number(session.user.id);
   const template = await duplicateTemplateForCoach(id, coachId);
-  if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  if (!template) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
   await logUserEvent({
     userId: coachId,
     actorId: coachId,

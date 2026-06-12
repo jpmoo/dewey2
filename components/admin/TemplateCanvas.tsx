@@ -767,7 +767,7 @@ function CanvasInner({
           className="dewey-input max-w-xs"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Template name"
+          placeholder="Plan name"
         />
         <button
           type="button"
@@ -1008,9 +1008,9 @@ function CanvasInner({
       {saveOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-lg rounded-lg border border-dewey-border bg-dewey-surface p-5 shadow-xl">
-            <h2 className="text-base font-semibold text-dewey-ink">Save template</h2>
+            <h2 className="text-base font-semibold text-dewey-ink">Save plan</h2>
             <p className="mt-1 text-sm text-dewey-mute">
-              Add a description so coaches know what this template is for. We&apos;ve drafted one
+              Add a description so coaches know what this plan is for. We&apos;ve drafted one
               you can edit.
             </p>
             <div className="mt-3 flex items-center justify-between">
@@ -1028,7 +1028,7 @@ function CanvasInner({
               className="dewey-input mt-1 h-28 resize-y"
               value={descLoading && !descDraft ? "" : descDraft}
               onChange={(e) => setDescDraft(e.target.value)}
-              placeholder={descLoading ? "Drafting a description…" : "Describe this template…"}
+              placeholder={descLoading ? "Drafting a description…" : "Describe this plan…"}
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -1045,7 +1045,7 @@ function CanvasInner({
                 onClick={persist}
                 disabled={saving}
               >
-                {saving ? "Saving…" : "Save template"}
+                {saving ? "Saving…" : "Save plan"}
               </button>
             </div>
           </div>
@@ -1631,7 +1631,7 @@ export function TemplateCanvas({
     templateId === null
       ? {
           id: 0, // 0 = unsaved; created on first Save
-          name: "Untitled template",
+          name: "Untitled plan",
           description: null,
           graph: EMPTY_GRAPH,
           scope: "personal",
@@ -1653,7 +1653,7 @@ export function TemplateCanvas({
         if (!cancelled) setTemplate(d.template);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load template");
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load plan");
       });
     return () => {
       cancelled = true;
@@ -1673,7 +1673,7 @@ export function TemplateCanvas({
   if (!template) {
     return (
       <div className="fixed inset-0 z-50 bg-dewey-cream flex items-center justify-center">
-        <p className="text-dewey-mute">Loading template…</p>
+        <p className="text-dewey-mute">Loading plan…</p>
       </div>
     );
   }
@@ -1722,7 +1722,7 @@ export function TemplateReadOnly({
         if (!cancelled) setTemplate(d.template);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load template");
+        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load plan");
       });
     return () => {
       cancelled = true;
@@ -1780,7 +1780,7 @@ export function TemplateReadOnly({
   if (!template) {
     return (
       <div className="fixed inset-0 z-50 bg-dewey-cream flex items-center justify-center">
-        <p className="text-dewey-mute">Loading template…</p>
+        <p className="text-dewey-mute">Loading plan…</p>
       </div>
     );
   }
@@ -1792,7 +1792,7 @@ export function TemplateReadOnly({
           <div className="flex items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-dewey-ink">{template.name}</h2>
             <span className="rounded bg-dewey-surface-2 px-2 py-0.5 text-xs text-dewey-mute">
-              {template.scope === "global" ? "Global template" : "Read-only"}
+              {template.scope === "global" ? "Global plan" : "Read-only"}
             </span>
           </div>
           {template.description && (

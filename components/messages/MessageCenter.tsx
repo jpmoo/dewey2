@@ -54,6 +54,7 @@ export function MessageCenter() {
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [preview, setPreview] = useState<AttachmentMeta | null>(null);
+  const [composing, setComposing] = useState(false);
 
   const loadThreads = useCallback(async () => {
     try {
@@ -78,15 +79,33 @@ export function MessageCenter() {
     loadThreads();
   }, [loadThreads]);
 
+  const onComposed = useCallback(
+    async (threadId: number) => {
+      setComposing(false);
+      await loadThreads();
+      setActiveId(threadId);
+    },
+    [loadThreads]
+  );
+
   return (
     <section>
-      <div className="mb-3">
-        <h2 className="text-lg font-semibold">Message Center</h2>
-        <p className="text-sm text-dewey-mute">
-          {isAdmin
-            ? "Every conversation on the platform — template submissions, shares, and direct threads."
-            : "Template submissions to the admin, templates shared with you, and your conversations."}
-        </p>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Message Center</h2>
+          <p className="text-sm text-dewey-mute">
+            {isAdmin
+              ? "Every conversation on the platform — plan submissions, shares, and direct threads."
+              : "Plan submissions to the admin, plans shared with you, and your conversations."}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="dewey-btn-secondary shrink-0"
+          onClick={() => setComposing(true)}
+        >
+          + New message
+        </button>
       </div>
 
       {loading ? (
@@ -95,7 +114,7 @@ export function MessageCenter() {
         <p className="text-red-600">{error}</p>
       ) : threads.length === 0 ? (
         <p className="py-6 text-center text-sm text-dewey-mute">
-          No conversations yet. Share or submit a template from the Coaching Canvas to start one.
+          No conversations yet. Share or submit a plan from the Coaching Canvas to start one.
         </p>
       ) : (
         <div className="flex h-[65vh] overflow-hidden rounded-lg border border-dewey-border">
@@ -128,7 +147,131 @@ export function MessageCenter() {
       )}
 
       {preview && <AttachmentLightbox attachment={preview} onClose={() => setPreview(null)} />}
+      {composing && (
+        <ComposeModal onClose={() => setComposing(false)} onSent={onComposed} />
+      )}
     </section>
+  );
+}
+
+type Recipient = {
+  id: number;
+  full_name: string;
+  system_role: string;
+  district_name: string | null;
+  school_name: string | null;
+};
+
+/** Start a new direct message to an allowed recipient. */
+function ComposeModal({
+  onClose,
+  onSent,
+}: {
+  onClose: () => void;
+  onSent: (threadId: number) => void;
+}) {
+  const [recipients, setRecipients] = useState<Recipient[]>([]);
+  const [recipientId, setRecipientId] = useState<number | "">("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch<{ recipients: Recipient[] }>("/api/messages/recipients")
+      .then((d) => setRecipients(d.recipients))
+      .catch(() => setRecipients([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const orgLabel = (r: Recipient) =>
+    r.school_name
+      ? `${r.district_name} · ${r.school_name}`
+      : r.district_name
+      ? `${r.district_name} · District-wide`
+      : "";
+
+  const send = async () => {
+    if (recipientId === "") {
+      setErr("Choose someone to message.");
+      return;
+    }
+    if (!message.trim()) {
+      setErr("Write a message.");
+      return;
+    }
+    setSending(true);
+    setErr(null);
+    try {
+      const d = await apiFetch<{ threadId: number }>("/api/messages/threads", {
+        method: "POST",
+        body: { recipientId, message },
+      });
+      onSent(d.threadId);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to send");
+      setSending(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-dewey-surface p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-4 text-lg font-semibold">New message</h3>
+        <div className="space-y-4">
+          {err && <p className="text-sm text-red-600">{err}</p>}
+          <div>
+            <label className="dewey-label">To</label>
+            {loading ? (
+              <p className="text-sm text-dewey-mute">Loading…</p>
+            ) : recipients.length === 0 ? (
+              <p className="text-sm text-dewey-mute">No one available to message yet.</p>
+            ) : (
+              <select
+                className="dewey-input"
+                value={recipientId}
+                onChange={(e) => setRecipientId(e.target.value ? Number(e.target.value) : "")}
+              >
+                <option value="">— choose a recipient —</option>
+                {recipients.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.full_name} ({r.system_role}){orgLabel(r) ? ` — ${orgLabel(r)}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="dewey-label">Message</label>
+            <textarea
+              className="dewey-input min-h-[100px]"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Write your message…"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="dewey-btn-primary w-auto"
+              onClick={send}
+              disabled={sending || loading || recipients.length === 0}
+            >
+              {sending ? "Sending…" : "Send"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

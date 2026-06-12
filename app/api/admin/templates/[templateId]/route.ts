@@ -28,7 +28,7 @@ export async function GET(
   const id = parseId(templateId);
   if (id === null) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   const template = await getTemplate(id);
-  if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  if (!template) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
   return NextResponse.json({ template });
 }
 
@@ -54,7 +54,7 @@ export async function PATCH(
   }
 
   const template = await updateTemplate(id, update);
-  if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  if (!template) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
   const adminId = Number(session.user.id);
   await logUserEvent({
     userId: adminId,
@@ -79,7 +79,7 @@ export async function DELETE(
   if (id === null) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   const existing = await getTemplate(id);
   const ok = await deleteTemplate(id);
-  if (!ok) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  if (!ok) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
   const adminId = Number(session.user.id);
   await logUserEvent({
     userId: adminId,

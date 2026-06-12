@@ -35,7 +35,7 @@ export async function GET(
   const id = parseId(templateId);
   if (id === null) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   const template = await getTemplateForCoach(id, Number(session.user.id));
-  if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  if (!template) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
   return NextResponse.json({ template });
 }
 
@@ -65,7 +65,7 @@ export async function PATCH(
   const template = await updateCoachTemplate(id, coachId, update);
   if (!template) {
     return NextResponse.json(
-      { error: "Template not found, or it isn't yours to edit" },
+      { error: "Plan not found, or it isn't yours to edit" },
       { status: 404 }
     );
   }
@@ -96,7 +96,7 @@ export async function DELETE(
   const ok = await deleteCoachTemplate(id, coachId);
   if (!ok) {
     return NextResponse.json(
-      { error: "Template not found, or it isn't yours to delete" },
+      { error: "Plan not found, or it isn't yours to delete" },
       { status: 404 }
     );
   }

@@ -623,6 +623,55 @@ export async function getCoachesInDistrict(
   }));
 }
 
+export interface RecipientOption {
+  id: number;
+  full_name: string;
+  system_role: SystemRole;
+  district_name: string | null;
+  school_name: string | null;
+}
+
+/**
+ * Users the given user is allowed to start a message thread with:
+ *   - admin   → anyone
+ *   - coach   → any other coach (any school/district) and any admin
+ *   - partner → any admin
+ * Everyone can message an admin. Partnership-based recipients (a coach's
+ * partners / a partner's coaches) will be added once Partnerships exist.
+ */
+export async function getMessageRecipients(me: {
+  id: number;
+  system_role: SystemRole;
+}): Promise<RecipientOption[]> {
+  const pool = getPool();
+  await ensureSchema();
+
+  const params: unknown[] = [me.id];
+  let roleClause = "";
+  if (me.system_role === "coach") {
+    roleClause = "AND u.system_role IN ('coach', 'admin')";
+  } else if (me.system_role === "partner") {
+    roleClause = "AND u.system_role = 'admin'";
+  } // admin → no role restriction
+
+  const res = await pool.query(
+    `SELECT u.id, u.full_name, u.system_role, d.name AS district_name, s.name AS school_name
+       FROM users u
+       LEFT JOIN districts d ON d.id = u.district_id
+       LEFT JOIN schools s ON s.id = u.school_id
+      WHERE u.deleted_at IS NULL AND u.id <> $1 ${roleClause}
+      ORDER BY u.system_role, u.full_name`,
+    params
+  );
+  return res.rows.map((r) => ({
+    id: r.id as number,
+    full_name: r.full_name as string,
+    system_role: r.system_role as SystemRole,
+    district_name: (r.district_name as string | null) ?? null,
+    school_name: (r.school_name as string | null) ?? null,
+  }));
+}
+
 /** All admin user ids (participants for template submissions). */
 export async function getAdminIds(): Promise<number[]> {
   const pool = getPool();

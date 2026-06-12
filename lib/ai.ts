@@ -170,10 +170,10 @@ export async function complianceCheck(text: string): Promise<{ allowed: boolean;
 // Summarization (compliance + summarization model)
 // ============================================================
 
-const SUMMARY_SYSTEM = `You write concise descriptions of coaching templates for an educational coaching platform.
-Given a template's name and an outline of its phases and activities, write a single short paragraph
-(1-3 sentences) describing what the template is for and how it flows. Write plainly for a coach
-choosing a template. Do not invent activities that aren't listed. Respond with ONLY the description text — no labels, no quotes, no preamble.`;
+const SUMMARY_SYSTEM = `You write concise descriptions of coaching plans for an educational coaching platform.
+Given a plan's name and an outline of its phases and activities, write a single short paragraph
+(1-3 sentences) describing what the plan is for and how it flows. Write plainly for a coach
+choosing a plan. Do not invent activities that aren't listed. Respond with ONLY the description text — no labels, no quotes, no preamble.`;
 
 /**
  * Generate a short description using the configured Ollama compliance +

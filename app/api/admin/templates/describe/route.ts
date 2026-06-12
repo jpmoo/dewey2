@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     (label && label.trim()) || ACTIVITY_BY_KEY[key]?.label || key;
 
   const lines: string[] = [];
-  if (name) lines.push(`Template name: ${name}`);
+  if (name) lines.push(`Plan name: ${name}`);
 
   const phased = new Set<string>();
   for (const phase of phases) {

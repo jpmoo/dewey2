@@ -46,7 +46,7 @@ export function CoachTabs() {
       {tab === "partnerships" && (
         <Placeholder
           title="Partnerships"
-          blurb="Your open and archived partnerships will live here — each one a coaching journey you've started with a partner from a template. Coming soon."
+          blurb="Your open and archived partnerships will live here — each one a coaching journey you've started with a partner from a plan. Coming soon."
         />
       )}
       {tab === "directory" && <CoachDirectory />}

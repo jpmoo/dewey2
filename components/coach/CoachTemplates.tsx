@@ -50,7 +50,7 @@ export function CoachTemplates() {
       setTemplates(templates);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load templates");
+      setError(e instanceof Error ? e.message : "Failed to load plans");
     } finally {
       setLoading(false);
     }
@@ -73,7 +73,7 @@ export function CoachTemplates() {
         setViewing(null);
         setEditing(template.id);
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to duplicate template");
+        alert(e instanceof Error ? e.message : "Failed to duplicate plan");
       } finally {
         setBusy(false);
       }
@@ -92,7 +92,7 @@ export function CoachTemplates() {
         await apiFetch(`${COACH_BASE}/${t.id}`, { method: "DELETE" });
         await load();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to delete template");
+        alert(e instanceof Error ? e.message : "Failed to delete plan");
       } finally {
         setBusy(false);
       }
@@ -130,33 +130,33 @@ export function CoachTemplates() {
 
   return (
     <section>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Coaching Canvas</h2>
-          <p className="text-sm text-dewey-mute">
-            Build coaching plans on the canvas. Global templates are read-only — duplicate one to
-            make it your own.
-          </p>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">Coaching Canvas</h2>
+        <p className="text-sm text-dewey-mute">
+          Build coaching plans on the canvas. Global plans are read-only — duplicate one to make it
+          your own.
+        </p>
+        <div className="mt-3 flex justify-center">
+          <button
+            type="button"
+            className="dewey-btn-secondary"
+            onClick={() => setEditing("new")}
+            disabled={busy}
+          >
+            + New plan
+          </button>
         </div>
-        <button
-          type="button"
-          className="dewey-btn-secondary"
-          onClick={() => setEditing("new")}
-          disabled={busy}
-        >
-          + New template
-        </button>
       </div>
 
       {loading ? (
-        <p className="text-dewey-mute">Loading templates…</p>
+        <p className="text-dewey-mute">Loading plans…</p>
       ) : error ? (
         <p className="text-red-600">{error}</p>
       ) : (
         <div className="space-y-6">
           <Group
-            title="My templates"
-            empty="You haven't created any templates yet. Start a new one, or duplicate a global template below."
+            title="My plans"
+            empty="You haven&apos;t created any plans yet. Start a new one, or duplicate a global plan below."
             items={mine}
             renderActions={(t) => (
               <>
@@ -204,8 +204,8 @@ export function CoachTemplates() {
           />
 
           <Group
-            title="Global templates"
-            empty="No global templates have been published yet."
+            title="Global plans"
+            empty="No global plans have been published yet."
             items={global}
             badge="Read-only"
             renderActions={(t) => (
@@ -396,8 +396,8 @@ function SubmitModal({
         <div className="space-y-4">
           {err && <p className="text-sm text-red-600">{err}</p>}
           <p className="text-sm text-dewey-mute">
-            Submitting sends this template to the admin to review for use as a district-wide
-            template. If approved, it becomes available to all coaches.
+            Submitting sends this plan to the admin to review for use as a district-wide
+            plan. If approved, it becomes available to all coaches.
           </p>
           <div>
             <label className="dewey-label">Message to the admin (optional)</label>
@@ -405,7 +405,7 @@ function SubmitModal({
               className="dewey-input min-h-[80px]"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Why this template is worth sharing district-wide…"
+              placeholder="Why this plan is worth sharing district-wide…"
             />
           </div>
           <div className="flex justify-end gap-2">

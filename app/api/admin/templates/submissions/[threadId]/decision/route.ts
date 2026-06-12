@@ -43,7 +43,7 @@ export async function POST(
   if (decision === "approve") {
     if (thread.template_id == null || !(await publishTemplateAsGlobal(thread.template_id))) {
       return NextResponse.json(
-        { error: "The template is no longer available to publish." },
+        { error: "The plan is no longer available to publish." },
         { status: 409 }
       );
     }

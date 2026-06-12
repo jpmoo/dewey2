@@ -215,7 +215,7 @@ export function AdminSettings() {
           </select>
           <p className="text-xs text-dewey-mute mt-1">
             A local Ollama model used for two lightweight jobs: screening each message for safety
-            before the coaching model runs, and drafting short summaries such as template
+            before the coaching model runs, and drafting short summaries such as plan
             descriptions. Leave unset to skip screening and AI-drafted descriptions.
           </p>
         </div>

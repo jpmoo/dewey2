@@ -35,7 +35,7 @@ export function AdminTemplates() {
       setTemplates(templates);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load templates");
+      setError(e instanceof Error ? e.message : "Failed to load plans");
     } finally {
       setLoading(false);
     }
@@ -61,7 +61,7 @@ export function AdminTemplates() {
         await apiFetch(`/api/admin/templates/${t.id}`, { method: "DELETE" });
         await load();
       } catch (e) {
-        alert(e instanceof Error ? e.message : "Failed to delete template");
+        alert(e instanceof Error ? e.message : "Failed to delete plan");
       } finally {
         setBusy(false);
       }
@@ -85,25 +85,25 @@ export function AdminTemplates() {
     <section>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Coaching templates</h2>
+          <h2 className="text-lg font-semibold">Coaching plans</h2>
           <p className="text-sm text-dewey-mute">
             Reusable arcs of activities and phases, available to all coaches.
           </p>
         </div>
         <button type="button" className="dewey-btn-secondary" onClick={createNew} disabled={busy}>
-          + New template
+          + New plan
         </button>
       </div>
 
       <SubmissionsPanel onDecided={load} />
 
       {loading ? (
-        <p className="text-dewey-mute">Loading templates…</p>
+        <p className="text-dewey-mute">Loading plans…</p>
       ) : error ? (
         <p className="text-red-600">{error}</p>
       ) : templates.length === 0 ? (
         <p className="text-sm text-dewey-mute py-4">
-          No templates yet. Create one to start building on the canvas.
+          No plans yet. Create one to start building on the canvas.
         </p>
       ) : (
         <ul className="space-y-2">
@@ -160,7 +160,7 @@ type Submission = {
   created_at: string;
 };
 
-/** Pending template submissions from coaches, with approve/reject + a reply. */
+/** Pending plan submissions from coaches, with approve/reject + a reply. */
 function SubmissionsPanel({ onDecided }: { onDecided: () => void }) {
   const [subs, setSubs] = useState<Submission[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);

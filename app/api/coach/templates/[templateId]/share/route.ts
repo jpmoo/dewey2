@@ -32,7 +32,7 @@ export async function POST(
   }
 
   const template = await getTemplateForCoach(id, coachId);
-  if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  if (!template) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
 
   // Recipient must be a coach in the sender's district.
   const recipient = (await getCoachesInDistrict(coachId)).find((c) => c.id === recipientId);
@@ -43,7 +43,7 @@ export async function POST(
   const senderName = session.user.nickname || session.user.name || "A coach";
   const threadId = await createThread({
     kind: "template_share",
-    subject: `Shared template: ${template.name}`,
+    subject: `Shared plan: ${template.name}`,
     templateId: id,
     createdBy: coachId,
     participantIds: [recipientId],
@@ -51,7 +51,7 @@ export async function POST(
   await postMessage({
     threadId,
     senderId: coachId,
-    body: message || `${senderName} shared the template "${template.name}" with you.`,
+    body: message || `${senderName} shared the plan "${template.name}" with you.`,
   });
 
   await logUserEvent({

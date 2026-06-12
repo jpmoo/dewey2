@@ -29,10 +29,10 @@ export async function POST(
   const message = typeof body.message === "string" ? body.message.trim() : "";
 
   const template = await getTemplateForCoach(id, coachId);
-  if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  if (!template) return NextResponse.json({ error: "Plan not found" }, { status: 404 });
   if (template.scope !== "personal") {
     return NextResponse.json(
-      { error: "Only your own templates can be submitted." },
+      { error: "Only your own plans can be submitted." },
       { status: 400 }
     );
   }
@@ -52,7 +52,7 @@ export async function POST(
     senderId: coachId,
     body:
       message ||
-      `${senderName} submitted the template "${template.name}" for district-wide consideration.`,
+      `${senderName} submitted the plan "${template.name}" for district-wide consideration.`,
   });
   // Touch every admin's awareness via the log too (subject = admin's own card).
   for (const adminId of await getAdminIds()) {

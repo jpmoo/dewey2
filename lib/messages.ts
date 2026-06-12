@@ -88,6 +88,34 @@ export async function createThread(params: {
   return threadId;
 }
 
+/**
+ * Find the existing 1:1 direct thread between two users, or create one. Reusing
+ * a thread keeps a pair's conversation in a single place.
+ */
+export async function findOrCreateDirectThread(
+  meId: number,
+  otherId: number
+): Promise<number> {
+  const pool = getPool();
+  await ensureSchema();
+  const existing = await pool.query(
+    `SELECT t.id
+       FROM message_threads t
+      WHERE t.kind = 'direct' AND t.deleted_at IS NULL
+        AND EXISTS (SELECT 1 FROM thread_participants p WHERE p.thread_id = t.id AND p.user_id = $1)
+        AND EXISTS (SELECT 1 FROM thread_participants p WHERE p.thread_id = t.id AND p.user_id = $2)
+        AND (SELECT COUNT(*) FROM thread_participants p WHERE p.thread_id = t.id) = 2
+      LIMIT 1`,
+    [meId, otherId]
+  );
+  if (existing.rows[0]) return existing.rows[0].id as number;
+  return createThread({
+    kind: "direct",
+    createdBy: meId,
+    participantIds: [otherId],
+  });
+}
+
 export async function addParticipant(threadId: number, userId: number): Promise<void> {
   const pool = getPool();
   await ensureSchema();
