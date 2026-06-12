@@ -11,6 +11,7 @@ import {
   Position,
   MarkerType,
   SelectionMode,
+  ConnectionMode,
   addEdge,
   useNodesState,
   useEdgesState,
@@ -19,6 +20,7 @@ import {
   type Edge,
   type Connection,
   type NodeProps,
+  type ColorMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { apiFetch } from "@/lib/api-client";
@@ -32,6 +34,9 @@ import type { CoachingTemplate, TemplateGraph, TemplatePhase } from "@/lib/templ
 
 // Colors cycled through as phases are created.
 const PHASE_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db2777"];
+
+// The arrowhead sits on the target end (the activity an edge flows into).
+const ARROW = { type: MarkerType.ArrowClosed, width: 22, height: 22 } as const;
 
 type ActivityNodeData = {
   activityKey: string;
@@ -99,6 +104,12 @@ function CanvasInner({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
 
+  // Match React Flow's chrome (controls, minimap, background) to the app theme.
+  const [colorMode, setColorMode] = useState<ColorMode>("light");
+  useEffect(() => {
+    setColorMode(document.documentElement.classList.contains("dark") ? "dark" : "light");
+  }, []);
+
   // Seed React Flow state from the stored graph.
   const initialNodes: Node<ActivityNodeData>[] = useMemo(
     () =>
@@ -127,7 +138,7 @@ function CanvasInner({
         id: e.id,
         source: e.source,
         target: e.target,
-        markerEnd: { type: MarkerType.ArrowClosed },
+        markerEnd: ARROW,
       })),
     [template]
   );
@@ -136,10 +147,7 @@ function CanvasInner({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   const onConnect = useCallback(
-    (c: Connection) =>
-      setEdges((eds) =>
-        addEdge({ ...c, id: newId("e"), markerEnd: { type: MarkerType.ArrowClosed } }, eds)
-      ),
+    (c: Connection) => setEdges((eds) => addEdge({ ...c, id: newId("e"), markerEnd: ARROW }, eds)),
     [setEdges]
   );
 
@@ -329,7 +337,12 @@ function CanvasInner({
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             nodeTypes={nodeTypes}
-            defaultEdgeOptions={{ markerEnd: { type: MarkerType.ArrowClosed } }}
+            colorMode={colorMode}
+            defaultEdgeOptions={{ markerEnd: ARROW }}
+            // Loose mode: the node you drag FROM is the source, the node you
+            // drop ON is the target — so flow follows draw direction and the
+            // arrowhead always lands on the target (the next activity).
+            connectionMode={ConnectionMode.Loose}
             selectionOnDrag
             panOnDrag={[1, 2]}
             panOnScroll
