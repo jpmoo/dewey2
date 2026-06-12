@@ -200,14 +200,18 @@ export async function POST(request: NextRequest) {
       let graphStarted = false;
       let firstTokenAt = 0;
       try {
+        // Flush a heartbeat immediately so the connection stays alive (and the
+        // proxy doesn't time out) while the compliance screen runs.
+        controller.enqueue(encoder.encode(": ready\n\n"));
+
         // Pre-generation compliance screen — refuse before calling the model.
         const verdict = await complianceCheck(message);
         if (!verdict.allowed) {
-          const msg = verdict.reason
-            ? `I can't help with that: ${verdict.reason}`
-            : "I can't help with that request.";
-          send(controller, { type: "text", text: msg });
-          send(controller, { type: "done", reply: msg, proposedGraph: null });
+          send(controller, {
+            type: "blocked",
+            reason:
+              verdict.reason || "This request was flagged by the compliance screen.",
+          });
           controller.close();
           return;
         }
@@ -223,7 +227,9 @@ export async function POST(request: NextRequest) {
           if (mi !== -1) {
             const prose = full.slice(0, mi);
             if (prose.length > sentLen) {
-              send(controller, { type: "text", text: prose.slice(sentLen) });
+              // Drop the dangling lead-in colon from the last streamed chunk.
+              const chunk = prose.slice(sentLen).replace(/[:：]\s*$/, "");
+              if (chunk) send(controller, { type: "text", text: chunk });
               sentLen = prose.length;
             }
             graphStarted = true;
@@ -243,7 +249,9 @@ export async function POST(request: NextRequest) {
         if (mi === -1 && full.length > sentLen) {
           send(controller, { type: "text", text: full.slice(sentLen) });
         }
-        const reply = (mi !== -1 ? full.slice(0, mi) : full).trim();
+        let reply = (mi !== -1 ? full.slice(0, mi) : full).trim();
+        // When a graph follows, the lead-in ends with a colon — drop the dangling colon.
+        if (mi !== -1) reply = reply.replace(/[:：]\s*$/, "").trim();
         const proposedGraph =
           mi !== -1 ? sanitizeProposed(extractJsonObject(full.slice(mi + GRAPH_MARKER.length))) : null;
 

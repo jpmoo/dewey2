@@ -185,7 +185,11 @@ code {
   opacity: 0;
   transition: opacity 0.12s ease;
 }
-.dewey-canvas .react-flow__node:hover .react-flow__handle,
-.dewey-canvas.connecting .react-flow__handle {
+/* Show a node's handles on hover — unless it already has an outgoing edge. */
+.dewey-canvas .react-flow__node:not(.has-out):hover .react-flow__handle {
   opacity: 1;
+}
+/* While drawing a connection, reveal every node's handles so any can be a target. */
+.dewey-canvas.connecting .react-flow__handle {
+  opacity: 1 !important;
 }

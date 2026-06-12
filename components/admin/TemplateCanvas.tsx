@@ -307,6 +307,14 @@ function CanvasInner({
     setIsConnecting(true);
   }, []);
   const onConnectEnd = useCallback(() => setIsConnecting(false), []);
+
+  // Tag nodes that already have an outgoing edge so their handles hide on hover
+  // (they can still be a drop target while a connection is being drawn).
+  const outSources = useMemo(() => new Set(edges.map((e) => e.source)), [edges]);
+  const flowNodes = useMemo(
+    () => nodes.map((n) => (outSources.has(n.id) ? { ...n, className: "has-out" } : n)),
+    [nodes, outSources]
+  );
   const onConnect = useCallback(
     (c: Connection) => {
       let { source, target, sourceHandle, targetHandle } = c;
@@ -316,9 +324,14 @@ function CanvasInner({
         [sourceHandle, targetHandle] = [targetHandle, sourceHandle];
       }
       if (!source || !target || source === target) return;
-      setEdges((eds) =>
-        addEdge({ source, target, sourceHandle, targetHandle, id: newId("e"), markerEnd: ARROW }, eds)
-      );
+      setEdges((eds) => {
+        // One outgoing connection per activity (no duplicates, no fan-out).
+        if (eds.some((e) => e.source === source)) return eds;
+        return addEdge(
+          { source, target, sourceHandle, targetHandle, id: newId("e"), markerEnd: ARROW },
+          eds
+        );
+      });
     },
     [setEdges]
   );
@@ -794,7 +807,7 @@ function CanvasInner({
           onDragOver={onDragOver}
         >
           <ReactFlow
-            nodes={nodes}
+            nodes={flowNodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -1164,6 +1177,13 @@ function CanvasAssistant({
         return copy;
       });
     const setAssistant = (text: string) => patchAssistant({ text });
+    // Drop the trailing empty assistant placeholder (used for popups/errors).
+    const dropEmptyAssistant = () =>
+      setMessages((m) =>
+        m.length && m[m.length - 1].role === "assistant" && !m[m.length - 1].text
+          ? m.slice(0, -1)
+          : m
+      );
 
     try {
       const res = await fetch(pathWithBase("/api/admin/templates/assistant"), {
@@ -1181,6 +1201,7 @@ function CanvasAssistant({
       let buf = "";
       let live = "";
       let graph: TemplateGraph | null = null;
+      let blocked: string | null = null;
 
       for (;;) {
         const { done, value } = await reader.read();
@@ -1199,6 +1220,7 @@ function CanvasAssistant({
             proposedGraph?: TemplateGraph | null;
             sources?: ChatSource[];
             error?: string;
+            reason?: string;
           };
           try {
             ev = JSON.parse(line.slice(5).trim());
@@ -1213,6 +1235,10 @@ function CanvasAssistant({
             patchAssistant({ sources: srcs.length ? srcs : undefined });
           } else if (ev.type === "graph_start") {
             setConstructing(true);
+          } else if (ev.type === "blocked") {
+            blocked =
+              ev.reason?.trim() ||
+              "That request can't be processed by the coaching assistant.";
           } else if (ev.type === "done") {
             patchAssistant({ text: ev.reply || live || "(no response)" });
             graph = ev.proposedGraph ?? null;
@@ -1222,12 +1248,21 @@ function CanvasAssistant({
         }
       }
 
+      if (blocked) {
+        // The compliance screen refused the message — drop the empty bubble and warn.
+        dropEmptyAssistant();
+        window.alert(blocked);
+        return;
+      }
+
       if (graph) {
         setProposed(graph);
         setPreviewing(true); // pop the preview with discard/add/replace options
       }
     } catch (e) {
-      setAssistant(e instanceof Error ? e.message : "Request failed");
+      // Surface failures as a popup rather than rendering raw error text inline.
+      dropEmptyAssistant();
+      window.alert(e instanceof Error ? e.message : "Request failed");
     } finally {
       setLoading(false);
       setConstructing(false);
