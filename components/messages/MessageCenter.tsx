@@ -97,7 +97,9 @@ export function MessageCenter() {
   );
 
   return (
-    <section>
+    // Full-bleed: break out of the centered max-w container so the messenger is
+    // much wider than the other tabs.
+    <section className="relative left-1/2 w-[94vw] max-w-[1400px] -translate-x-1/2">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold">Messages</h2>
@@ -125,8 +127,8 @@ export function MessageCenter() {
           No conversations yet. Share or submit a plan from the Coaching Canvas to start one.
         </p>
       ) : (
-        <div className="flex h-[65vh] overflow-hidden rounded-lg border border-dewey-border">
-          <ul className="w-2/5 min-w-[180px] divide-y divide-dewey-border overflow-y-auto border-r border-dewey-border bg-dewey-surface">
+        <div className="flex h-[78vh] overflow-hidden rounded-lg border border-dewey-border">
+          <ul className="w-72 shrink-0 divide-y divide-dewey-border overflow-y-auto border-r border-dewey-border bg-dewey-surface">
             {threads.map((t) => (
               <ThreadListItem
                 key={t.id}
@@ -165,6 +167,7 @@ export function MessageCenter() {
 type Recipient = {
   id: number;
   full_name: string;
+  username: string;
   system_role: string;
   district_name: string | null;
   school_name: string | null;
@@ -179,7 +182,8 @@ function ComposeModal({
   onSent: (threadId: number) => void;
 }) {
   const [recipients, setRecipients] = useState<Recipient[]>([]);
-  const [recipientId, setRecipientId] = useState<number | "">("");
+  const [selected, setSelected] = useState<Recipient[]>([]);
+  const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -199,9 +203,25 @@ function ComposeModal({
       ? `${r.district_name} · District-wide`
       : "";
 
+  // Live search by name or username, excluding already-selected people.
+  const q = query.trim().toLowerCase();
+  const selectedIds = new Set(selected.map((r) => r.id));
+  const matches = recipients
+    .filter((r) => !selectedIds.has(r.id))
+    .filter((r) =>
+      q ? `${r.full_name} ${r.username}`.toLowerCase().includes(q) : true
+    )
+    .slice(0, 8);
+
+  const add = (r: Recipient) => {
+    setSelected((cur) => [...cur, r]);
+    setQuery("");
+  };
+  const remove = (id: number) => setSelected((cur) => cur.filter((r) => r.id !== id));
+
   const send = async () => {
-    if (recipientId === "") {
-      setErr("Choose someone to message.");
+    if (selected.length === 0) {
+      setErr("Add at least one recipient.");
       return;
     }
     if (!message.trim()) {
@@ -213,7 +233,7 @@ function ComposeModal({
     try {
       const d = await apiFetch<{ threadId: number }>("/api/messages/threads", {
         method: "POST",
-        body: { recipientId, message },
+        body: { recipientIds: selected.map((r) => r.id), message },
       });
       onSent(d.threadId);
     } catch (e) {
@@ -234,27 +254,70 @@ function ComposeModal({
         <h3 className="mb-4 text-lg font-semibold">New message</h3>
         <div className="space-y-4">
           {err && <p className="text-sm text-red-600">{err}</p>}
+
           <div>
             <label className="dewey-label">To</label>
+            {/* Selected recipient chips */}
+            {selected.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {selected.map((r) => (
+                  <span
+                    key={r.id}
+                    className="flex items-center gap-1 rounded-full border border-dewey-border bg-dewey-surface-2 py-0.5 pl-2 pr-1 text-xs"
+                  >
+                    {r.full_name}
+                    <button
+                      type="button"
+                      className="text-dewey-mute hover:text-dewey-ink"
+                      onClick={() => remove(r.id)}
+                      aria-label={`Remove ${r.full_name}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             {loading ? (
               <p className="text-sm text-dewey-mute">Loading…</p>
             ) : recipients.length === 0 ? (
               <p className="text-sm text-dewey-mute">No one available to message yet.</p>
             ) : (
-              <select
-                className="dewey-input"
-                value={recipientId}
-                onChange={(e) => setRecipientId(e.target.value ? Number(e.target.value) : "")}
-              >
-                <option value="">— choose a recipient —</option>
-                {recipients.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.full_name} ({r.system_role}){orgLabel(r) ? ` — ${orgLabel(r)}` : ""}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <input
+                  className="dewey-input"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search by name or username…"
+                  autoFocus
+                />
+                {query.trim() && (
+                  <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-dewey-border bg-dewey-surface shadow-lg">
+                    {matches.length === 0 ? (
+                      <li className="px-3 py-2 text-xs text-dewey-mute">No matches.</li>
+                    ) : (
+                      matches.map((r) => (
+                        <li key={r.id}>
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-2 text-left text-sm hover:bg-dewey-surface-2"
+                            onClick={() => add(r)}
+                          >
+                            <span className="font-medium text-dewey-ink">{r.full_name}</span>
+                            <span className="ml-1 text-xs text-dewey-mute">
+                              @{r.username} · {r.system_role}
+                              {orgLabel(r) ? ` · ${orgLabel(r)}` : ""}
+                            </span>
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                )}
+              </div>
             )}
           </div>
+
           <div>
             <label className="dewey-label">Message</label>
             <textarea
@@ -272,7 +335,7 @@ function ComposeModal({
               type="button"
               className="dewey-btn-primary w-auto"
               onClick={send}
-              disabled={sending || loading || recipients.length === 0}
+              disabled={sending || loading || selected.length === 0}
             >
               {sending ? "Sending…" : "Send"}
             </button>
@@ -423,23 +486,34 @@ function ThreadPane({
         )}
       </div>
 
-      <div
-        ref={scrollRef}
-        onScroll={onScroll}
-        className="flex-1 space-y-3 overflow-y-auto px-4 py-3"
-      >
-        {loading ? (
-          <p className="text-xs text-dewey-mute">Loading…</p>
-        ) : messages.length === 0 ? (
-          <p className="text-xs text-dewey-mute">No messages yet.</p>
-        ) : (
-          messages.map((m) => (
-            <MessageBubble key={m.id} message={m} mine={m.sender_id === meId} onPreview={onPreview} />
-          ))
-        )}
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3">
+        {/* min-h-full + justify-end anchors a short conversation to the bottom so
+            the pane reads as filled, while long threads scroll normally. */}
+        <div className="flex min-h-full flex-col justify-end gap-3">
+          {loading ? (
+            <p className="text-xs text-dewey-mute">Loading…</p>
+          ) : messages.length === 0 ? (
+            <p className="text-xs text-dewey-mute">No messages yet.</p>
+          ) : (
+            messages.map((m) => (
+              <MessageBubble
+                key={m.id}
+                message={m}
+                mine={m.sender_id === meId}
+                onPreview={onPreview}
+              />
+            ))
+          )}
+        </div>
       </div>
 
-      <Composer threadId={threadId} onSent={onSent} />
+      {thread?.kind === "compliance" ? (
+        <div className="border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
+          System notice — replies are disabled.
+        </div>
+      ) : (
+        <Composer threadId={threadId} onSent={onSent} />
+      )}
     </>
   );
 }
@@ -455,7 +529,7 @@ function MessageBubble({
 }) {
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[80%] ${mine ? "items-end" : "items-start"}`}>
+      <div className={`max-w-[min(75%,620px)] ${mine ? "items-end" : "items-start"}`}>
         <div className="mb-0.5 flex items-center gap-1.5 text-[11px] text-dewey-mute">
           <Avatar userId={m.sender_id} name={m.sender_name} size={18} />
           <span className="font-medium text-dewey-ink">{m.sender_name ?? "Unknown"}</span>

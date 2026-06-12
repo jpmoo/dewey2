@@ -663,6 +663,7 @@ export async function getCoachesInDistrict(
 export interface RecipientOption {
   id: number;
   full_name: string;
+  username: string;
   system_role: SystemRole;
   district_name: string | null;
   school_name: string | null;
@@ -692,7 +693,8 @@ export async function getMessageRecipients(me: {
   } // admin → no role restriction
 
   const res = await pool.query(
-    `SELECT u.id, u.full_name, u.system_role, d.name AS district_name, s.name AS school_name
+    `SELECT u.id, u.full_name, u.username, u.system_role,
+            d.name AS district_name, s.name AS school_name
        FROM users u
        LEFT JOIN districts d ON d.id = u.district_id
        LEFT JOIN schools s ON s.id = u.school_id
@@ -703,6 +705,7 @@ export async function getMessageRecipients(me: {
   return res.rows.map((r) => ({
     id: r.id as number,
     full_name: r.full_name as string,
+    username: r.username as string,
     system_role: r.system_role as SystemRole,
     district_name: (r.district_name as string | null) ?? null,
     school_name: (r.school_name as string | null) ?? null,

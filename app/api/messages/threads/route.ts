@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
 import { getMessageRecipients, type SystemRole } from "@/lib/db";
-import { findOrCreateDirectThread, listThreadsForUser, postMessage } from "@/lib/messages";
+import { findOrCreateThread, listThreadsForUser, postMessage } from "@/lib/messages";
 
 /** Threads the user participates in. Admins see every thread (oversight). */
 export async function GET() {
@@ -24,24 +24,36 @@ export async function POST(request: NextRequest) {
   const meId = Number(session.user.id);
 
   const body = await request.json().catch(() => ({}));
-  const recipientId = Number(body.recipientId);
+  // Accept recipientIds[] (group) or a single recipientId (back-compat).
+  const rawIds: unknown[] = Array.isArray(body.recipientIds)
+    ? body.recipientIds
+    : body.recipientId != null
+    ? [body.recipientId]
+    : [];
+  const recipientIds = Array.from(
+    new Set(rawIds.map((v) => Number(v)).filter((n) => Number.isFinite(n) && n !== meId))
+  );
   const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (!Number.isFinite(recipientId)) {
-    return NextResponse.json({ error: "Choose someone to message" }, { status: 400 });
+  if (recipientIds.length === 0) {
+    return NextResponse.json({ error: "Choose at least one recipient" }, { status: 400 });
   }
   if (!message) {
     return NextResponse.json({ error: "Write a message" }, { status: 400 });
   }
 
-  const allowed = await getMessageRecipients({
-    id: meId,
-    system_role: session.user.system_role as SystemRole,
-  });
-  if (!allowed.some((r) => r.id === recipientId)) {
-    return NextResponse.json({ error: "You can't message that user" }, { status: 403 });
+  const allowedIds = new Set(
+    (
+      await getMessageRecipients({
+        id: meId,
+        system_role: session.user.system_role as SystemRole,
+      })
+    ).map((r) => r.id)
+  );
+  if (!recipientIds.every((id) => allowedIds.has(id))) {
+    return NextResponse.json({ error: "You can't message one of those users" }, { status: 403 });
   }
 
-  const threadId = await findOrCreateDirectThread(meId, recipientId);
+  const threadId = await findOrCreateThread(meId, recipientIds);
   await postMessage({ threadId, senderId: meId, body: message });
   return NextResponse.json({ ok: true, threadId });
 }
