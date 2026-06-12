@@ -6,7 +6,6 @@ import {
   ReactFlowProvider,
   Background,
   Controls,
-  MiniMap,
   Handle,
   Position,
   MarkerType,
@@ -352,7 +351,6 @@ function CanvasInner({
           >
             <Background />
             <Controls />
-            <MiniMap pannable zoomable />
           </ReactFlow>
         </div>
 
