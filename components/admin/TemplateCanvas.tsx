@@ -6,6 +6,7 @@ import {
   ReactFlowProvider,
   Background,
   Controls,
+  ViewportPortal,
   Handle,
   Position,
   MarkerType,
@@ -37,6 +38,18 @@ const PHASE_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#d
 
 // The arrowhead sits on the target end (the activity an edge flows into).
 const ARROW = { type: MarkerType.ArrowClosed, width: 22, height: 22 } as const;
+
+// Fallback node dimensions before React Flow has measured them.
+const NODE_W = 170;
+const NODE_H = 64;
+
+function rgba(hex: string, a: number): string {
+  const m = hex.replace("#", "");
+  const r = parseInt(m.slice(0, 2), 16);
+  const g = parseInt(m.slice(2, 4), 16);
+  const b = parseInt(m.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
 
 type ActivityNodeData = {
   activityKey: string;
@@ -156,6 +169,41 @@ function CanvasInner({
     (c: Connection) => setEdges((eds) => addEdge({ ...c, id: newId("e"), markerEnd: ARROW }, eds)),
     [setEdges]
   );
+
+  // A translucent "cloud" behind each phase, sized to its members' bounding box
+  // (plus padding and a strip for the label). Recomputed as nodes move/measure.
+  const LABEL_STRIP = 16;
+  const PAD = 26;
+  const phaseClouds = useMemo(() => {
+    return phases
+      .map((p) => {
+        const members = nodes.filter((n) => n.data.phaseId === p.id);
+        if (members.length === 0) return null;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const n of members) {
+          const w = n.measured?.width ?? NODE_W;
+          const h = n.measured?.height ?? NODE_H;
+          minX = Math.min(minX, n.position.x);
+          minY = Math.min(minY, n.position.y);
+          maxX = Math.max(maxX, n.position.x + w);
+          maxY = Math.max(maxY, n.position.y + h);
+        }
+        const color = p.color ?? "#2563eb";
+        return {
+          id: p.id,
+          name: p.name,
+          color,
+          x: minX - PAD,
+          y: minY - PAD - LABEL_STRIP,
+          w: maxX - minX + PAD * 2,
+          h: maxY - minY + PAD * 2 + LABEL_STRIP,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+  }, [phases, nodes]);
 
   // ---- Add activity (drag from palette, or click to drop at center) ----
   const addActivity = useCallback(
@@ -427,6 +475,40 @@ function CanvasInner({
             fitView
             proOptions={{ hideAttribution: true }}
           >
+            <ViewportPortal>
+              {phaseClouds.map((c) => (
+                <div
+                  key={c.id}
+                  // Positioned in flow coordinates; the portal applies the
+                  // viewport transform. Behind nodes and non-interactive.
+                  style={{
+                    position: "absolute",
+                    transform: `translate(${c.x}px, ${c.y}px)`,
+                    width: c.w,
+                    height: c.h,
+                    background: rgba(c.color, 0.1),
+                    border: `1px solid ${rgba(c.color, 0.4)}`,
+                    borderRadius: 36,
+                    boxShadow: `0 2px 18px ${rgba(c.color, 0.12)}`,
+                    zIndex: -1,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 5,
+                      left: 14,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: c.color,
+                    }}
+                  >
+                    {c.name}
+                  </span>
+                </div>
+              ))}
+            </ViewportPortal>
             <Background />
             <Controls />
           </ReactFlow>
