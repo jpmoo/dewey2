@@ -1079,7 +1079,7 @@ function CanvasAssistant({
                   <span
                     className={`inline-block rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap ${
                       m.role === "user"
-                        ? "bg-dewey-ink text-white"
+                        ? "bg-dewey-primary text-dewey-primary-fg"
                         : "bg-dewey-surface-2 text-dewey-ink"
                     }`}
                   >
