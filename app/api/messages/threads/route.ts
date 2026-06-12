@@ -4,12 +4,15 @@ import { getMessageRecipients, type SystemRole } from "@/lib/db";
 import { findOrCreateThread, listThreadsForUser, postMessage } from "@/lib/messages";
 
 /** Threads the user participates in. Admins see every thread (oversight). */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const guard = await requireUser();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
   const isAdmin = session.user.system_role === "admin";
-  const threads = await listThreadsForUser(Number(session.user.id), isAdmin);
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q") ?? undefined;
+  const archived = url.searchParams.get("archived") === "1";
+  const threads = await listThreadsForUser(Number(session.user.id), isAdmin, { q, archived });
   return NextResponse.json({ threads, isAdmin });
 }
 

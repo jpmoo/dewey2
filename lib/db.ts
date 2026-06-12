@@ -245,6 +245,16 @@ export function ensureSchema(): Promise<void> {
         );
         CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments (message_id);
 
+        -- Per-user thread archiving. A row hides the thread from that user's
+        -- active list and surfaces it under "Archived"; it does not affect other
+        -- participants. Admins (oversight) can archive their own view too.
+        CREATE TABLE IF NOT EXISTS thread_archived (
+          thread_id   INTEGER NOT NULL REFERENCES message_threads (id) ON DELETE CASCADE,
+          user_id     INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+          archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (thread_id, user_id)
+        );
+
         -- Profile photos (one per user), stored in-DB as BYTEA.
         CREATE TABLE IF NOT EXISTS user_avatars (
           user_id    INTEGER PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,

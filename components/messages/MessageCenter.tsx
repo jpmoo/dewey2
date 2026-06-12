@@ -57,11 +57,17 @@ export function MessageCenter() {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [preview, setPreview] = useState<AttachmentMeta | null>(null);
   const [composing, setComposing] = useState(false);
+  const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
 
   const loadThreads = useCallback(async () => {
     try {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("q", search.trim());
+      if (showArchived) params.set("archived", "1");
+      const qs = params.toString();
       const d = await apiFetch<{ threads: ThreadSummary[]; isAdmin: boolean }>(
-        "/api/messages/threads"
+        `/api/messages/threads${qs ? `?${qs}` : ""}`
       );
       setThreads(d.threads);
       setIsAdmin(d.isAdmin);
@@ -75,13 +81,14 @@ export function MessageCenter() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [search, showArchived]);
 
+  // Reload (debounced) when the search or archived view changes, and poll.
   useEffect(() => {
-    loadThreads();
+    const t = setTimeout(() => loadThreads(), 200);
+    return () => clearTimeout(t);
   }, [loadThreads]);
 
-  // Poll the thread list so new conversations/replies surface without a reload.
   useEffect(() => {
     const t = setInterval(() => loadThreads(), 6000);
     return () => clearInterval(t);
@@ -118,27 +125,69 @@ export function MessageCenter() {
         </button>
       </div>
 
-      {loading ? (
-        <p className="text-dewey-mute">Loading…</p>
-      ) : error ? (
+      {error ? (
         <p className="text-red-600">{error}</p>
-      ) : threads.length === 0 ? (
-        <p className="py-6 text-center text-sm text-dewey-mute">
-          No conversations yet. Share or submit a plan from the Coaching Canvas to start one.
-        </p>
       ) : (
         <div className="flex h-[78vh] overflow-hidden rounded-lg border border-dewey-border">
-          <ul className="w-72 shrink-0 divide-y divide-dewey-border overflow-y-auto border-r border-dewey-border bg-dewey-surface">
-            {threads.map((t) => (
-              <ThreadListItem
-                key={t.id}
-                thread={t}
-                meId={meId}
-                active={t.id === activeId}
-                onSelect={() => setActiveId(t.id)}
+          <div className="flex w-72 shrink-0 flex-col border-r border-dewey-border bg-dewey-surface">
+            {/* List controls: search + inbox/archived toggle */}
+            <div className="space-y-2 border-b border-dewey-border p-2">
+              <input
+                type="search"
+                className="dewey-input"
+                placeholder="Search people or messages…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
               />
-            ))}
-          </ul>
+              <div className="flex gap-1 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setShowArchived(false)}
+                  className={`flex-1 rounded px-2 py-1 ${
+                    !showArchived
+                      ? "bg-dewey-surface-2 font-medium text-dewey-ink"
+                      : "text-dewey-mute hover:text-dewey-ink"
+                  }`}
+                >
+                  Inbox
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowArchived(true)}
+                  className={`flex-1 rounded px-2 py-1 ${
+                    showArchived
+                      ? "bg-dewey-surface-2 font-medium text-dewey-ink"
+                      : "text-dewey-mute hover:text-dewey-ink"
+                  }`}
+                >
+                  Archived
+                </button>
+              </div>
+            </div>
+            <ul className="flex-1 divide-y divide-dewey-border overflow-y-auto">
+              {loading ? (
+                <li className="px-3 py-3 text-xs text-dewey-mute">Loading…</li>
+              ) : threads.length === 0 ? (
+                <li className="px-3 py-4 text-center text-xs text-dewey-mute">
+                  {search.trim()
+                    ? "No matches."
+                    : showArchived
+                    ? "No archived conversations."
+                    : "No conversations yet."}
+                </li>
+              ) : (
+                threads.map((t) => (
+                  <ThreadListItem
+                    key={t.id}
+                    thread={t}
+                    meId={meId}
+                    active={t.id === activeId}
+                    onSelect={() => setActiveId(t.id)}
+                  />
+                ))
+              )}
+            </ul>
+          </div>
           <div className="flex min-w-0 flex-1 flex-col bg-dewey-cream">
             {activeId == null ? (
               <div className="flex flex-1 items-center justify-center text-sm text-dewey-mute">
@@ -146,10 +195,16 @@ export function MessageCenter() {
               </div>
             ) : (
               <ThreadPane
+                key={activeId}
                 threadId={activeId}
                 meId={meId}
+                archived={showArchived}
                 onPreview={setPreview}
                 onPosted={loadThreads}
+                onArchived={() => {
+                  setActiveId(null);
+                  loadThreads();
+                }}
               />
             )}
           </div>
@@ -397,20 +452,38 @@ function ThreadListItem({
 function ThreadPane({
   threadId,
   meId,
+  archived,
   onPreview,
   onPosted,
+  onArchived,
 }: {
   threadId: number;
   meId: number | null;
+  archived: boolean;
   onPreview: (a: AttachmentMeta) => void;
   onPosted: () => void;
+  onArchived: () => void;
 }) {
+  const dialog = useDialog();
   const [thread, setThread] = useState<ThreadSummary | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Only auto-scroll on new messages when already near the bottom.
   const stick = useRef(true);
+
+  const toggleArchive = async () => {
+    try {
+      await fetch(pathWithBase(`/api/messages/threads/${threadId}/archive`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ archived: !archived }),
+      });
+      onArchived();
+    } catch {
+      dialog.alert("Couldn't update the conversation.");
+    }
+  };
 
   const fetchThread = useCallback(
     async (showSpinner: boolean) => {
@@ -478,6 +551,13 @@ function ThreadPane({
               {thread.status}
             </span>
           )}
+          <button
+            type="button"
+            className="ml-auto shrink-0 text-xs text-dewey-accent hover:underline"
+            onClick={toggleArchive}
+          >
+            {archived ? "Unarchive" : "Archive"}
+          </button>
         </div>
         {thread && thread.participants.length > 0 && (
           <p className="truncate text-xs text-dewey-mute">

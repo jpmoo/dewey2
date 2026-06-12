@@ -130,6 +130,27 @@ export async function addParticipant(threadId: number, userId: number): Promise<
   );
 }
 
+/** Archive or unarchive a thread for one user (their view only). */
+export async function setThreadArchived(
+  threadId: number,
+  userId: number,
+  archived: boolean
+): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  if (archived) {
+    await pool.query(
+      `INSERT INTO thread_archived (thread_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+      [threadId, userId]
+    );
+  } else {
+    await pool.query("DELETE FROM thread_archived WHERE thread_id = $1 AND user_id = $2", [
+      threadId,
+      userId,
+    ]);
+  }
+}
+
 export async function setThreadStatus(threadId: number, status: ThreadStatus): Promise<void> {
   const pool = getPool();
   await ensureSchema();
@@ -166,31 +187,56 @@ export async function canAccessThread(
 // Listing + reading
 // ============================================================
 
-/** Thread summaries newest-activity first. Admins see all; others see their own. */
+/**
+ * Thread summaries ordered by most recent message. Admins see all threads;
+ * others see their own. Supports per-user archive filtering and a live search
+ * across participant names/usernames and message contents.
+ */
 export async function listThreadsForUser(
   userId: number,
-  isAdmin: boolean
+  isAdmin: boolean,
+  opts: { q?: string; archived?: boolean } = {}
 ): Promise<ThreadSummary[]> {
   const pool = getPool();
   await ensureSchema();
 
-  const threadsRes = isAdmin
-    ? await pool.query(
-        `SELECT t.*, ct.name AS template_name
-           FROM message_threads t
-           LEFT JOIN coaching_templates ct ON ct.id = t.template_id
-          WHERE t.deleted_at IS NULL
-          ORDER BY t.updated_at DESC`
-      )
-    : await pool.query(
-        `SELECT t.*, ct.name AS template_name
-           FROM message_threads t
-           JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
-           LEFT JOIN coaching_templates ct ON ct.id = t.template_id
-          WHERE t.deleted_at IS NULL
-          ORDER BY t.updated_at DESC`,
-        [userId]
-      );
+  const params: unknown[] = [userId];
+  const where: string[] = ["t.deleted_at IS NULL"];
+  let join = "LEFT JOIN coaching_templates ct ON ct.id = t.template_id";
+  if (!isAdmin) {
+    join = "JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1 " + join;
+  }
+  // Per-user archive state (admins archive their own oversight view too).
+  where.push(
+    opts.archived
+      ? "EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)"
+      : "NOT EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)"
+  );
+  const q = opts.q?.trim();
+  if (q) {
+    params.push(`%${q}%`);
+    const qi = `$${params.length}`;
+    where.push(`(
+      t.subject ILIKE ${qi}
+      OR EXISTS (SELECT 1 FROM thread_participants pp JOIN users uu ON uu.id = pp.user_id
+                  WHERE pp.thread_id = t.id AND (uu.full_name ILIKE ${qi} OR uu.username ILIKE ${qi}))
+      OR EXISTS (SELECT 1 FROM messages mm
+                  WHERE mm.thread_id = t.id AND mm.deleted_at IS NULL AND mm.body ILIKE ${qi})
+    )`);
+  }
+
+  const threadsRes = await pool.query(
+    `SELECT t.*, ct.name AS template_name
+       FROM message_threads t
+       ${join}
+      WHERE ${where.join(" AND ")}
+      ORDER BY COALESCE(
+        (SELECT MAX(m2.created_at) FROM messages m2
+          WHERE m2.thread_id = t.id AND m2.deleted_at IS NULL),
+        t.updated_at
+      ) DESC`,
+    params
+  );
 
   const threads = threadsRes.rows;
   if (threads.length === 0) return [];
