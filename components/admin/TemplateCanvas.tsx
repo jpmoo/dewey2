@@ -459,6 +459,65 @@ function CanvasInner({
     [setNodes, setEdges]
   );
 
+  // Merge a graph into the current canvas: fresh ids (no collisions), incoming
+  // nodes offset to the right of existing content, phases appended.
+  const addGraph = useCallback(
+    (g: TemplateGraph) => {
+      const phaseIdMap = new Map<string, string>();
+      const addedPhases: TemplatePhase[] = (g.phases ?? []).map((p, i) => {
+        const id = newId("p");
+        phaseIdMap.set(p.id, id);
+        return { ...p, id, color: PHASE_COLORS[(phases.length + i) % PHASE_COLORS.length] };
+      });
+
+      const curMaxX = nodes.length
+        ? Math.max(...nodes.map((n) => n.position.x + (n.measured?.width ?? NODE_W)))
+        : 0;
+      const incMinX = (g.nodes ?? []).length
+        ? Math.min(...(g.nodes ?? []).map((n) => n.position.x))
+        : 0;
+      const dx = nodes.length ? curMaxX + 80 - incMinX : 0;
+
+      const idMap = new Map<string, string>();
+      const addedNodes: Node<ActivityNodeData>[] = (g.nodes ?? []).map((n) => {
+        const id = newId("n");
+        idMap.set(n.id, id);
+        const phaseId = n.phaseId ? phaseIdMap.get(n.phaseId) ?? null : null;
+        const phase = addedPhases.find((p) => p.id === phaseId);
+        const cat = ACTIVITY_BY_KEY[n.activityKey]?.category ?? "reflecting";
+        return {
+          id,
+          type: "activity",
+          position: { x: n.position.x + dx, y: n.position.y },
+          data: {
+            activityKey: n.activityKey,
+            label: ACTIVITY_BY_KEY[n.activityKey]?.label ?? n.label,
+            category: cat,
+            gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
+            instructions: n.instructions ?? "",
+            phaseId,
+            phaseName: phase?.name ?? null,
+            phaseColor: phase?.color ?? null,
+          },
+        };
+      });
+
+      const addedEdges: Edge[] = (g.edges ?? [])
+        .map((e): Edge | null => {
+          const source = idMap.get(e.source);
+          const target = idMap.get(e.target);
+          if (!source || !target) return null;
+          return { id: newId("e"), source, target, markerEnd: ARROW };
+        })
+        .filter((e): e is Edge => e !== null);
+
+      setPhases((ps) => [...ps, ...addedPhases]);
+      setNodes((nds) => [...nds, ...addedNodes]);
+      setEdges((eds) => [...eds, ...addedEdges]);
+    },
+    [nodes, phases, setNodes, setEdges]
+  );
+
   // A stable snapshot of the current editor state, for change detection.
   const currentSnapshot = JSON.stringify({ name, graph: buildGraph() });
   // Baseline = state as of the last save (or initial load). Unsaved if it diverges.
@@ -769,7 +828,7 @@ function CanvasInner({
         </aside>
       </div>
 
-      <CanvasAssistant buildGraph={buildGraph} onApply={applyGraph} />
+      <CanvasAssistant buildGraph={buildGraph} onApply={applyGraph} onAdd={addGraph} />
 
       {editingNode && (
         <NodeEditModal
@@ -936,9 +995,11 @@ type ChatTurn = { role: "user" | "assistant"; text: string };
 function CanvasAssistant({
   buildGraph,
   onApply,
+  onAdd,
 }: {
   buildGraph: () => TemplateGraph;
   onApply: (g: TemplateGraph) => void;
+  onAdd: (g: TemplateGraph) => void;
 }) {
   const [open, setOpen] = useState(true);
   const [messages, setMessages] = useState<ChatTurn[]>([]);
@@ -1006,8 +1067,8 @@ function CanvasAssistant({
           {proposed && (
             <div className="flex items-center justify-between gap-2 mb-2 rounded-md border border-dewey-accent/40 bg-dewey-accent/10 px-3 py-2 text-sm">
               <span>
-                The assistant proposed a graph ({proposed.nodes.length} activities,{" "}
-                {proposed.phases.length} phases). Applying replaces the current canvas.
+                The assistant proposed {proposed.nodes.length} activities and{" "}
+                {proposed.phases.length} phases.
               </span>
               <span className="flex items-center gap-2 shrink-0">
                 <button
@@ -1021,11 +1082,23 @@ function CanvasAssistant({
                   type="button"
                   className="dewey-btn-primary w-auto"
                   onClick={() => {
+                    onAdd(proposed);
+                    setProposed(null);
+                  }}
+                  title="Append to the current canvas"
+                >
+                  Add to canvas
+                </button>
+                <button
+                  type="button"
+                  className="dewey-btn-secondary"
+                  onClick={() => {
                     onApply(proposed);
                     setProposed(null);
                   }}
+                  title="Replace everything on the canvas"
                 >
-                  Apply to canvas
+                  Replace canvas
                 </button>
                 <button
                   type="button"
@@ -1041,6 +1114,11 @@ function CanvasAssistant({
           {previewing && proposed && (
             <PreviewModal
               graph={proposed}
+              onAdd={() => {
+                onAdd(proposed);
+                setProposed(null);
+                setPreviewing(false);
+              }}
               onApply={() => {
                 onApply(proposed);
                 setProposed(null);
@@ -1078,10 +1156,12 @@ function CanvasAssistant({
 
 function PreviewModal({
   graph,
+  onAdd,
   onApply,
   onClose,
 }: {
   graph: TemplateGraph;
+  onAdd: () => void;
   onApply: () => void;
   onClose: () => void;
 }) {
@@ -1221,8 +1301,11 @@ function PreviewModal({
           <button type="button" className="dewey-btn-secondary" onClick={onClose}>
             Close
           </button>
-          <button type="button" className="dewey-btn-primary w-auto" onClick={onApply}>
-            Apply to canvas
+          <button type="button" className="dewey-btn-secondary" onClick={onApply}>
+            Replace canvas
+          </button>
+          <button type="button" className="dewey-btn-primary w-auto" onClick={onAdd}>
+            Add to canvas
           </button>
         </div>
       </div>
