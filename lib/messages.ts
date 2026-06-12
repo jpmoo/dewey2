@@ -1,5 +1,11 @@
 import { getPool } from "@/lib/pg";
-import { ensureSchema, getAdminIds, getMessageRecipients, logUserEvent } from "@/lib/db";
+import {
+  duplicatePlanForPartnership,
+  ensureSchema,
+  getAdminIds,
+  getMessageRecipients,
+  logUserEvent,
+} from "@/lib/db";
 import { getSystemSettings } from "@/lib/settings";
 
 /**
@@ -40,6 +46,10 @@ export interface MessageView {
   body: string;
   created_at: string;
   attachments: AttachmentMeta[];
+  /** Set when this message embeds a partnership plan copy. */
+  plan_id: number | null;
+  plan_name: string | null;
+  plan_phase: string | null;
 }
 
 export interface ThreadSummary {
@@ -671,9 +681,12 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name
+    `SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name,
+            m.plan_id, ct.name AS plan_name,
+            ct.graph -> 'phases' -> 0 ->> 'name' AS plan_phase
        FROM messages m
        LEFT JOIN users u ON u.id = m.sender_id
+       LEFT JOIN coaching_templates ct ON ct.id = m.plan_id
       WHERE m.thread_id = $1 AND m.deleted_at IS NULL
       ORDER BY m.created_at`,
     [threadId]
@@ -705,6 +718,9 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
     body: m.body as string,
     created_at: toIso(m.created_at),
     attachments: byMessage.get(Number(m.id)) ?? [],
+    plan_id: (m.plan_id as number | null) ?? null,
+    plan_name: (m.plan_name as string | null) ?? null,
+    plan_phase: (m.plan_phase as string | null) ?? null,
   }));
 }
 
@@ -716,15 +732,46 @@ export async function postMessage(params: {
   threadId: number;
   senderId: number;
   body: string;
+  planId?: number | null;
 }): Promise<number> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `INSERT INTO messages (thread_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id`,
-    [params.threadId, params.senderId, params.body]
+    `INSERT INTO messages (thread_id, sender_id, body, plan_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+    [params.threadId, params.senderId, params.body, params.planId ?? null]
   );
   await pool.query("UPDATE message_threads SET updated_at = NOW() WHERE id = $1", [params.threadId]);
   return Number(res.rows[0].id);
+}
+
+/**
+ * Embed a plan in a partnership thread: duplicate the source into a partnership-
+ * scoped copy and post a plan message. Coach (thread creator) only.
+ */
+export async function addPlanToPartnership(
+  threadId: number,
+  coachId: number,
+  sourcePlanId: number
+): Promise<{ ok: boolean; error?: string }> {
+  const pool = getPool();
+  await ensureSchema();
+  const meta = await pool.query(
+    "SELECT kind, created_by FROM message_threads WHERE id = $1 AND deleted_at IS NULL",
+    [threadId]
+  );
+  const t = meta.rows[0];
+  if (!t || t.kind !== "partnership") return { ok: false, error: "Not a partnership" };
+  if (t.created_by !== coachId) return { ok: false, error: "Only the coach can add a plan" };
+
+  const copy = await duplicatePlanForPartnership(sourcePlanId, coachId, threadId);
+  if (!copy) return { ok: false, error: "Plan not available" };
+  await postMessage({
+    threadId,
+    senderId: coachId,
+    body: `Added the plan "${copy.name}".`,
+    planId: copy.id,
+  });
+  return { ok: true };
 }
 
 export async function addAttachment(params: {

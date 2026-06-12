@@ -198,6 +198,19 @@ export function ensureSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_coaching_templates_owner
           ON coaching_templates (owner_id);
 
+        -- Drop the original scope CHECK so the 'partnership' scope (a plan copy
+        -- embedded in a partnership chat, not listed anywhere) is allowed.
+        DO $$
+        DECLARE cname text;
+        BEGIN
+          SELECT conname INTO cname FROM pg_constraint
+            WHERE conrelid = 'coaching_templates'::regclass AND contype = 'c'
+              AND pg_get_constraintdef(oid) ILIKE '%scope%';
+          IF cname IS NOT NULL THEN
+            EXECUTE 'ALTER TABLE coaching_templates DROP CONSTRAINT ' || quote_ident(cname);
+          END IF;
+        END $$;
+
         -- Soft delete: nothing is ever hard-deleted. A non-null deleted_at hides
         -- the row from all normal views; admins can restore it (deleted_at = NULL)
         -- from the audit log. Usernames stay reserved while a deleted account
@@ -229,6 +242,11 @@ export function ensureSchema(): Promise<void> {
           PRIMARY KEY (thread_id, user_id)
         );
 
+        -- Partnership-scoped plans link back to their thread (FK needs
+        -- message_threads to exist, hence here rather than at table creation).
+        ALTER TABLE coaching_templates
+          ADD COLUMN IF NOT EXISTS thread_id INTEGER REFERENCES message_threads (id) ON DELETE SET NULL;
+
         -- Invitation state for partnership threads: NULL = invited/pending,
         -- TRUE = accepted, FALSE = declined. Ignored for non-partnership threads.
         ALTER TABLE thread_participants ADD COLUMN IF NOT EXISTS accepted BOOLEAN;
@@ -244,6 +262,9 @@ export function ensureSchema(): Promise<void> {
           deleted_at TIMESTAMPTZ
         );
         CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (thread_id, created_at);
+        -- A message can embed a (partnership-scoped) plan copy.
+        ALTER TABLE messages
+          ADD COLUMN IF NOT EXISTS plan_id INTEGER REFERENCES coaching_templates (id) ON DELETE SET NULL;
 
         -- File attachments live in the DB (BYTEA) so they're covered by the same
         -- backups and need no separate storage volume. Previews are by mime type.
@@ -995,7 +1016,9 @@ function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
       edges: Array.isArray(graph.edges) ? graph.edges : [],
       phases: Array.isArray(graph.phases) ? graph.phases : [],
     },
-    scope: ((row.scope as string) === "personal" ? "personal" : "global") as TemplateScope,
+    scope: ((["personal", "partnership"].includes(row.scope as string)
+      ? row.scope
+      : "global") as TemplateScope),
     owner_id: (row.owner_id as number | null) ?? null,
     created_by: (row.created_by as number | null) ?? null,
     created_at: toIso(row.created_at),
@@ -1018,9 +1041,12 @@ export async function getTemplates(): Promise<CoachingTemplate[]> {
 export async function getTemplatesForCoach(coachId: number): Promise<CoachingTemplate[]> {
   const pool = getPool();
   await ensureSchema();
+  // Partnership-scoped copies are deliberately excluded — they live only in the
+  // partnership chat, not in any plan list.
   const res = await pool.query(
     `SELECT * FROM coaching_templates
-      WHERE deleted_at IS NULL AND (scope = 'global' OR owner_id = $1)
+      WHERE deleted_at IS NULL
+        AND (scope = 'global' OR (scope = 'personal' AND owner_id = $1))
       ORDER BY scope = 'global' DESC, name`,
     [coachId]
   );
@@ -1056,23 +1082,69 @@ export async function createTemplate(params: {
   createdBy?: number | null;
   scope?: TemplateScope;
   ownerId?: number | null;
+  threadId?: number | null;
 }): Promise<CoachingTemplate> {
   const pool = getPool();
   await ensureSchema();
   const scope: TemplateScope = params.scope ?? "global";
   const res = await pool.query(
-    `INSERT INTO coaching_templates (name, description, graph, created_by, scope, owner_id)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    `INSERT INTO coaching_templates (name, description, graph, created_by, scope, owner_id, thread_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
     [
       params.name.trim(),
       params.description?.trim() || null,
       JSON.stringify(params.graph ?? EMPTY_GRAPH),
       params.createdBy ?? null,
       scope,
-      scope === "personal" ? params.ownerId ?? null : null,
+      scope === "global" ? null : params.ownerId ?? null,
+      params.threadId ?? null,
     ]
   );
   return rowToTemplate(res.rows[0]);
+}
+
+/**
+ * Duplicate a plan (the coach's own or a global one) into a partnership-scoped
+ * copy owned by the coach and linked to the thread. Returns null if the source
+ * isn't visible to the coach.
+ */
+export async function duplicatePlanForPartnership(
+  sourceId: number,
+  coachId: number,
+  threadId: number
+): Promise<CoachingTemplate | null> {
+  const source = await getTemplateForCoach(sourceId, coachId);
+  if (!source) return null;
+  return createTemplate({
+    name: source.name,
+    description: source.description,
+    graph: source.graph,
+    createdBy: coachId,
+    scope: "partnership",
+    ownerId: coachId,
+    threadId,
+  });
+}
+
+/** Load a partnership plan if the user participates in its thread (or is admin). */
+export async function getPlanForThreadMember(
+  planId: number,
+  userId: number,
+  isAdmin: boolean
+): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const t = await getTemplate(planId);
+  if (!t || t.deleted_at || t.scope !== "partnership") return null;
+  if (isAdmin) return t;
+  // Must be a participant of the plan's thread.
+  const res = await pool.query(
+    `SELECT 1 FROM coaching_templates ct
+       JOIN thread_participants p ON p.thread_id = ct.thread_id AND p.user_id = $2
+      WHERE ct.id = $1 LIMIT 1`,
+    [planId, userId]
+  );
+  return res.rows[0] ? t : null;
 }
 
 /** Update a coach's own personal template only. Returns null if not owned. */
@@ -1082,7 +1154,8 @@ export async function updateCoachTemplate(
   params: { name?: string; description?: string | null; graph?: TemplateGraph }
 ): Promise<CoachingTemplate | null> {
   const owned = await getTemplate(id);
-  if (!owned || owned.deleted_at || owned.scope !== "personal" || owned.owner_id !== coachId)
+  // The coach owns personal plans and partnership-copy plans; both are editable.
+  if (!owned || owned.deleted_at || owned.scope === "global" || owned.owner_id !== coachId)
     return null;
   return updateTemplate(id, params);
 }

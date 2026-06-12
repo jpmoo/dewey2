@@ -1,11 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
 import { Avatar } from "@/components/Avatar";
+
+// Loaded only when a partnership plan is opened/edited (React Flow is heavy).
+const TemplateCanvas = dynamic(
+  () => import("@/components/admin/TemplateCanvas").then((m) => m.TemplateCanvas),
+  { ssr: false }
+);
+const TemplateReadOnly = dynamic(
+  () => import("@/components/admin/TemplateCanvas").then((m) => m.TemplateReadOnly),
+  { ssr: false }
+);
 
 type Participant = { id: number; full_name: string; system_role: string };
 type AttachmentMeta = { id: number; filename: string; mime_type: string; size_bytes: number };
@@ -16,6 +27,9 @@ type MessageView = {
   body: string;
   created_at: string;
   attachments: AttachmentMeta[];
+  plan_id: number | null;
+  plan_name: string | null;
+  plan_phase: string | null;
 };
 type ThreadSummary = {
   id: number;
@@ -24,6 +38,7 @@ type ThreadSummary = {
   template_id: number | null;
   template_name: string | null;
   status: "open" | "approved" | "rejected" | null;
+  created_by: number | null;
   created_at: string;
   updated_at: string;
   participants: Participant[];
@@ -552,6 +567,12 @@ export function ThreadPane({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Only auto-scroll on new messages when already near the bottom.
   const stick = useRef(true);
+  // Partnership-plan UI.
+  const [picking, setPicking] = useState(false);
+  const [openPlan, setOpenPlan] = useState<{ id: number; name: string; phase: string | null } | null>(
+    null
+  );
+  const amCoach = thread?.kind === "partnership" && thread?.created_by === meId;
 
   const toggleArchive = async () => {
     try {
@@ -632,13 +653,24 @@ export function ThreadPane({
               {thread.status}
             </span>
           )}
-          <button
-            type="button"
-            className="ml-auto shrink-0 text-xs text-dewey-accent hover:underline"
-            onClick={toggleArchive}
-          >
-            {archived ? "Unarchive" : "Archive"}
-          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-3">
+            {amCoach && (
+              <button
+                type="button"
+                className="text-xs text-dewey-accent hover:underline"
+                onClick={() => setPicking(true)}
+              >
+                + Add plan
+              </button>
+            )}
+            <button
+              type="button"
+              className="text-xs text-dewey-accent hover:underline"
+              onClick={toggleArchive}
+            >
+              {archived ? "Unarchive" : "Archive"}
+            </button>
+          </div>
         </div>
         {thread && thread.participants.length > 0 && (
           <p className="truncate text-xs text-dewey-mute">
@@ -662,6 +694,7 @@ export function ThreadPane({
                 message={m}
                 mine={m.sender_id === meId}
                 onPreview={onPreview}
+                onOpenPlan={(p) => setOpenPlan(p)}
               />
             ))
           )}
@@ -675,6 +708,25 @@ export function ThreadPane({
       ) : (
         <Composer threadId={threadId} onSent={onSent} onRefresh={() => fetchThread(false)} />
       )}
+
+      {picking && (
+        <AddPlanModal
+          threadId={threadId}
+          onClose={() => setPicking(false)}
+          onAdded={() => {
+            setPicking(false);
+            fetchThread(false);
+          }}
+        />
+      )}
+      {openPlan && (
+        <PlanModal
+          plan={openPlan}
+          amCoach={!!amCoach}
+          onClose={() => setOpenPlan(null)}
+          onChanged={() => fetchThread(false)}
+        />
+      )}
     </>
   );
 }
@@ -683,10 +735,12 @@ function MessageBubble({
   message: m,
   mine,
   onPreview,
+  onOpenPlan,
 }: {
   message: MessageView;
   mine: boolean;
   onPreview: (a: AttachmentMeta) => void;
+  onOpenPlan: (p: { id: number; name: string; phase: string | null }) => void;
 }) {
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
@@ -696,20 +750,50 @@ function MessageBubble({
           <span className="font-medium text-dewey-ink">{m.sender_name ?? "Unknown"}</span>
           <span>{new Date(m.created_at).toLocaleString()}</span>
         </div>
-        <div
-          className={`rounded-lg px-3 py-2 text-sm ${
-            mine ? "bg-dewey-accent/15 text-dewey-ink" : "bg-dewey-surface text-dewey-ink"
-          } border border-dewey-border`}
-        >
-          {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
-          {m.attachments.length > 0 && (
-            <div className="mt-2 space-y-2">
-              {m.attachments.map((a) => (
-                <Attachment key={a.id} att={a} onPreview={onPreview} />
-              ))}
+        {m.plan_id != null ? (
+          // Specialized plan bubble.
+          <div className="rounded-lg border border-dewey-accent/40 bg-dewey-accent/5 p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🗂️</span>
+              <div className="min-w-0">
+                <div className="text-xs uppercase tracking-wide text-dewey-mute">Coaching plan</div>
+                <button
+                  type="button"
+                  className="truncate text-left text-sm font-semibold text-dewey-ink hover:underline"
+                  onClick={() =>
+                    onOpenPlan({ id: m.plan_id as number, name: m.plan_name ?? "Plan", phase: m.plan_phase })
+                  }
+                >
+                  {m.plan_name ?? "Plan"}
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+            <button
+              type="button"
+              className="mt-2 text-xs text-dewey-accent hover:underline"
+              onClick={() =>
+                onOpenPlan({ id: m.plan_id as number, name: m.plan_name ?? "Plan", phase: m.plan_phase })
+              }
+            >
+              View plan ↗
+            </button>
+          </div>
+        ) : (
+          <div
+            className={`rounded-lg px-3 py-2 text-sm ${
+              mine ? "bg-dewey-accent/15 text-dewey-ink" : "bg-dewey-surface text-dewey-ink"
+            } border border-dewey-border`}
+          >
+            {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
+            {m.attachments.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {m.attachments.map((a) => (
+                  <Attachment key={a.id} att={a} onPreview={onPreview} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -947,6 +1031,192 @@ function Composer({
         >
           {sending ? "Sending…" : "Send"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+type PlanOption = { id: number; name: string; scope: string; description: string | null };
+
+/** Coach picks one of their plans (personal or global) to embed in the chat. */
+function AddPlanModal({
+  threadId,
+  onClose,
+  onAdded,
+}: {
+  threadId: number;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const dialog = useDialog();
+  const [plans, setPlans] = useState<PlanOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    apiFetch<{ templates: PlanOption[] }>("/api/coach/templates")
+      .then((d) => setPlans(d.templates))
+      .catch(() => setPlans([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const add = async (sourcePlanId: number) => {
+    setBusy(true);
+    try {
+      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/plan`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sourcePlanId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't add the plan");
+      }
+      onAdded();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't add the plan");
+      setBusy(false);
+    }
+  };
+
+  const mine = plans.filter((p) => p.scope === "personal");
+  const global = plans.filter((p) => p.scope === "global");
+
+  return (
+    <PlanShell title="Add a plan to this partnership" onClose={onClose}>
+      <p className="mb-3 text-sm text-dewey-mute">
+        A copy is embedded in the chat for everyone. It won&apos;t appear in your plan list.
+      </p>
+      {loading ? (
+        <p className="text-sm text-dewey-mute">Loading…</p>
+      ) : plans.length === 0 ? (
+        <p className="text-sm text-dewey-mute">You have no plans to add yet.</p>
+      ) : (
+        <div className="space-y-4">
+          {[
+            { title: "My plans", items: mine },
+            { title: "Global plans", items: global },
+          ].map((group) =>
+            group.items.length === 0 ? null : (
+              <div key={group.title}>
+                <h4 className="mb-1 text-xs font-semibold text-dewey-ink">{group.title}</h4>
+                <ul className="divide-y divide-dewey-border rounded-md border border-dewey-border">
+                  {group.items.map((p) => (
+                    <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="min-w-0 truncate text-sm text-dewey-ink">{p.name}</span>
+                      <button
+                        type="button"
+                        className="shrink-0 text-xs text-dewey-accent hover:underline disabled:opacity-50"
+                        onClick={() => add(p.id)}
+                        disabled={busy}
+                      >
+                        Add
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          )}
+        </div>
+      )}
+    </PlanShell>
+  );
+}
+
+/** Plan embedded in a partnership: coach edits the copy; partner sees the phase + read-only. */
+function PlanModal({
+  plan,
+  amCoach,
+  onClose,
+  onChanged,
+}: {
+  plan: { id: number; name: string; phase: string | null };
+  amCoach: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [viewing, setViewing] = useState(false);
+
+  if (editing) {
+    return (
+      <TemplateCanvas
+        templateId={plan.id}
+        templatesBase="/api/coach/templates"
+        onClose={() => {
+          setEditing(false);
+          onChanged();
+        }}
+      />
+    );
+  }
+  if (viewing) {
+    return (
+      <TemplateReadOnly
+        templateId={plan.id}
+        templatesBase="/api/partnership-plans"
+        onClose={() => setViewing(false)}
+      />
+    );
+  }
+
+  return (
+    <PlanShell title={plan.name} onClose={onClose}>
+      {amCoach ? (
+        <div className="space-y-4">
+          <p className="text-sm text-dewey-mute">
+            Reporting and review for this plan will live here. For now you can edit this
+            partnership&apos;s copy of the plan.
+          </p>
+          <button type="button" className="dewey-btn-primary w-auto" onClick={() => setEditing(true)}>
+            Edit plan
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-md border border-dewey-border bg-dewey-surface-2 p-3 text-sm">
+            <span className="text-dewey-mute">Current phase: </span>
+            <span className="font-medium text-dewey-ink">{plan.phase ?? "Not set"}</span>
+          </div>
+          <button type="button" className="dewey-btn-secondary" onClick={() => setViewing(true)}>
+            View plan (read-only)
+          </button>
+        </div>
+      )}
+    </PlanShell>
+  );
+}
+
+function PlanShell({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-dewey-surface p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="truncate text-lg font-semibold">{title}</h3>
+          <button
+            type="button"
+            className="shrink-0 text-sm text-dewey-mute hover:text-dewey-ink"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        {children}
       </div>
     </div>
   );

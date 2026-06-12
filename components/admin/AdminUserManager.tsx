@@ -99,6 +99,7 @@ const ACTION_LABELS: Record<string, string> = {
   compliance_flagged: "Compliance screen flagged a message",
   partnership_created: "Created a partnership",
   message_sent: "Sent a message",
+  plan_added: "Added a plan to a partnership",
   participant_added: "Added someone to a conversation",
   invitation_accepted: "Accepted a partnership",
   invitation_declined: "Declined a partnership",
