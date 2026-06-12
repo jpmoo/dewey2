@@ -40,17 +40,17 @@ export function CoachPartnerships() {
 
   return (
     <section>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Partnerships</h2>
-          <p className="text-sm text-dewey-mute">
-            A coaching partnership with one or more partners. Invitees accept before they join the
-            thread.
-          </p>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">Partnerships</h2>
+        <p className="text-sm text-dewey-mute">
+          A coaching partnership with one or more partners. Invitees accept before they join the
+          thread.
+        </p>
+        <div className="mt-3 flex justify-center">
+          <button type="button" className="dewey-btn-secondary" onClick={() => setCreating(true)}>
+            + New partnership
+          </button>
         </div>
-        <button type="button" className="dewey-btn-secondary" onClick={() => setCreating(true)}>
-          + New partnership
-        </button>
       </div>
 
       {loading ? (
@@ -60,13 +60,13 @@ export function CoachPartnerships() {
           No partnerships yet. Create one to invite partners.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="space-y-3">
           {items.map((p) => (
             <button
               key={p.thread_id}
               type="button"
               onClick={() => setOpen(p.thread_id)}
-              className="rounded-lg border border-dewey-border bg-dewey-surface p-4 text-left hover:bg-dewey-surface-2"
+              className="block w-full rounded-lg border border-dewey-border bg-dewey-surface p-4 text-left hover:bg-dewey-surface-2"
             >
               <div className="text-xs text-dewey-mute">
                 Started {new Date(p.created_at).toLocaleDateString()}
