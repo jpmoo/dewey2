@@ -25,6 +25,9 @@ export interface TemplateEdge {
   id: string;
   source: string;
   target: string;
+  /** Which side handle each end connects to (e.g. "top", "bottom", "left", "right"). */
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
 }
 
 export interface TemplatePhase {

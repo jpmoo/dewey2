@@ -12,6 +12,7 @@ import {
   Position,
   MarkerType,
   SelectionMode,
+  ConnectionMode,
   addEdge,
   applyNodeChanges,
   useNodesState,
@@ -185,15 +186,17 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
         minWidth: 150,
       }}
     >
-      {/* Top handle only ends connections; bottom only starts them — so the
-          drag preview snaps to the target handle and never flips. */}
-      <Handle type="target" position={Position.Top} isConnectableStart={false} />
+      {/* A handle on every side; all are source-typed but connect both ways in
+          loose mode, so you can draw a connection from/to any side, any way. */}
+      <Handle type="source" position={Position.Top} id="top" />
+      <Handle type="source" position={Position.Left} id="left" />
+      <Handle type="source" position={Position.Right} id="right" />
       <div className="h-1 rounded-t" style={{ background: catColor }} />
       <div className="px-2 py-1.5">
         <div className="font-medium leading-tight">{data.label}</div>
         <div className="text-[10px] text-dewey-mute mt-0.5">{data.gating}</div>
       </div>
-      <Handle type="source" position={Position.Bottom} isConnectableEnd={false} />
+      <Handle type="source" position={Position.Bottom} id="bottom" />
     </div>
   );
 }
@@ -261,6 +264,8 @@ function CanvasInner({
         id: e.id,
         source: e.source,
         target: e.target,
+        sourceHandle: e.sourceHandle ?? undefined,
+        targetHandle: e.targetHandle ?? undefined,
         markerEnd: ARROW,
       })),
     [template]
@@ -271,6 +276,8 @@ function CanvasInner({
   // Alignment guides shown while dragging a single node.
   const [helperLineH, setHelperLineH] = useState<number | undefined>(undefined);
   const [helperLineV, setHelperLineV] = useState<number | undefined>(undefined);
+  // True while a connection is being drawn (reveals every node's handles).
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<ActivityNodeData>>[]) => {
@@ -291,12 +298,27 @@ function CanvasInner({
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  // Handles are constrained (source = bottom/start only, target = top/end only)
-  // so strict mode resolves source/target by handle and flow follows the draw.
+  // Loose mode lets you connect any side to any side, either direction. We
+  // capture the node the drag STARTED on and force it to be the source, so the
+  // arrowhead always lands on the node you drop onto.
+  const connectStart = useRef<string | null>(null);
+  const onConnectStart = useCallback((_: unknown, params: { nodeId?: string | null }) => {
+    connectStart.current = params.nodeId ?? null;
+    setIsConnecting(true);
+  }, []);
+  const onConnectEnd = useCallback(() => setIsConnecting(false), []);
   const onConnect = useCallback(
     (c: Connection) => {
-      if (!c.source || !c.target || c.source === c.target) return;
-      setEdges((eds) => addEdge({ ...c, id: newId("e"), markerEnd: ARROW }, eds));
+      let { source, target, sourceHandle, targetHandle } = c;
+      const start = connectStart.current;
+      if (start && target === start && source !== start) {
+        [source, target] = [target, source];
+        [sourceHandle, targetHandle] = [targetHandle, sourceHandle];
+      }
+      if (!source || !target || source === target) return;
+      setEdges((eds) =>
+        addEdge({ source, target, sourceHandle, targetHandle, id: newId("e"), markerEnd: ARROW }, eds)
+      );
     },
     [setEdges]
   );
@@ -489,7 +511,13 @@ function CanvasInner({
         instructions: n.data.instructions,
         artifact: n.data.artifact,
       })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? null,
+        targetHandle: e.targetHandle ?? null,
+      })),
       phases,
     }),
     [nodes, edges, phases]
@@ -522,7 +550,16 @@ function CanvasInner({
           };
         })
       );
-      setEdges((g.edges ?? []).map((e) => ({ id: e.id, source: e.source, target: e.target, markerEnd: ARROW })));
+      setEdges(
+        (g.edges ?? []).map((e) => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle ?? undefined,
+          targetHandle: e.targetHandle ?? undefined,
+          markerEnd: ARROW,
+        }))
+      );
     },
     [setNodes, setEdges]
   );
@@ -576,7 +613,14 @@ function CanvasInner({
           const source = idMap.get(e.source);
           const target = idMap.get(e.target);
           if (!source || !target) return null;
-          return { id: newId("e"), source, target, markerEnd: ARROW };
+          return {
+            id: newId("e"),
+            source,
+            target,
+            sourceHandle: e.sourceHandle ?? undefined,
+            targetHandle: e.targetHandle ?? undefined,
+            markerEnd: ARROW,
+          };
         })
         .filter((e): e is Edge => e !== null);
 
@@ -742,18 +786,26 @@ function CanvasInner({
           ))}
         </aside>
 
-        {/* Canvas */}
-        <div className="flex-1 min-w-0" ref={wrapperRef} onDrop={onDrop} onDragOver={onDragOver}>
+        {/* Canvas — `connecting` reveals all handles while drawing an edge. */}
+        <div
+          className={`flex-1 min-w-0 dewey-canvas${isConnecting ? " connecting" : ""}`}
+          ref={wrapperRef}
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+        >
           <ReactFlow
             nodes={nodes}
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onConnectStart={onConnectStart}
+            onConnectEnd={onConnectEnd}
             onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
             nodeTypes={nodeTypes}
             colorMode={colorMode}
             defaultEdgeOptions={{ markerEnd: ARROW }}
+            connectionMode={ConnectionMode.Loose}
             selectionOnDrag
             panOnDrag={[1, 2]}
             panOnScroll
@@ -1302,7 +1354,15 @@ function PreviewModal({
     [graph]
   );
   const edges: Edge[] = useMemo(
-    () => (graph.edges ?? []).map((e) => ({ id: e.id, source: e.source, target: e.target, markerEnd: ARROW })),
+    () =>
+      (graph.edges ?? []).map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? undefined,
+        targetHandle: e.targetHandle ?? undefined,
+        markerEnd: ARROW,
+      })),
     [graph]
   );
 

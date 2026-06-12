@@ -175,3 +175,17 @@ code {
 .typing-dots span:nth-child(3) {
   animation-delay: 0.3s;
 }
+
+/* Canvas connection handles: hidden until you hover a node or draw a connection. */
+.react-flow__handle {
+  width: 9px;
+  height: 9px;
+  background: rgb(var(--dewey-accent));
+  border: 1px solid rgb(var(--dewey-surface));
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.dewey-canvas .react-flow__node:hover .react-flow__handle,
+.dewey-canvas.connecting .react-flow__handle {
+  opacity: 1;
+}
