@@ -252,6 +252,35 @@ export function ensureSchema(): Promise<void> {
           data       BYTEA NOT NULL,
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+
+        -- Persisted AI chat. A conversation is owned by one user and tied to a
+        -- context (e.g. a template/plan, later an activity). Every message is
+        -- kept forever (the full transcript); summary + summarized_through
+        -- compress older turns for the model's context window without losing
+        -- anything. Only the owner and admins ever read these.
+        CREATE TABLE IF NOT EXISTS ai_conversations (
+          id                 SERIAL PRIMARY KEY,
+          owner_id           INTEGER REFERENCES users (id) ON DELETE CASCADE,
+          context_type       TEXT NOT NULL DEFAULT 'template',
+          context_id         INTEGER,
+          summary            TEXT,
+          summarized_through BIGINT NOT NULL DEFAULT 0,
+          created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_conv_owner
+          ON ai_conversations (owner_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_ai_conv_context
+          ON ai_conversations (owner_id, context_type, context_id);
+
+        CREATE TABLE IF NOT EXISTS ai_messages (
+          id              BIGSERIAL PRIMARY KEY,
+          conversation_id INTEGER NOT NULL REFERENCES ai_conversations (id) ON DELETE CASCADE,
+          role            TEXT NOT NULL,
+          content         TEXT NOT NULL,
+          created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_messages_conv ON ai_messages (conversation_id, id);
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.

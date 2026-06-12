@@ -210,6 +210,33 @@ export async function summarizeWithComplianceModel(prompt: string): Promise<stri
   return (data.message?.content ?? "").trim();
 }
 
+/**
+ * Fold older conversation turns into a running summary so the live context stays
+ * within the model's window. The full transcript is preserved elsewhere; this is
+ * only the compressed memory the model sees. Returns the prior summary unchanged
+ * if no summarization model is configured or the call fails.
+ */
+export async function summarizeConversation(params: {
+  priorSummary: string | null;
+  olderTurns: { role: string; content: string }[];
+}): Promise<string> {
+  const prior = params.priorSummary ?? "";
+  if (params.olderTurns.length === 0) return prior;
+  const transcript = params.olderTurns
+    .map((t) => `${t.role === "assistant" ? "Assistant" : "User"}: ${t.content}`)
+    .join("\n");
+  const prompt = [
+    prior ? `Existing summary of the conversation so far:\n${prior}\n` : "",
+    `Additional earlier turns to fold in:\n${transcript}`,
+    `\nWrite an updated running summary (a few sentences to a short paragraph) capturing the goals, decisions, and key context from the conversation so a coaching assistant can continue seamlessly. Preserve specifics (names, goals, plan structure). Respond with ONLY the summary text.`,
+  ].join("\n");
+  try {
+    return await summarizeWithComplianceModel(prompt);
+  } catch {
+    return prior;
+  }
+}
+
 // ============================================================
 // Warmup
 // ============================================================

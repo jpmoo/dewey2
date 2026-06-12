@@ -54,6 +54,16 @@ type UserLogView = {
   entity_label: string | null;
 };
 
+type ConversationRow = {
+  id: number;
+  context_type: string;
+  context_name: string | null;
+  message_count: number;
+  updated_at: string;
+  preview: string | null;
+};
+type TranscriptMessage = { id: number; role: "user" | "assistant"; content: string; created_at: string };
+
 const ACTION_LABELS: Record<string, string> = {
   created: "Account created",
   updated: "Updated",
@@ -620,6 +630,8 @@ function UserEditModal({
   const [logs, setLogs] = useState<UserLogView[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [showFullLog, setShowFullLog] = useState(false);
+  const [conversations, setConversations] = useState<ConversationRow[]>([]);
+  const [viewConversationId, setViewConversationId] = useState<number | null>(null);
 
   const reloadLogs = useCallback(() => {
     let cancelled = false;
@@ -640,6 +652,20 @@ function UserEditModal({
   }, [user.id]);
 
   useEffect(() => reloadLogs(), [reloadLogs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ conversations: ConversationRow[] }>(`/api/admin/users/${user.id}/conversations`)
+      .then((d) => {
+        if (!cancelled) setConversations(d.conversations ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setConversations([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -857,6 +883,34 @@ function UserEditModal({
             )}
           </div>
         </div>
+
+        {/* AI conversations — full transcripts, admin-only. */}
+        {conversations.length > 0 && (
+          <div>
+            <label className="dewey-label">AI conversations</label>
+            <ul className="divide-y divide-dewey-border rounded-md border border-dewey-border bg-dewey-surface">
+              {conversations.map((c) => (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-xs hover:bg-dewey-surface-2"
+                    onClick={() => setViewConversationId(c.id)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-dewey-ink">
+                        {c.context_name ? `Plan: ${c.context_name}` : "Plan assistant"}
+                      </span>
+                      <span className="shrink-0 text-dewey-mute">
+                        {c.message_count} msg · {new Date(c.updated_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    {c.preview && <div className="mt-0.5 truncate text-dewey-mute">{c.preview}</div>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
       <div className="flex gap-2 mt-6 justify-between">
         <button
@@ -886,7 +940,107 @@ function UserEditModal({
           onClose={() => setShowFullLog(false)}
         />
       )}
+
+      {viewConversationId != null && (
+        <TranscriptModal
+          conversationId={viewConversationId}
+          userName={user.full_name}
+          onClose={() => setViewConversationId(null)}
+        />
+      )}
     </ModalShell>
+  );
+}
+
+/** Read-only full transcript of one AI conversation (admin view). */
+function TranscriptModal({
+  conversationId,
+  userName,
+  onClose,
+}: {
+  conversationId: number;
+  userName: string;
+  onClose: () => void;
+}) {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [messages, setMessages] = useState<TranscriptMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ conversation: { summary: string | null }; messages: TranscriptMessage[] }>(
+      `/api/admin/conversations/${conversationId}`
+    )
+      .then((d) => {
+        if (cancelled) return;
+        setSummary(d.conversation.summary);
+        setMessages(d.messages ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setMessages([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-dewey-surface p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Transcript — {userName}</h3>
+          <button
+            type="button"
+            className="text-sm text-dewey-mute hover:text-dewey-ink"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div className="flex-1 space-y-3 overflow-y-auto">
+          {loading ? (
+            <p className="text-xs text-dewey-mute">Loading…</p>
+          ) : (
+            <>
+              {summary && (
+                <div className="rounded-md border border-dewey-border bg-dewey-surface-2 p-2 text-xs text-dewey-mute">
+                  <span className="font-medium text-dewey-ink">Summary of earlier turns: </span>
+                  {summary}
+                </div>
+              )}
+              {messages.length === 0 ? (
+                <p className="text-xs text-dewey-mute">No messages.</p>
+              ) : (
+                messages.map((m) => (
+                  <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[85%] rounded-lg border border-dewey-border px-3 py-2 text-sm ${
+                        m.role === "user" ? "bg-dewey-accent/15" : "bg-dewey-surface"
+                      }`}
+                    >
+                      <div className="mb-0.5 text-[11px] text-dewey-mute">
+                        {m.role === "user" ? userName : "Assistant"} ·{" "}
+                        {new Date(m.created_at).toLocaleString()}
+                      </div>
+                      <div className="whitespace-pre-wrap text-dewey-ink">{m.content}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

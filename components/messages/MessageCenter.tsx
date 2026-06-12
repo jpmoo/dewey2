@@ -81,6 +81,12 @@ export function MessageCenter() {
     loadThreads();
   }, [loadThreads]);
 
+  // Poll the thread list so new conversations/replies surface without a reload.
+  useEffect(() => {
+    const t = setInterval(() => loadThreads(), 6000);
+    return () => clearInterval(t);
+  }, [loadThreads]);
+
   const onComposed = useCallback(
     async (threadId: number) => {
       setComposing(false);
@@ -92,14 +98,14 @@ export function MessageCenter() {
 
   return (
     <section>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Message Center</h2>
-          <p className="text-sm text-dewey-mute">
-            {isAdmin
-              ? "Every conversation on the platform — plan submissions, shares, and direct threads."
-              : "Plan submissions to the admin, plans shared with you, and your conversations."}
-          </p>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold">Messages</h2>
+          {isAdmin && (
+            <span className="rounded bg-dewey-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-dewey-mute">
+              All conversations
+            </span>
+          )}
         </div>
         <button
           type="button"
@@ -340,37 +346,58 @@ function ThreadPane({
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Only auto-scroll on new messages when already near the bottom.
+  const stick = useRef(true);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const d = await apiFetch<{ thread: ThreadSummary; messages: MessageView[] }>(
-        `/api/messages/threads/${threadId}`
-      );
-      setThread(d.thread);
-      setMessages(d.messages);
-    } catch {
-      setThread(null);
-      setMessages([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [threadId]);
+  const fetchThread = useCallback(
+    async (showSpinner: boolean) => {
+      if (showSpinner) setLoading(true);
+      try {
+        const d = await apiFetch<{ thread: ThreadSummary; messages: MessageView[] }>(
+          `/api/messages/threads/${threadId}`
+        );
+        setThread(d.thread);
+        setMessages(d.messages);
+      } catch {
+        if (showSpinner) {
+          setThread(null);
+          setMessages([]);
+        }
+      } finally {
+        if (showSpinner) setLoading(false);
+      }
+    },
+    [threadId]
+  );
 
   useEffect(() => {
-    load();
-  }, [load]);
+    stick.current = true; // jump to bottom when switching threads
+    fetchThread(true);
+  }, [fetchThread]);
 
-  // Scroll to the newest message after messages render.
+  // Poll for new messages in the open thread (silent — no spinner).
+  useEffect(() => {
+    const t = setInterval(() => fetchThread(false), 4000);
+    return () => clearInterval(t);
+  }, [fetchThread]);
+
+  // Keep the newest message in view, unless the reader has scrolled up.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+
   const onSent = useCallback(() => {
-    load();
+    stick.current = true;
+    fetchThread(false);
     onPosted();
-  }, [load, onPosted]);
+  }, [fetchThread, onPosted]);
 
   return (
     <>
@@ -396,7 +423,11 @@ function ThreadPane({
         )}
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="flex-1 space-y-3 overflow-y-auto px-4 py-3"
+      >
         {loading ? (
           <p className="text-xs text-dewey-mute">Loading…</p>
         ) : messages.length === 0 ? (

@@ -1002,7 +1002,12 @@ function CanvasInner({
         </aside>
       </div>
 
-      <CanvasAssistant buildGraph={buildGraph} onApply={applyGraph} onAdd={addGraph} />
+      <CanvasAssistant
+        buildGraph={buildGraph}
+        onApply={applyGraph}
+        onAdd={addGraph}
+        templateId={savedId}
+      />
 
       {editingNode && (
         <NodeEditModal
@@ -1232,10 +1237,13 @@ function CanvasAssistant({
   buildGraph,
   onApply,
   onAdd,
+  templateId,
 }: {
   buildGraph: () => TemplateGraph;
   onApply: (g: TemplateGraph) => void;
   onAdd: (g: TemplateGraph) => void;
+  /** The saved plan id (null until first save), used to persist/restore the transcript. */
+  templateId: number | null;
 }) {
   const dialog = useDialog();
   const [open, setOpen] = useState(true);
@@ -1245,6 +1253,8 @@ function CanvasAssistant({
   const [proposed, setProposed] = useState<TemplateGraph | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [constructing, setConstructing] = useState(false);
+  // Server-assigned conversation id; persisted across turns/sessions.
+  const conversationId = useRef<number | null>(null);
   // Resizable transcript height (drag the top border).
   const [transcriptHeight, setTranscriptHeight] = useState(200);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -1255,6 +1265,26 @@ function CanvasAssistant({
   useEffect(() => {
     fetch(pathWithBase("/api/admin/ai/warmup"), { method: "POST" }).catch(() => {});
   }, []);
+
+  // Restore the saved transcript for this plan when the assistant opens. Only
+  // for a saved plan — a brand-new (unsaved) plan starts fresh. Never overwrite
+  // an in-progress conversation/messages (guards the null→id post-save re-run).
+  useEffect(() => {
+    if (templateId == null) return;
+    let cancelled = false;
+    apiFetch<{ conversationId: number | null; messages: ChatTurn[] }>(
+      `/api/admin/templates/assistant?templateId=${templateId}`
+    )
+      .then((d) => {
+        if (cancelled) return;
+        if (d.conversationId != null) conversationId.current = d.conversationId;
+        if (d.messages.length) setMessages((cur) => (cur.length ? cur : d.messages));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId]);
 
   // Keep the latest message in view as turns are added and tokens stream in —
   // but only if the user hasn't scrolled up to read earlier messages.
@@ -1290,7 +1320,6 @@ function CanvasAssistant({
     setProposed(null);
     setConstructing(false);
     stickToBottom.current = true; // sending always scrolls the new turn into view
-    const history = messages;
     // Append the user turn and an empty assistant turn we fill as tokens stream in.
     setMessages((m) => [...m, { role: "user", text: q }, { role: "assistant", text: "" }]);
     setLoading(true);
@@ -1316,7 +1345,12 @@ function CanvasAssistant({
       const res = await fetch(pathWithBase("/api/admin/templates/assistant"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ graph: buildGraph(), message: q, history }),
+        body: JSON.stringify({
+          graph: buildGraph(),
+          message: q,
+          conversationId: conversationId.current,
+          templateId,
+        }),
       });
       if (!res.ok || !res.body) {
         const err = await res.json().catch(() => ({}));
@@ -1348,13 +1382,16 @@ function CanvasAssistant({
             sources?: ChatSource[];
             error?: string;
             reason?: string;
+            conversationId?: number;
           };
           try {
             ev = JSON.parse(line.slice(5).trim());
           } catch {
             continue;
           }
-          if (ev.type === "text" && ev.text) {
+          if (ev.type === "conversation") {
+            if (typeof ev.conversationId === "number") conversationId.current = ev.conversationId;
+          } else if (ev.type === "text" && ev.text) {
             live += ev.text;
             setAssistant(live);
           } else if (ev.type === "sources") {
@@ -1395,7 +1432,7 @@ function CanvasAssistant({
       setLoading(false);
       setConstructing(false);
     }
-  }, [input, loading, messages, buildGraph, dialog]);
+  }, [input, loading, buildGraph, dialog, templateId]);
 
   return (
     <div className="border-t border-dewey-border bg-dewey-surface">

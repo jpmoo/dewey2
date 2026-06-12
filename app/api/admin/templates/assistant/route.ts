@@ -1,10 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCoachOrAdmin } from "@/lib/guard";
-import { chatStream, complianceCheck, type ChatMessage } from "@/lib/ai";
+import { chatStream, complianceCheck, summarizeConversation, type ChatMessage } from "@/lib/ai";
 import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
 import { ACTIVITY_TYPES, ACTIVITY_BY_KEY } from "@/lib/activities";
 import { reportComplianceFlag } from "@/lib/messages";
+import {
+  appendMessage,
+  createConversation,
+  getConversation,
+  getConversationForContext,
+  getMessages,
+  getMessagesAfter,
+  setConversationContext,
+  setSummary,
+} from "@/lib/ai-chat";
 import type { TemplateGraph } from "@/lib/templates";
+
+// Live-context budget (chars ≈ a safe fraction of the window). Older turns past
+// this are folded into the conversation summary; the full transcript is kept.
+const CONTEXT_CHAR_BUDGET = 16000;
+const RECENT_KEEP = 6;
 
 const PHASE_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db2777"];
 
@@ -153,6 +168,28 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
   return null;
 }
 
+/**
+ * Restore the signed-in user's saved transcript for a plan, so the assistant
+ * shows prior turns when reopened. Returns the conversation id and messages.
+ */
+export async function GET(request: NextRequest) {
+  const guard = await requireCoachOrAdmin();
+  if (guard instanceof NextResponse) return guard;
+  const { session } = guard;
+  const ownerId = Number(session.user.id);
+  const url = new URL(request.url);
+  const tid = Number(url.searchParams.get("templateId"));
+  const contextId = Number.isFinite(tid) && tid > 0 ? tid : null;
+
+  const conversation = await getConversationForContext(ownerId, "template", contextId);
+  if (!conversation) return NextResponse.json({ conversationId: null, messages: [] });
+  const msgs = await getMessages(conversation.id);
+  return NextResponse.json({
+    conversationId: conversation.id,
+    messages: msgs.map((m) => ({ role: m.role, text: m.content })),
+  });
+}
+
 export async function POST(request: NextRequest) {
   const guard = await requireCoachOrAdmin();
   if (guard instanceof NextResponse) return guard;
@@ -163,13 +200,31 @@ export async function POST(request: NextRequest) {
   if (!message) return NextResponse.json({ error: "Message is required" }, { status: 400 });
 
   const graph = body.graph ?? { nodes: [], edges: [], phases: [] };
-  const historyIn = Array.isArray(body.history) ? body.history : [];
-  const history: ChatMessage[] = historyIn
-    .filter((h: unknown): h is { role: string; text: string } => !!h && typeof h === "object")
-    .map((h: { role: string; text: string }) => ({
-      role: h.role === "assistant" ? ("assistant" as const) : ("user" as const),
-      content: String(h.text ?? ""),
-    }));
+
+  // Resolve (or create) the persisted conversation for this owner + plan. The
+  // full transcript is stored server-side; we never trust client history.
+  const ownerId = Number(session.user.id);
+  const contextType = "template";
+  const templateIdNum = Number(body.templateId);
+  const contextId = Number.isFinite(templateIdNum) && templateIdNum > 0 ? templateIdNum : null;
+
+  let conversation = null as Awaited<ReturnType<typeof getConversation>>;
+  const convIdIn = Number(body.conversationId);
+  if (Number.isFinite(convIdIn)) {
+    const c = await getConversation(convIdIn);
+    if (c && c.owner_id === ownerId) conversation = c;
+  }
+  if (!conversation) conversation = await getConversationForContext(ownerId, contextType, contextId);
+  const conv = conversation ?? (await createConversation({ ownerId, contextType, contextId }));
+  const conversationId = conv.id;
+  // Backfill the plan link once the plan is saved (started before first save).
+  if (conv.context_id == null && contextId != null) {
+    await setConversationContext(conversationId, contextId);
+  }
+
+  // Prior turns (since the last summary point) — used for the compliance report
+  // and as the live context for the model.
+  const priorMessages = await getMessagesAfter(conversationId, conv.summarized_through);
 
   // Ground the call in the org's documents via RAGDoll (default collections).
   const tStart = Date.now();
@@ -182,14 +237,6 @@ export async function POST(request: NextRequest) {
       "\n\nRelevant excerpts from the organization's documents — ground your suggestions in these where applicable, and refer to document names when useful:\n" +
       formatRagContext(chunks);
   }
-
-  const messages: ChatMessage[] = [
-    ...history,
-    {
-      role: "user",
-      content: `Current template graph (JSON):\n${JSON.stringify(graph)}\n\nRequest: ${message}`,
-    },
-  ];
 
   const encoder = new TextEncoder();
   const send = (controller: ReadableStreamDefaultController, obj: unknown) =>
@@ -205,16 +252,20 @@ export async function POST(request: NextRequest) {
         // Flush a heartbeat immediately so the connection stays alive (and the
         // proxy doesn't time out) while the compliance screen runs.
         controller.enqueue(encoder.encode(": ready\n\n"));
+        // Hand the client the conversation id so it persists across turns/sessions.
+        send(controller, { type: "conversation", conversationId });
 
         // Pre-generation compliance screen — refuse before calling the model.
         const verdict = await complianceCheck(message);
         if (!verdict.allowed) {
-          // Log the flag and report it (with conversation history) to admins.
+          // Report the flag (with the conversation so far) to admins. The flagged
+          // message is captured in that report; we don't persist it into the
+          // ongoing transcript so it can't re-enter the model's context.
           await reportComplianceFlag({
-            userId: Number(session.user.id),
+            userId: ownerId,
             userName: session.user.nickname || session.user.name || session.user.username || "A user",
             flaggedMessage: message,
-            history,
+            history: priorMessages.map((m) => ({ role: m.role, content: m.content })),
             context: "plan assistant",
           }).catch((e) => console.warn("[assistant] compliance report failed", e));
           send(controller, {
@@ -226,10 +277,39 @@ export async function POST(request: NextRequest) {
           return;
         }
 
+        // Persist the user's turn, then assemble the live context (summary +
+        // recent turns), summarizing older turns if we're over budget.
+        await appendMessage(conversationId, "user", message);
+        let working = await getMessagesAfter(conversationId, conv.summarized_through);
+        let summaryText = conv.summary;
+        const totalChars =
+          (summaryText?.length ?? 0) + working.reduce((a, m) => a + m.content.length, 0);
+        if (totalChars > CONTEXT_CHAR_BUDGET && working.length > RECENT_KEEP) {
+          const older = working.slice(0, working.length - RECENT_KEEP);
+          const recent = working.slice(working.length - RECENT_KEEP);
+          summaryText = await summarizeConversation({
+            priorSummary: summaryText,
+            olderTurns: older.map((m) => ({ role: m.role, content: m.content })),
+          });
+          await setSummary(conversationId, summaryText, older[older.length - 1].id);
+          working = recent;
+        }
+
+        let liveSystem = system;
+        if (summaryText) {
+          liveSystem += `\n\nSummary of the earlier conversation (for context):\n${summaryText}`;
+        }
+        const messages: ChatMessage[] = working.map((m) => ({ role: m.role, content: m.content }));
+        // Attach the current plan graph to the latest user turn (transient).
+        const lastUser = messages[messages.length - 1];
+        if (lastUser && lastUser.role === "user") {
+          lastUser.content = `Current plan graph (JSON):\n${JSON.stringify(graph)}\n\nRequest: ${lastUser.content}`;
+        }
+
         // Surface the RAG source links up front, before any model output streams.
         if (sources.length > 0) send(controller, { type: "sources", sources });
 
-        for await (const delta of chatStream({ system, messages, maxTokens: 4096 })) {
+        for await (const delta of chatStream({ system: liveSystem, messages, maxTokens: 4096 })) {
           if (!firstTokenAt) firstTokenAt = Date.now();
           full += delta;
           if (graphStarted) continue;
@@ -264,6 +344,12 @@ export async function POST(request: NextRequest) {
         if (mi !== -1) reply = reply.replace(/[:：]\s*$/, "").trim();
         const proposedGraph =
           mi !== -1 ? sanitizeProposed(extractJsonObject(full.slice(mi + GRAPH_MARKER.length))) : null;
+
+        // Persist the assistant's turn (prose, plus a note when it proposed a plan).
+        const stored = (reply || "(no response)") + (proposedGraph ? "\n[Proposed a plan on the canvas.]" : "");
+        await appendMessage(conversationId, "assistant", stored).catch((e) =>
+          console.warn("[assistant] failed to persist reply", e)
+        );
 
         const tEnd = Date.now();
         console.info(
