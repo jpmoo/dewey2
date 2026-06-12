@@ -403,26 +403,61 @@ function CanvasInner({
     });
   }, []);
 
+  // Snapshot the canvas into the persisted graph shape (used by Save and the assistant).
+  const buildGraph = useCallback(
+    (): TemplateGraph => ({
+      nodes: nodes.map((n) => ({
+        id: n.id,
+        activityKey: n.data.activityKey,
+        label: n.data.label,
+        position: n.position,
+        phaseId: n.data.phaseId ?? null,
+        gating: n.data.gating,
+        instructions: n.data.instructions,
+      })),
+      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+      phases,
+    }),
+    [nodes, edges, phases]
+  );
+
+  // Load a graph (e.g. an assistant proposal) into the canvas, replacing current state.
+  const applyGraph = useCallback(
+    (g: TemplateGraph) => {
+      setPhases(g.phases ?? []);
+      setNodes(
+        (g.nodes ?? []).map((n) => {
+          const phase = g.phases?.find((p) => p.id === n.phaseId);
+          const cat = ACTIVITY_BY_KEY[n.activityKey]?.category ?? "reflecting";
+          return {
+            id: n.id,
+            type: "activity",
+            position: n.position,
+            data: {
+              activityKey: n.activityKey,
+              label: n.label,
+              category: cat,
+              gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
+              instructions: n.instructions ?? "",
+              phaseId: n.phaseId ?? null,
+              phaseName: phase?.name ?? null,
+              phaseColor: phase?.color ?? null,
+            },
+          };
+        })
+      );
+      setEdges((g.edges ?? []).map((e) => ({ id: e.id, source: e.source, target: e.target, markerEnd: ARROW })));
+    },
+    [setNodes, setEdges]
+  );
+
   // ---- Save ----
   const save = useCallback(async () => {
     setSaving(true);
     try {
-      const graph: TemplateGraph = {
-        nodes: nodes.map((n) => ({
-          id: n.id,
-          activityKey: n.data.activityKey,
-          label: n.data.label,
-          position: n.position,
-          phaseId: n.data.phaseId ?? null,
-          gating: n.data.gating,
-          instructions: n.data.instructions,
-        })),
-        edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
-        phases,
-      };
       await apiFetch(`/api/admin/templates/${template.id}`, {
         method: "PATCH",
-        body: { name, graph },
+        body: { name, graph: buildGraph() },
       });
       setSavedAt(new Date().toLocaleTimeString());
     } catch (e) {
@@ -430,7 +465,7 @@ function CanvasInner({
     } finally {
       setSaving(false);
     }
-  }, [nodes, edges, phases, name, template.id]);
+  }, [buildGraph, name, template.id]);
 
   // ---- Grouping-button state, derived from the current selection ----
   const selectedNodes = nodes.filter((n) => n.selected);
@@ -681,6 +716,8 @@ function CanvasInner({
         </aside>
       </div>
 
+      <CanvasAssistant buildGraph={buildGraph} onApply={applyGraph} />
+
       {editingNode && (
         <NodeEditModal
           node={editingNode}
@@ -841,6 +878,131 @@ function NodeEditModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---- AI assistant -----------------------------------------------------------
+
+type ChatTurn = { role: "user" | "assistant"; text: string };
+
+function CanvasAssistant({
+  buildGraph,
+  onApply,
+}: {
+  buildGraph: () => TemplateGraph;
+  onApply: (g: TemplateGraph) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [messages, setMessages] = useState<ChatTurn[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [proposed, setProposed] = useState<TemplateGraph | null>(null);
+
+  const send = useCallback(async () => {
+    const q = input.trim();
+    if (!q || loading) return;
+    setInput("");
+    setProposed(null);
+    const history = messages;
+    setMessages((m) => [...m, { role: "user", text: q }]);
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ reply: string; proposedGraph: TemplateGraph | null }>(
+        "/api/admin/templates/assistant",
+        { method: "POST", body: { graph: buildGraph(), message: q, history } }
+      );
+      setMessages((m) => [...m, { role: "assistant", text: res.reply || "(no response)" }]);
+      if (res.proposedGraph) setProposed(res.proposedGraph);
+    } catch (e) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", text: e instanceof Error ? e.message : "Request failed" },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }, [input, loading, messages, buildGraph]);
+
+  return (
+    <div className="border-t border-dewey-border bg-dewey-surface">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between px-4 py-1.5 text-xs text-dewey-mute hover:text-dewey-ink"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="font-medium">AI assistant</span>
+        <span>{open ? "▾ hide" : "▴ show"}</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-3">
+          {messages.length > 0 && (
+            <div className="max-h-44 overflow-y-auto space-y-2 mb-2">
+              {messages.map((m, i) => (
+                <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
+                  <span
+                    className={`inline-block rounded-lg px-3 py-1.5 text-sm whitespace-pre-wrap ${
+                      m.role === "user"
+                        ? "bg-dewey-ink text-white"
+                        : "bg-dewey-surface-2 text-dewey-ink"
+                    }`}
+                  >
+                    {m.text}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {proposed && (
+            <div className="flex items-center justify-between gap-2 mb-2 rounded-md border border-dewey-accent/40 bg-dewey-accent/10 px-3 py-2 text-sm">
+              <span>
+                The assistant proposed a graph ({proposed.nodes.length} activities,{" "}
+                {proposed.phases.length} phases). Applying replaces the current canvas.
+              </span>
+              <span className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  className="dewey-btn-primary w-auto"
+                  onClick={() => {
+                    onApply(proposed);
+                    setProposed(null);
+                  }}
+                >
+                  Apply to canvas
+                </button>
+                <button
+                  type="button"
+                  className="dewey-btn-secondary"
+                  onClick={() => setProposed(null)}
+                >
+                  Discard
+                </button>
+              </span>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              className="dewey-input"
+              placeholder="Ask about the graph, request descriptions/exit conditions, or describe an arc to build…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              disabled={loading}
+            />
+            <button
+              type="button"
+              className="dewey-btn-primary w-auto"
+              onClick={send}
+              disabled={loading || !input.trim()}
+            >
+              {loading ? "Thinking…" : "Send"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
