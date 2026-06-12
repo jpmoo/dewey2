@@ -50,7 +50,12 @@ export function AdminTemplates() {
 
   const remove = useCallback(
     async (t: CoachingTemplate) => {
-      if (!confirm(`Delete "${t.name}"? This removes it for all coaches.`)) return;
+      if (
+        !confirm(
+          `Delete "${t.name}"? It will be hidden from coaches but recoverable from the audit log.`
+        )
+      )
+        return;
       setBusy(true);
       try {
         await apiFetch(`/api/admin/templates/${t.id}`, { method: "DELETE" });

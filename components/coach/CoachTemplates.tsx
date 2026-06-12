@@ -80,7 +80,10 @@ export function CoachTemplates() {
 
   const remove = useCallback(
     async (t: CoachingTemplate) => {
-      if (!confirm(`Delete "${t.name}"? This is your personal template.`)) return;
+      if (
+        !confirm(`Delete "${t.name}"? It will be hidden, and an admin can recover it if needed.`)
+      )
+        return;
       setBusy(true);
       try {
         await apiFetch(`${COACH_BASE}/${t.id}`, { method: "DELETE" });

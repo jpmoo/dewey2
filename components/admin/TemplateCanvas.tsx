@@ -1639,6 +1639,7 @@ export function TemplateCanvas({
           created_by: null,
           created_at: "",
           updated_at: "",
+          deleted_at: null,
         }
       : null
   );

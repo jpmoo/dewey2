@@ -71,4 +71,6 @@ export interface CoachingTemplate {
   created_by: number | null;
   created_at: string;
   updated_at: string;
+  /** Soft-delete marker; null when visible. Only ever non-null in admin views. */
+  deleted_at: string | null;
 }

@@ -71,7 +71,7 @@ export function AdminOrgManager() {
     async (d: DistrictWithSchools) => {
       if (
         !confirm(
-          `Delete "${d.name}" and its ${d.schools.length} school(s)? Users in it will become unassigned.`
+          `Hide "${d.name}"? It will be removed from view but recoverable from the audit log.`
         )
       )
         return;
@@ -90,7 +90,10 @@ export function AdminOrgManager() {
 
   const removeSchool = useCallback(
     async (s: School) => {
-      if (!confirm(`Delete "${s.name}"? Users in it will become unassigned.`)) return;
+      if (
+        !confirm(`Hide "${s.name}"? It will be removed from view but recoverable from the audit log.`)
+      )
+        return;
       setBusy(true);
       try {
         await apiFetch(`/api/admin/schools/${s.id}`, { method: "DELETE" });

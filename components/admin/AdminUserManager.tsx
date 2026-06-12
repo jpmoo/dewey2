@@ -69,7 +69,16 @@ const ACTION_LABELS: Record<string, string> = {
   template_updated: "Edited a template",
   template_deleted: "Deleted a template",
   template_duplicated: "Duplicated a template",
+  restored: "Restored",
 };
+
+// Actions that hid an entity — these rows offer a Restore action.
+const DELETE_ACTIONS = new Set([
+  "user_deleted",
+  "template_deleted",
+  "district_deleted",
+  "school_deleted",
+]);
 
 export function AdminUserManager() {
   const { data: session, update } = useSession();
@@ -603,7 +612,7 @@ function UserEditModal({
   const [logsLoading, setLogsLoading] = useState(false);
   const [showFullLog, setShowFullLog] = useState(false);
 
-  useEffect(() => {
+  const reloadLogs = useCallback(() => {
     let cancelled = false;
     setLogsLoading(true);
     apiFetch<{ logs: UserLogView[] }>(`/api/admin/users/${user.id}/logs`)
@@ -620,6 +629,8 @@ function UserEditModal({
       cancelled = true;
     };
   }, [user.id]);
+
+  useEffect(() => reloadLogs(), [reloadLogs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -687,7 +698,12 @@ function UserEditModal({
   };
 
   const remove = async () => {
-    if (!confirm(`Delete ${user.full_name} (@${user.username})? This cannot be undone.`)) return;
+    if (
+      !confirm(
+        `Delete ${user.full_name} (@${user.username})? The account will be hidden and recoverable from the audit log.`
+      )
+    )
+      return;
     setDeleting(true);
     setErr(null);
     try {
@@ -827,7 +843,7 @@ function UserEditModal({
             {logsLoading ? (
               <p className="text-xs text-dewey-mute">Loading…</p>
             ) : (
-              <LogEntries logs={logs} onOpenTemplate={onOpenTemplate} />
+              <LogEntries logs={logs} onOpenTemplate={onOpenTemplate} onRestored={reloadLogs} />
             )}
           </div>
         </div>
@@ -868,13 +884,15 @@ function UserEditModal({
 // Audit-log rendering
 // ============================================================
 
-/** Renders a list of audit-log entries, deep-linking template entities. */
+/** Renders a list of audit-log entries, deep-linking templates and offering restore. */
 function LogEntries({
   logs,
   onOpenTemplate,
+  onRestored,
 }: {
   logs: UserLogView[];
   onOpenTemplate: (id: number) => void;
+  onRestored: () => void;
 }) {
   if (logs.length === 0) {
     return <p className="text-xs text-dewey-mute">No activity recorded yet.</p>;
@@ -882,7 +900,7 @@ function LogEntries({
   return (
     <ul className="border border-dewey-border rounded-md divide-y divide-dewey-border max-h-44 overflow-y-auto bg-dewey-surface">
       {logs.map((l) => (
-        <LogRow key={l.id} log={l} onOpenTemplate={onOpenTemplate} />
+        <LogRow key={l.id} log={l} onOpenTemplate={onOpenTemplate} onRestored={onRestored} />
       ))}
     </ul>
   );
@@ -891,22 +909,52 @@ function LogEntries({
 function LogRow({
   log: l,
   onOpenTemplate,
+  onRestored,
 }: {
   log: UserLogView;
   onOpenTemplate: (id: number) => void;
+  onRestored: () => void;
 }) {
+  const [restoring, setRestoring] = useState(false);
   const meta: string[] = [];
   // Skip detail when it just repeats the entity label (e.g. delete entries).
   if (l.detail && l.detail !== l.entity_label) meta.push(l.detail);
   if (l.actor_name && (l.action === "created" || l.action === "updated"))
     meta.push(`by ${l.actor_name}`);
   const linkable = l.entity_type === "template" && l.entity_id != null;
+  const restorable = DELETE_ACTIONS.has(l.action) && l.entity_type != null && l.entity_id != null;
+
+  const restore = async () => {
+    setRestoring(true);
+    try {
+      await apiFetch("/api/admin/restore", {
+        method: "POST",
+        body: { entityType: l.entity_type, entityId: l.entity_id },
+      });
+      onRestored();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to restore");
+      setRestoring(false);
+    }
+  };
 
   return (
     <li className="px-3 py-2 text-xs">
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium text-dewey-ink">{ACTION_LABELS[l.action] ?? l.action}</span>
-        <span className="shrink-0 text-dewey-mute">{new Date(l.created_at).toLocaleString()}</span>
+        <div className="flex shrink-0 items-center gap-2">
+          {restorable && (
+            <button
+              type="button"
+              className="text-dewey-accent hover:underline disabled:opacity-50"
+              onClick={restore}
+              disabled={restoring}
+            >
+              {restoring ? "Restoring…" : "Restore"}
+            </button>
+          )}
+          <span className="text-dewey-mute">{new Date(l.created_at).toLocaleString()}</span>
+        </div>
       </div>
       {l.entity_label && (
         <div className="mt-0.5">
@@ -943,6 +991,8 @@ function FullLogModal({
   const [q, setQ] = useState("");
   const [logs, setLogs] = useState<UserLogView[]>([]);
   const [loading, setLoading] = useState(true);
+  // Bumped to force a refetch after a restore.
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -968,7 +1018,7 @@ function FullLogModal({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [userId, q]);
+  }, [userId, q, refreshKey]);
 
   return (
     <div
@@ -1007,7 +1057,12 @@ function FullLogModal({
           ) : (
             <ul className="divide-y divide-dewey-border rounded-md border border-dewey-border bg-dewey-surface">
               {logs.map((l) => (
-                <LogRow key={l.id} log={l} onOpenTemplate={onOpenTemplate} />
+                <LogRow
+                  key={l.id}
+                  log={l}
+                  onOpenTemplate={onOpenTemplate}
+                  onRestored={() => setRefreshKey((k) => k + 1)}
+                />
               ))}
             </ul>
           )}

@@ -190,6 +190,15 @@ export function ensureSchema(): Promise<void> {
 
         CREATE INDEX IF NOT EXISTS idx_coaching_templates_owner
           ON coaching_templates (owner_id);
+
+        -- Soft delete: nothing is ever hard-deleted. A non-null deleted_at hides
+        -- the row from all normal views; admins can restore it (deleted_at = NULL)
+        -- from the audit log. Usernames stay reserved while a deleted account
+        -- holds them so a restore can't collide.
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+        ALTER TABLE districts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+        ALTER TABLE schools ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+        ALTER TABLE coaching_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
@@ -207,7 +216,9 @@ export function ensureSchema(): Promise<void> {
 export async function getDistricts(): Promise<District[]> {
   const pool = getPool();
   await ensureSchema();
-  const res = await pool.query("SELECT id, name, created_at FROM districts ORDER BY name");
+  const res = await pool.query(
+    "SELECT id, name, created_at FROM districts WHERE deleted_at IS NULL ORDER BY name"
+  );
   return res.rows.map((r) => ({ id: r.id, name: r.name, created_at: toIso(r.created_at) }));
 }
 
@@ -222,10 +233,21 @@ export async function createDistrict(name: string): Promise<District> {
   return { id: r.id, name: r.name, created_at: toIso(r.created_at) };
 }
 
+/** Soft-delete a district (hide it). Its schools/users keep their references. */
 export async function deleteDistrict(id: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
-  const res = await pool.query("DELETE FROM districts WHERE id = $1", [id]);
+  const res = await pool.query(
+    "UPDATE districts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+    [id]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function restoreDistrict(id: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query("UPDATE districts SET deleted_at = NULL WHERE id = $1", [id]);
   return (res.rowCount ?? 0) > 0;
 }
 
@@ -238,10 +260,12 @@ export async function getSchools(districtId?: number): Promise<School[]> {
   await ensureSchema();
   const res = districtId
     ? await pool.query(
-        "SELECT id, district_id, name, created_at FROM schools WHERE district_id = $1 ORDER BY name",
+        "SELECT id, district_id, name, created_at FROM schools WHERE district_id = $1 AND deleted_at IS NULL ORDER BY name",
         [districtId]
       )
-    : await pool.query("SELECT id, district_id, name, created_at FROM schools ORDER BY name");
+    : await pool.query(
+        "SELECT id, district_id, name, created_at FROM schools WHERE deleted_at IS NULL ORDER BY name"
+      );
   return res.rows.map((r) => ({
     id: r.id,
     district_id: r.district_id,
@@ -261,10 +285,21 @@ export async function createSchool(districtId: number, name: string): Promise<Sc
   return { id: r.id, district_id: r.district_id, name: r.name, created_at: toIso(r.created_at) };
 }
 
+/** Soft-delete a school (hide it). Users keep their school reference. */
 export async function deleteSchool(id: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
-  const res = await pool.query("DELETE FROM schools WHERE id = $1", [id]);
+  const res = await pool.query(
+    "UPDATE schools SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+    [id]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function restoreSchool(id: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query("UPDATE schools SET deleted_at = NULL WHERE id = $1", [id]);
   return (res.rowCount ?? 0) > 0;
 }
 
@@ -277,7 +312,7 @@ export async function getAdminCount(): Promise<number> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    "SELECT COUNT(*)::int AS n FROM users WHERE system_role = 'admin'"
+    "SELECT COUNT(*)::int AS n FROM users WHERE system_role = 'admin' AND deleted_at IS NULL"
   );
   return res.rows[0]?.n ?? 0;
 }
@@ -289,14 +324,19 @@ export async function hasAdmin(): Promise<boolean> {
 export async function getAllUsers(): Promise<User[]> {
   const pool = getPool();
   await ensureSchema();
-  const res = await pool.query(`SELECT ${USER_COLUMNS} FROM users ORDER BY id`);
+  const res = await pool.query(
+    `SELECT ${USER_COLUMNS} FROM users WHERE deleted_at IS NULL ORDER BY id`
+  );
   return res.rows.map(rowToUser);
 }
 
 export async function getUserById(id: number): Promise<User | null> {
   const pool = getPool();
   await ensureSchema();
-  const res = await pool.query(`SELECT ${USER_COLUMNS} FROM users WHERE id = $1 LIMIT 1`, [id]);
+  const res = await pool.query(
+    `SELECT ${USER_COLUMNS} FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [id]
+  );
   return res.rows[0] ? rowToUser(res.rows[0]) : null;
 }
 
@@ -307,7 +347,8 @@ export async function getUserWithHashByUsername(
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1`,
+    `SELECT ${USER_COLUMNS}, password_hash FROM users
+      WHERE LOWER(username) = LOWER($1) AND deleted_at IS NULL LIMIT 1`,
     [username.trim()]
   );
   const row = res.rows[0];
@@ -334,8 +375,17 @@ export async function createUser(params: CreateUserParams): Promise<User> {
   const username = params.username.trim();
   if (!username) throw new Error("Username is required");
   if (!params.full_name?.trim()) throw new Error("Full name is required");
-  const existing = await getUserWithHashByUsername(username);
-  if (existing) throw new Error("Username already taken");
+  // Check across ALL rows (including soft-deleted) — usernames stay reserved
+  // while a hidden account holds them, so a later restore can't collide.
+  const taken = await pool.query(
+    "SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1",
+    [username]
+  );
+  if (taken.rows.length > 0) {
+    throw new Error(
+      "Username already taken (it may belong to a hidden account — restore it from the audit log)."
+    );
+  }
   const password_hash = await hashPassword(params.password);
   const res = await pool.query(
     `INSERT INTO users
@@ -423,10 +473,24 @@ export async function updateUser(id: number, params: UpdateUserParams): Promise<
   return rowToUser(res.rows[0]);
 }
 
+/** Soft-delete a user (hide the account). The username stays reserved. */
 export async function deleteUser(id: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
-  const res = await pool.query("DELETE FROM users WHERE id = $1", [id]);
+  const res = await pool.query(
+    "UPDATE users SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+    [id]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function restoreUser(id: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "UPDATE users SET deleted_at = NULL, updated_at = NOW() WHERE id = $1",
+    [id]
+  );
   return (res.rowCount ?? 0) > 0;
 }
 
@@ -462,7 +526,7 @@ export async function getCoachDirectory(coach: {
 
   const scope: "school" | "district" = coach.school_id != null ? "school" : "district";
   const params: unknown[] = [coach.district_id];
-  let where = "u.system_role = 'partner' AND u.district_id = $1";
+  let where = "u.system_role = 'partner' AND u.deleted_at IS NULL AND u.district_id = $1";
   if (scope === "school") {
     params.push(coach.school_id);
     where += " AND u.school_id = $2";
@@ -509,6 +573,7 @@ function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
     created_by: (row.created_by as number | null) ?? null,
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
+    deleted_at: row.deleted_at ? toIso(row.deleted_at) : null,
   };
 }
 
@@ -517,7 +582,7 @@ export async function getTemplates(): Promise<CoachingTemplate[]> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    "SELECT * FROM coaching_templates WHERE scope = 'global' ORDER BY name"
+    "SELECT * FROM coaching_templates WHERE scope = 'global' AND deleted_at IS NULL ORDER BY name"
   );
   return res.rows.map(rowToTemplate);
 }
@@ -528,7 +593,7 @@ export async function getTemplatesForCoach(coachId: number): Promise<CoachingTem
   await ensureSchema();
   const res = await pool.query(
     `SELECT * FROM coaching_templates
-      WHERE scope = 'global' OR owner_id = $1
+      WHERE deleted_at IS NULL AND (scope = 'global' OR owner_id = $1)
       ORDER BY scope = 'global' DESC, name`,
     [coachId]
   );
@@ -545,7 +610,7 @@ export async function getTemplateForCoach(
   coachId: number
 ): Promise<CoachingTemplate | null> {
   const t = await getTemplate(id);
-  if (!t) return null;
+  if (!t || t.deleted_at) return null; // coaches never see hidden templates
   if (t.scope === "global") return t;
   return t.owner_id === coachId ? t : null;
 }
@@ -590,17 +655,18 @@ export async function updateCoachTemplate(
   params: { name?: string; description?: string | null; graph?: TemplateGraph }
 ): Promise<CoachingTemplate | null> {
   const owned = await getTemplate(id);
-  if (!owned || owned.scope !== "personal" || owned.owner_id !== coachId) return null;
+  if (!owned || owned.deleted_at || owned.scope !== "personal" || owned.owner_id !== coachId)
+    return null;
   return updateTemplate(id, params);
 }
 
-/** Delete a coach's own personal template only. */
+/** Soft-delete a coach's own personal template only. */
 export async function deleteCoachTemplate(id: number, coachId: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `DELETE FROM coaching_templates
-      WHERE id = $1 AND scope = 'personal' AND owner_id = $2`,
+    `UPDATE coaching_templates SET deleted_at = NOW(), updated_at = NOW()
+      WHERE id = $1 AND scope = 'personal' AND owner_id = $2 AND deleted_at IS NULL`,
     [id, coachId]
   );
   return (res.rowCount ?? 0) > 0;
@@ -658,10 +724,24 @@ export async function updateTemplate(
   return res.rows[0] ? rowToTemplate(res.rows[0]) : null;
 }
 
+/** Soft-delete any template (admin). */
 export async function deleteTemplate(id: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
-  const res = await pool.query("DELETE FROM coaching_templates WHERE id = $1", [id]);
+  const res = await pool.query(
+    "UPDATE coaching_templates SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL",
+    [id]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
+export async function restoreTemplate(id: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "UPDATE coaching_templates SET deleted_at = NULL, updated_at = NOW() WHERE id = $1",
+    [id]
+  );
   return (res.rowCount ?? 0) > 0;
 }
 
