@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
 import { addAttachment, canAccessThread, logThreadEvent, postMessage } from "@/lib/messages";
+import { mentionsDewey, runDeweyForThread } from "@/lib/dewey";
 
 // Per-file cap. Attachments are stored in the DB, so keep them modest.
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -65,5 +66,16 @@ export async function POST(
     threadId: id,
     detail: files.length ? `${files.length} attachment(s)` : null,
   });
+
+  // @dewey invokes the AI participant. Run it before responding so the reply is
+  // there when the client refetches; the client also polls for it.
+  if (mentionsDewey(body)) {
+    await runDeweyForThread({
+      threadId: id,
+      invokerId: me,
+      invokerName: session.user.nickname || session.user.name || session.user.username || "A user",
+      invokingMessage: body,
+    }).catch((e) => console.warn("[dewey] failed", e instanceof Error ? e.message : e));
+  }
   return NextResponse.json({ ok: true, messageId });
 }

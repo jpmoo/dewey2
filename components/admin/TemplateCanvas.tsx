@@ -1406,7 +1406,7 @@ function CanvasAssistant({
           } else if (ev.type === "blocked") {
             blocked =
               ev.reason?.trim() ||
-              "That request can't be processed by the coaching assistant.";
+              "That request couldn’t be processed by the @dewey assistant.";
           } else if (ev.type === "done") {
             patchAssistant({ text: ev.reply || live || "(no response)" });
             graph = ev.proposedGraph ?? null;
@@ -1452,7 +1452,7 @@ function CanvasAssistant({
         className="w-full flex items-center justify-between px-4 py-1.5 text-xs text-dewey-mute hover:text-dewey-ink"
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="font-medium">AI assistant</span>
+        <span className="font-medium">@dewey assistant</span>
         <span>{open ? "▾ hide" : "▴ show"}</span>
       </button>
 
@@ -1480,7 +1480,7 @@ function CanvasAssistant({
                     <div className="inline-block max-w-[90%] rounded-lg px-3 py-1.5 bg-dewey-surface-2 text-dewey-ink">
                       <div className="chat-md text-sm">
                         {i === messages.length - 1 && loading && !m.text ? (
-                          <span className="typing-dots" aria-label="Assistant is typing">
+                          <span className="typing-dots" aria-label="@dewey is typing">
                             <span />
                             <span />
                             <span />

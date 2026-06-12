@@ -100,6 +100,8 @@ const ACTION_LABELS: Record<string, string> = {
   partnership_created: "Created a partnership",
   message_sent: "Sent a message",
   plan_added: "Added a plan to a partnership",
+  plan_dismissed: "Dismissed a plan",
+  dewey_replied: "@dewey replied",
   participant_added: "Added someone to a conversation",
   invitation_accepted: "Accepted a partnership",
   invitation_declined: "Declined a partnership",
@@ -941,7 +943,7 @@ function UserEditModal({
         {/* AI conversations — full transcripts, admin-only. */}
         {conversations.length > 0 && (
           <div>
-            <label className="dewey-label">AI conversations</label>
+            <label className="dewey-label">@dewey conversations</label>
             <ul className="divide-y divide-dewey-border rounded-md border border-dewey-border bg-dewey-surface">
               {conversations.map((c) => (
                 <li key={c.id}>
@@ -952,7 +954,7 @@ function UserEditModal({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-dewey-ink">
-                        {c.context_name ? `Plan: ${c.context_name}` : "Plan assistant"}
+                        {c.context_name ? `Plan: ${c.context_name}` : "@dewey assistant"}
                       </span>
                       <span className="shrink-0 text-dewey-mute">
                         {c.message_count} msg · {new Date(c.updated_at).toLocaleDateString()}
@@ -1084,7 +1086,7 @@ function TranscriptModal({
                       }`}
                     >
                       <div className="mb-0.5 text-[11px] text-dewey-mute">
-                        {m.role === "user" ? userName : "Assistant"} ·{" "}
+                        {m.role === "user" ? userName : "@dewey"} ·{" "}
                         {new Date(m.created_at).toLocaleString()}
                         {m.flagged && (
                           <span className="ml-1 font-medium text-red-600">· flagged</span>

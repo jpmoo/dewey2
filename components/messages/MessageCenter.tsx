@@ -30,6 +30,7 @@ type MessageView = {
   plan_id: number | null;
   plan_name: string | null;
   plan_phase: string | null;
+  is_ai: boolean;
 };
 type ThreadSummary = {
   id: number;
@@ -637,6 +638,24 @@ export function ThreadPane({
     onPosted();
   }, [fetchThread, onPosted]);
 
+  const dismissPlan = useCallback(
+    async (messageId: number) => {
+      if (!(await dialog.confirm("Dismiss this plan from the conversation?", { title: "Dismiss plan" })))
+        return;
+      try {
+        await fetch(pathWithBase(`/api/messages/threads/${threadId}/dismiss-plan`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageId }),
+        });
+        fetchThread(false);
+      } catch {
+        dialog.alert("Couldn't dismiss the plan.");
+      }
+    },
+    [dialog, threadId, fetchThread]
+  );
+
   return (
     <>
       <div className="border-b border-dewey-border bg-dewey-surface px-4 py-2">
@@ -693,8 +712,10 @@ export function ThreadPane({
                 key={m.id}
                 message={m}
                 mine={m.sender_id === meId}
+                amCoach={!!amCoach}
                 onPreview={onPreview}
                 onOpenPlan={(p) => setOpenPlan(p)}
+                onDismissPlan={dismissPlan}
               />
             ))
           )}
@@ -734,20 +755,32 @@ export function ThreadPane({
 function MessageBubble({
   message: m,
   mine,
+  amCoach,
   onPreview,
   onOpenPlan,
+  onDismissPlan,
 }: {
   message: MessageView;
   mine: boolean;
+  amCoach: boolean;
   onPreview: (a: AttachmentMeta) => void;
   onOpenPlan: (p: { id: number; name: string; phase: string | null }) => void;
+  onDismissPlan: (messageId: number) => void;
 }) {
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`max-w-[min(75%,620px)] ${mine ? "items-end" : "items-start"}`}>
         <div className="mb-0.5 flex items-center gap-1.5 text-[11px] text-dewey-mute">
-          <Avatar userId={m.sender_id} name={m.sender_name} size={18} />
-          <span className="font-medium text-dewey-ink">{m.sender_name ?? "Unknown"}</span>
+          {m.is_ai ? (
+            <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-dewey-accent/20 text-[11px]">
+              🤖
+            </span>
+          ) : (
+            <Avatar userId={m.sender_id} name={m.sender_name} size={18} />
+          )}
+          <span className="font-medium text-dewey-ink">
+            {m.is_ai ? "@dewey" : m.sender_name ?? "Unknown"}
+          </span>
           <span>{new Date(m.created_at).toLocaleString()}</span>
         </div>
         {m.plan_id != null ? (
@@ -768,20 +801,35 @@ function MessageBubble({
                 </button>
               </div>
             </div>
-            <button
-              type="button"
-              className="mt-2 text-xs text-dewey-accent hover:underline"
-              onClick={() =>
-                onOpenPlan({ id: m.plan_id as number, name: m.plan_name ?? "Plan", phase: m.plan_phase })
-              }
-            >
-              View plan ↗
-            </button>
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                type="button"
+                className="text-xs text-dewey-accent hover:underline"
+                onClick={() =>
+                  onOpenPlan({ id: m.plan_id as number, name: m.plan_name ?? "Plan", phase: m.plan_phase })
+                }
+              >
+                View plan ↗
+              </button>
+              {amCoach && (
+                <button
+                  type="button"
+                  className="text-xs text-red-700 hover:underline"
+                  onClick={() => onDismissPlan(m.id)}
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <div
             className={`rounded-lg px-3 py-2 text-sm ${
-              mine ? "bg-dewey-accent/15 text-dewey-ink" : "bg-dewey-surface text-dewey-ink"
+              m.is_ai
+                ? "bg-dewey-accent/10 text-dewey-ink"
+                : mine
+                ? "bg-dewey-accent/15 text-dewey-ink"
+                : "bg-dewey-surface text-dewey-ink"
             } border border-dewey-border`}
           >
             {m.body && <p className="whitespace-pre-wrap">{m.body}</p>}
@@ -1136,8 +1184,24 @@ function PlanModal({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const dialog = useDialog();
   const [editing, setEditing] = useState(false);
   const [viewing, setViewing] = useState(false);
+  const [copying, setCopying] = useState(false);
+
+  const copyToMine = async () => {
+    setCopying(true);
+    try {
+      await apiFetch(`/api/coach/templates/${plan.id}/duplicate`, { method: "POST" });
+      await dialog.alert("Copied to your plans — find it under the Coaching Canvas.", {
+        title: "Copied",
+      });
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't copy the plan");
+    } finally {
+      setCopying(false);
+    }
+  };
 
   if (editing) {
     return (
@@ -1167,11 +1231,21 @@ function PlanModal({
         <div className="space-y-4">
           <p className="text-sm text-dewey-mute">
             Reporting and review for this plan will live here. For now you can edit this
-            partnership&apos;s copy of the plan.
+            partnership&apos;s copy, or copy it back into your plan library.
           </p>
-          <button type="button" className="dewey-btn-primary w-auto" onClick={() => setEditing(true)}>
-            Edit plan
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="dewey-btn-primary w-auto" onClick={() => setEditing(true)}>
+              Edit plan
+            </button>
+            <button
+              type="button"
+              className="dewey-btn-secondary"
+              onClick={copyToMine}
+              disabled={copying}
+            >
+              {copying ? "Copying…" : "Copy to my plans"}
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">

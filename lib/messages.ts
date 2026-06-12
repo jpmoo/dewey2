@@ -50,6 +50,7 @@ export interface MessageView {
   plan_id: number | null;
   plan_name: string | null;
   plan_phase: string | null;
+  is_ai: boolean;
 }
 
 export interface ThreadSummary {
@@ -681,7 +682,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name,
+    `SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name, m.is_ai,
             m.plan_id, ct.name AS plan_name,
             ct.graph -> 'phases' -> 0 ->> 'name' AS plan_phase
        FROM messages m
@@ -721,6 +722,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
     plan_id: (m.plan_id as number | null) ?? null,
     plan_name: (m.plan_name as string | null) ?? null,
     plan_phase: (m.plan_phase as string | null) ?? null,
+    is_ai: m.is_ai === true,
   }));
 }
 
@@ -730,18 +732,27 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
 
 export async function postMessage(params: {
   threadId: number;
-  senderId: number;
+  senderId: number | null;
   body: string;
   planId?: number | null;
+  isAi?: boolean;
 }): Promise<number> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `INSERT INTO messages (thread_id, sender_id, body, plan_id) VALUES ($1, $2, $3, $4) RETURNING id`,
-    [params.threadId, params.senderId, params.body, params.planId ?? null]
+    `INSERT INTO messages (thread_id, sender_id, body, plan_id, is_ai)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [params.threadId, params.senderId, params.body, params.planId ?? null, params.isAi === true]
   );
   await pool.query("UPDATE message_threads SET updated_at = NOW() WHERE id = $1", [params.threadId]);
   return Number(res.rows[0].id);
+}
+
+/** Soft-delete a message (used to dismiss an attached plan). */
+export async function deleteMessage(messageId: number): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query("UPDATE messages SET deleted_at = NOW() WHERE id = $1", [messageId]);
 }
 
 /**

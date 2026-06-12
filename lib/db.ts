@@ -265,6 +265,8 @@ export function ensureSchema(): Promise<void> {
         -- A message can embed a (partnership-scoped) plan copy.
         ALTER TABLE messages
           ADD COLUMN IF NOT EXISTS plan_id INTEGER REFERENCES coaching_templates (id) ON DELETE SET NULL;
+        -- Messages authored by the @dewey assistant (sender_id is null).
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_ai BOOLEAN NOT NULL DEFAULT FALSE;
 
         -- File attachments live in the DB (BYTEA) so they're covered by the same
         -- backups and need no separate storage volume. Previews are by mime type.
