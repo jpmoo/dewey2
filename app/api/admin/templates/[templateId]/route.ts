@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
-import { deleteTemplate, getTemplate, updateTemplate } from "@/lib/db";
+import { deleteTemplate, getTemplate, logUserEvent, updateTemplate } from "@/lib/db";
 import type { TemplateGraph } from "@/lib/templates";
 
 function parseId(templateId: string): number | null {
@@ -38,6 +38,7 @@ export async function PATCH(
 ) {
   const guard = await requireAdmin();
   if (guard instanceof NextResponse) return guard;
+  const { session } = guard;
   const { templateId } = await params;
   const id = parseId(templateId);
   if (id === null) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
@@ -54,6 +55,15 @@ export async function PATCH(
 
   const template = await updateTemplate(id, update);
   if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  const adminId = Number(session.user.id);
+  await logUserEvent({
+    userId: adminId,
+    actorId: adminId,
+    action: "template_updated",
+    entityType: "template",
+    entityId: template.id,
+    entityLabel: template.name,
+  });
   return NextResponse.json({ template });
 }
 
@@ -63,10 +73,22 @@ export async function DELETE(
 ) {
   const guard = await requireAdmin();
   if (guard instanceof NextResponse) return guard;
+  const { session } = guard;
   const { templateId } = await params;
   const id = parseId(templateId);
   if (id === null) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  const existing = await getTemplate(id);
   const ok = await deleteTemplate(id);
   if (!ok) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  const adminId = Number(session.user.id);
+  await logUserEvent({
+    userId: adminId,
+    actorId: adminId,
+    action: "template_deleted",
+    detail: existing?.name ?? undefined,
+    entityType: "template",
+    entityId: id,
+    entityLabel: existing?.name ?? null,
+  });
   return NextResponse.json({ ok: true });
 }

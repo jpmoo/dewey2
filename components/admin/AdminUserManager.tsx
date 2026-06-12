@@ -1,9 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api-client";
 import { rootPath } from "@/lib/base-path";
+
+// Opening a template from a log entry shows it in a read-only canvas overlay.
+const TemplateReadOnly = dynamic(
+  () => import("./TemplateCanvas").then((m) => m.TemplateReadOnly),
+  { ssr: false }
+);
 
 type SystemRole = "admin" | "coach" | "partner";
 
@@ -33,12 +40,17 @@ const ROLE_BADGE: Record<SystemRole, string> = {
 
 const ROLES: SystemRole[] = ["admin", "coach", "partner"];
 
+type LogEntityType = "template" | "message" | "user" | "district" | "school";
+
 type UserLogView = {
   id: number;
   action: string;
   detail: string | null;
   created_at: string;
   actor_name: string | null;
+  entity_type: LogEntityType | null;
+  entity_id: number | null;
+  entity_label: string | null;
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -46,6 +58,17 @@ const ACTION_LABELS: Record<string, string> = {
   updated: "Updated",
   impersonated: "Admin signed in as user",
   signed_in: "Signed in",
+  signed_out: "Signed out",
+  user_deleted: "Deleted a user",
+  district_created: "Created a district",
+  district_deleted: "Deleted a district",
+  school_created: "Created a school",
+  school_deleted: "Deleted a school",
+  settings_updated: "Updated system settings",
+  template_created: "Created a template",
+  template_updated: "Edited a template",
+  template_deleted: "Deleted a template",
+  template_duplicated: "Duplicated a template",
 };
 
 export function AdminUserManager() {
@@ -59,6 +82,8 @@ export function AdminUserManager() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<User | null>(null);
   const [creating, setCreating] = useState(false);
+  // A template opened from a log entry (read-only overlay).
+  const [viewTemplateId, setViewTemplateId] = useState<number | null>(null);
 
   // Filters.
   const [query, setQuery] = useState("");
@@ -294,12 +319,20 @@ export function AdminUserManager() {
           user={editing}
           districts={districts}
           isSelf={currentUserId === editing.id}
+          onOpenTemplate={(id) => setViewTemplateId(id)}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
             await load();
           }}
         />
+      )}
+
+      {viewTemplateId != null && (
+        // Wrapper sets a stacking context above the modals so the canvas covers them.
+        <div className="relative z-[80]">
+          <TemplateReadOnly templateId={viewTemplateId} onClose={() => setViewTemplateId(null)} />
+        </div>
       )}
     </section>
   );
@@ -530,12 +563,14 @@ function UserEditModal({
   user,
   districts,
   isSelf,
+  onOpenTemplate,
   onClose,
   onSaved,
 }: {
   user: User;
   districts: DistrictWithSchools[];
   isSelf: boolean;
+  onOpenTemplate: (id: number) => void;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -566,6 +601,7 @@ function UserEditModal({
 
   const [logs, setLogs] = useState<UserLogView[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [showFullLog, setShowFullLog] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -773,38 +809,27 @@ function UserEditModal({
           />
         </div>
 
-        {/* Audit log */}
+        {/* Audit log — newest 50 here; full, searchable log in a modal. */}
         <div>
-          <label className="dewey-label">Activity</label>
-          {logsLoading ? (
-            <p className="text-xs text-dewey-mute">Loading…</p>
-          ) : logs.length === 0 ? (
-            <p className="text-xs text-dewey-mute">No activity recorded yet.</p>
-          ) : (
-            <ul className="border border-dewey-border rounded-md divide-y divide-dewey-border max-h-44 overflow-y-auto bg-dewey-surface">
-              {logs.map((l) => {
-                const meta: string[] = [];
-                if (l.detail) meta.push(l.detail);
-                if (l.actor_name && (l.action === "created" || l.action === "updated"))
-                  meta.push(`by ${l.actor_name}`);
-                return (
-                  <li key={l.id} className="px-3 py-2 text-xs">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-dewey-ink">
-                        {ACTION_LABELS[l.action] ?? l.action}
-                      </span>
-                      <span className="text-dewey-mute shrink-0">
-                        {new Date(l.created_at).toLocaleString()}
-                      </span>
-                    </div>
-                    {meta.length > 0 && (
-                      <div className="text-dewey-mute mt-0.5">{meta.join(" · ")}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <div className="flex items-center justify-between">
+            <label className="dewey-label mb-0">Activity</label>
+            {logs.length > 0 && (
+              <button
+                type="button"
+                className="text-xs text-dewey-accent hover:underline"
+                onClick={() => setShowFullLog(true)}
+              >
+                View full log →
+              </button>
+            )}
+          </div>
+          <div className="mt-1">
+            {logsLoading ? (
+              <p className="text-xs text-dewey-mute">Loading…</p>
+            ) : (
+              <LogEntries logs={logs} onOpenTemplate={onOpenTemplate} />
+            )}
+          </div>
         </div>
       </div>
       <div className="flex gap-2 mt-6 justify-between">
@@ -826,6 +851,168 @@ function UserEditModal({
           </button>
         </div>
       </div>
+
+      {showFullLog && (
+        <FullLogModal
+          userId={user.id}
+          userName={user.full_name}
+          onOpenTemplate={onOpenTemplate}
+          onClose={() => setShowFullLog(false)}
+        />
+      )}
     </ModalShell>
+  );
+}
+
+// ============================================================
+// Audit-log rendering
+// ============================================================
+
+/** Renders a list of audit-log entries, deep-linking template entities. */
+function LogEntries({
+  logs,
+  onOpenTemplate,
+}: {
+  logs: UserLogView[];
+  onOpenTemplate: (id: number) => void;
+}) {
+  if (logs.length === 0) {
+    return <p className="text-xs text-dewey-mute">No activity recorded yet.</p>;
+  }
+  return (
+    <ul className="border border-dewey-border rounded-md divide-y divide-dewey-border max-h-44 overflow-y-auto bg-dewey-surface">
+      {logs.map((l) => (
+        <LogRow key={l.id} log={l} onOpenTemplate={onOpenTemplate} />
+      ))}
+    </ul>
+  );
+}
+
+function LogRow({
+  log: l,
+  onOpenTemplate,
+}: {
+  log: UserLogView;
+  onOpenTemplate: (id: number) => void;
+}) {
+  const meta: string[] = [];
+  // Skip detail when it just repeats the entity label (e.g. delete entries).
+  if (l.detail && l.detail !== l.entity_label) meta.push(l.detail);
+  if (l.actor_name && (l.action === "created" || l.action === "updated"))
+    meta.push(`by ${l.actor_name}`);
+  const linkable = l.entity_type === "template" && l.entity_id != null;
+
+  return (
+    <li className="px-3 py-2 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium text-dewey-ink">{ACTION_LABELS[l.action] ?? l.action}</span>
+        <span className="shrink-0 text-dewey-mute">{new Date(l.created_at).toLocaleString()}</span>
+      </div>
+      {l.entity_label && (
+        <div className="mt-0.5">
+          {linkable ? (
+            <button
+              type="button"
+              className="text-dewey-accent hover:underline"
+              onClick={() => onOpenTemplate(l.entity_id as number)}
+            >
+              {l.entity_label} ↗
+            </button>
+          ) : (
+            <span className="text-dewey-ink">{l.entity_label}</span>
+          )}
+        </div>
+      )}
+      {meta.length > 0 && <div className="mt-0.5 text-dewey-mute">{meta.join(" · ")}</div>}
+    </li>
+  );
+}
+
+/** Full, searchable audit log for one user. Results narrow live as you type. */
+function FullLogModal({
+  userId,
+  userName,
+  onOpenTemplate,
+  onClose,
+}: {
+  userId: number;
+  userName: string;
+  onOpenTemplate: (id: number) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [logs, setLogs] = useState<UserLogView[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    // Debounce so each keystroke doesn't fire a request.
+    const t = setTimeout(() => {
+      const query = q.trim();
+      const url = `/api/admin/users/${userId}/logs?limit=1000${
+        query ? `&q=${encodeURIComponent(query)}` : ""
+      }`;
+      apiFetch<{ logs: UserLogView[] }>(url)
+        .then((d) => {
+          if (!cancelled) setLogs(d.logs ?? []);
+        })
+        .catch(() => {
+          if (!cancelled) setLogs([]);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [userId, q]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-lg bg-dewey-surface p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Activity — {userName}</h3>
+          <button
+            type="button"
+            className="text-sm text-dewey-mute hover:text-dewey-ink"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <input
+          type="search"
+          autoFocus
+          className="dewey-input"
+          placeholder="Search activity…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+        <div className="mt-3 flex-1 overflow-y-auto">
+          {loading ? (
+            <p className="text-xs text-dewey-mute">Loading…</p>
+          ) : logs.length === 0 ? (
+            <p className="py-4 text-center text-xs text-dewey-mute">
+              {q.trim() ? "No matching activity." : "No activity recorded yet."}
+            </p>
+          ) : (
+            <ul className="divide-y divide-dewey-border rounded-md border border-dewey-border bg-dewey-surface">
+              {logs.map((l) => (
+                <LogRow key={l.id} log={l} onOpenTemplate={onOpenTemplate} />
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

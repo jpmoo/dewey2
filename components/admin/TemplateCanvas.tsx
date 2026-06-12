@@ -1702,8 +1702,8 @@ export function TemplateReadOnly({
   templateId: number;
   templatesBase?: string;
   onClose: () => void;
-  /** Make an editable personal copy. */
-  onDuplicate: () => void;
+  /** Make an editable personal copy. Omit to hide the Duplicate action (e.g. when an admin opens a template from a log). */
+  onDuplicate?: () => void;
   duplicating?: boolean;
 }) {
   const [template, setTemplate] = useState<CoachingTemplate | null>(null);
@@ -1800,16 +1800,18 @@ export function TemplateReadOnly({
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden sm:inline text-xs text-dewey-mute">
-            Locked — duplicate to make changes
+            {onDuplicate ? "Locked — duplicate to make changes" : "Read-only"}
           </span>
-          <button
-            type="button"
-            className="dewey-btn-primary w-auto"
-            onClick={onDuplicate}
-            disabled={duplicating}
-          >
-            {duplicating ? "Duplicating…" : "Duplicate to edit"}
-          </button>
+          {onDuplicate && (
+            <button
+              type="button"
+              className="dewey-btn-primary w-auto"
+              onClick={onDuplicate}
+              disabled={duplicating}
+            >
+              {duplicating ? "Duplicating…" : "Duplicate to edit"}
+            </button>
+          )}
           <button type="button" className="dewey-btn-secondary" onClick={onClose}>
             Close
           </button>

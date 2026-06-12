@@ -3,6 +3,7 @@ import { requireCoach } from "@/lib/guard";
 import {
   deleteCoachTemplate,
   getTemplateForCoach,
+  logUserEvent,
   updateCoachTemplate,
 } from "@/lib/db";
 import type { TemplateGraph } from "@/lib/templates";
@@ -60,13 +61,22 @@ export async function PATCH(
     if (g) update.graph = g;
   }
 
-  const template = await updateCoachTemplate(id, Number(session.user.id), update);
+  const coachId = Number(session.user.id);
+  const template = await updateCoachTemplate(id, coachId, update);
   if (!template) {
     return NextResponse.json(
       { error: "Template not found, or it isn't yours to edit" },
       { status: 404 }
     );
   }
+  await logUserEvent({
+    userId: coachId,
+    actorId: coachId,
+    action: "template_updated",
+    entityType: "template",
+    entityId: template.id,
+    entityLabel: template.name,
+  });
   return NextResponse.json({ template });
 }
 
@@ -81,12 +91,23 @@ export async function DELETE(
   const { templateId } = await params;
   const id = parseId(templateId);
   if (id === null) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  const ok = await deleteCoachTemplate(id, Number(session.user.id));
+  const coachId = Number(session.user.id);
+  const existing = await getTemplateForCoach(id, coachId);
+  const ok = await deleteCoachTemplate(id, coachId);
   if (!ok) {
     return NextResponse.json(
       { error: "Template not found, or it isn't yours to delete" },
       { status: 404 }
     );
   }
+  await logUserEvent({
+    userId: coachId,
+    actorId: coachId,
+    action: "template_deleted",
+    detail: existing?.name ?? undefined,
+    entityType: "template",
+    entityId: id,
+    entityLabel: existing?.name ?? null,
+  });
   return NextResponse.json({ ok: true });
 }

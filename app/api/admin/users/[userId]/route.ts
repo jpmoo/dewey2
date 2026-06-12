@@ -151,6 +151,17 @@ export async function DELETE(
   try {
     const ok = await deleteUser(id);
     if (!ok) return NextResponse.json({ error: "Failed to delete user" }, { status: 500 });
+    // Subject's logs cascade away with the row, so record this in the actor's log.
+    const actorId = Number(session.user.id);
+    await logUserEvent({
+      userId: actorId,
+      actorId,
+      action: "user_deleted",
+      detail: `@${user.username} (${user.system_role})`,
+      entityType: "user",
+      entityId: user.id,
+      entityLabel: user.full_name,
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to delete user";

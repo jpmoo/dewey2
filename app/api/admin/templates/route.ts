@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
-import { createTemplate, getTemplates } from "@/lib/db";
+import { createTemplate, getTemplates, logUserEvent } from "@/lib/db";
 import type { TemplateGraph } from "@/lib/templates";
 
 export async function GET() {
@@ -30,11 +30,20 @@ export async function POST(request: NextRequest) {
     } as TemplateGraph;
   }
 
+  const adminId = Number(session.user.id);
   const template = await createTemplate({
     name,
     description: typeof body.description === "string" ? body.description : null,
     graph,
-    createdBy: Number(session.user.id),
+    createdBy: adminId,
+  });
+  await logUserEvent({
+    userId: adminId,
+    actorId: adminId,
+    action: "template_created",
+    entityType: "template",
+    entityId: template.id,
+    entityLabel: template.name,
   });
   return NextResponse.json({ template });
 }

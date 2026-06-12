@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
-import { createSchool } from "@/lib/db";
+import { createSchool, logUserEvent } from "@/lib/db";
 
 export async function POST(request: NextRequest) {
   const guard = await requireAdmin();
   if (guard instanceof NextResponse) return guard;
+  const { session } = guard;
   const body = await request.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const districtId =
@@ -18,6 +19,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "A district is required" }, { status: 400 });
   try {
     const school = await createSchool(districtId, name);
+    const adminId = Number(session.user.id);
+    await logUserEvent({
+      userId: adminId,
+      actorId: adminId,
+      action: "school_created",
+      entityType: "school",
+      entityId: school.id,
+      entityLabel: school.name,
+    });
     return NextResponse.json({ school });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to create school";

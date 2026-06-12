@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCoach } from "@/lib/guard";
-import { duplicateTemplateForCoach } from "@/lib/db";
+import { duplicateTemplateForCoach, logUserEvent } from "@/lib/db";
 
 function parseId(templateId: string): number | null {
   const id = parseInt(templateId, 10);
@@ -22,7 +22,16 @@ export async function POST(
   const id = parseId(templateId);
   if (id === null) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
-  const template = await duplicateTemplateForCoach(id, Number(session.user.id));
+  const coachId = Number(session.user.id);
+  const template = await duplicateTemplateForCoach(id, coachId);
   if (!template) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+  await logUserEvent({
+    userId: coachId,
+    actorId: coachId,
+    action: "template_duplicated",
+    entityType: "template",
+    entityId: template.id,
+    entityLabel: template.name,
+  });
   return NextResponse.json({ template });
 }

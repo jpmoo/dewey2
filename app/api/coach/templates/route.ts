@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireCoach } from "@/lib/guard";
-import { createTemplate, getTemplatesForCoach } from "@/lib/db";
+import { createTemplate, getTemplatesForCoach, logUserEvent } from "@/lib/db";
 import type { TemplateGraph } from "@/lib/templates";
 
 /** List the coach's own templates plus every global (admin) template. */
@@ -40,6 +40,14 @@ export async function POST(request: NextRequest) {
     createdBy: coachId,
     scope: "personal",
     ownerId: coachId,
+  });
+  await logUserEvent({
+    userId: coachId,
+    actorId: coachId,
+    action: "template_created",
+    entityType: "template",
+    entityId: template.id,
+    entityLabel: template.name,
   });
   return NextResponse.json({ template });
 }

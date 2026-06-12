@@ -158,6 +158,13 @@ export function ensureSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_user_logs_user
           ON user_logs (user_id, created_at DESC);
 
+        -- Optional reference to the entity an action concerns (template, message,
+        -- user, …) so the log UI can deep-link to it. No FK: the entity may be
+        -- deleted while its historical label remains useful.
+        ALTER TABLE user_logs ADD COLUMN IF NOT EXISTS entity_type TEXT;
+        ALTER TABLE user_logs ADD COLUMN IF NOT EXISTS entity_id INTEGER;
+        ALTER TABLE user_logs ADD COLUMN IF NOT EXISTS entity_label TEXT;
+
         -- Coaching templates: an arc-level canvas (activities + flow + phases)
         -- authored by an admin and available to all coaches. The canvas graph
         -- is stored as JSONB (see lib/templates.ts for its shape).
@@ -675,6 +682,9 @@ export async function setUserTheme(userId: number, theme: "light" | "dark"): Pro
 // User audit log
 // ============================================================
 
+/** A loggable entity the UI can deep-link to. */
+export type LogEntityType = "template" | "message" | "user" | "district" | "school";
+
 export interface UserLog {
   id: number;
   action: string;
@@ -682,41 +692,78 @@ export interface UserLog {
   created_at: string;
   actor_id: number | null;
   actor_name: string | null;
+  entity_type: LogEntityType | null;
+  entity_id: number | null;
+  entity_label: string | null;
 }
 
 /**
  * Append an audit entry for a user. Best-effort: a logging failure is recorded
  * to the console but never propagates, so it can't break the primary action.
+ * `userId` is the subject (whose log it appears in); for an actor's own actions
+ * (e.g. an admin editing a template) subject and actor are the same.
  */
 export async function logUserEvent(params: {
   userId: number;
   actorId?: number | null;
   action: string;
   detail?: string | null;
+  entityType?: LogEntityType | null;
+  entityId?: number | null;
+  entityLabel?: string | null;
 }): Promise<void> {
   try {
     const pool = getPool();
     await ensureSchema();
     await pool.query(
-      "INSERT INTO user_logs (user_id, actor_id, action, detail) VALUES ($1, $2, $3, $4)",
-      [params.userId, params.actorId ?? null, params.action, params.detail ?? null]
+      `INSERT INTO user_logs (user_id, actor_id, action, detail, entity_type, entity_id, entity_label)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        params.userId,
+        params.actorId ?? null,
+        params.action,
+        params.detail ?? null,
+        params.entityType ?? null,
+        params.entityId ?? null,
+        params.entityLabel ?? null,
+      ]
     );
   } catch (e) {
     console.error("[logUserEvent]", e);
   }
 }
 
-export async function getUserLogs(userId: number, limit = 50): Promise<UserLog[]> {
+/**
+ * Audit-log entries for a user, newest first. An optional `q` narrows results
+ * server-side (case-insensitive across action, detail, and entity label) so the
+ * full-log view can filter live as the admin types.
+ */
+export async function getUserLogs(
+  userId: number,
+  opts: { limit?: number; q?: string } = {}
+): Promise<UserLog[]> {
   const pool = getPool();
   await ensureSchema();
+  const limit = opts.limit ?? 50;
+  const q = opts.q?.trim();
+
+  const params: unknown[] = [userId];
+  let where = "l.user_id = $1";
+  if (q) {
+    params.push(`%${q}%`);
+    where += ` AND (l.action ILIKE $2 OR l.detail ILIKE $2 OR l.entity_label ILIKE $2)`;
+  }
+  params.push(limit);
+
   const res = await pool.query(
-    `SELECT l.id, l.action, l.detail, l.created_at, l.actor_id, a.full_name AS actor_name
+    `SELECT l.id, l.action, l.detail, l.created_at, l.actor_id, a.full_name AS actor_name,
+            l.entity_type, l.entity_id, l.entity_label
        FROM user_logs l
        LEFT JOIN users a ON a.id = l.actor_id
-      WHERE l.user_id = $1
+      WHERE ${where}
       ORDER BY l.created_at DESC
-      LIMIT $2`,
-    [userId, limit]
+      LIMIT $${params.length}`,
+    params
   );
   return res.rows.map((r) => ({
     id: Number(r.id),
@@ -725,6 +772,9 @@ export async function getUserLogs(userId: number, limit = 50): Promise<UserLog[]
     created_at: toIso(r.created_at),
     actor_id: (r.actor_id as number | null) ?? null,
     actor_name: (r.actor_name as string | null) ?? null,
+    entity_type: (r.entity_type as LogEntityType | null) ?? null,
+    entity_id: (r.entity_id as number | null) ?? null,
+    entity_label: (r.entity_label as string | null) ?? null,
   }));
 }
 

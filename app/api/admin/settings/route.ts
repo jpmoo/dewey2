@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
+import { logUserEvent } from "@/lib/db";
 import {
   getSystemSettings,
   updateSystemSettings,
@@ -41,6 +42,7 @@ export async function GET() {
 export async function PATCH(request: NextRequest) {
   const guard = await requireAdmin();
   if (guard instanceof NextResponse) return guard;
+  const { session } = guard;
 
   const body = await request.json().catch(() => ({}));
   if (typeof body !== "object" || body === null) {
@@ -68,6 +70,18 @@ export async function PATCH(request: NextRequest) {
 
   try {
     await updateSystemSettings(update);
+    const fields = Object.keys(update);
+    if (fields.length > 0) {
+      const adminId = Number(session.user.id);
+      // Never record the key's value — just that it changed.
+      const labels = fields.map((f) => (f === "anthropic_api_key" ? "anthropic_api_key (set)" : f));
+      await logUserEvent({
+        userId: adminId,
+        actorId: adminId,
+        action: "settings_updated",
+        detail: labels.join(", "),
+      });
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save settings";

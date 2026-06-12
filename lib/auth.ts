@@ -119,6 +119,15 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
+  events: {
+    // Record sign-out against the (possibly impersonated) account in the token.
+    async signOut({ token }) {
+      const uid = Number(token?.sub);
+      if (Number.isFinite(uid)) {
+        await logUserEvent({ userId: uid, actorId: uid, action: "signed_out" });
+      }
+    },
+  },
   pages: {
     signIn: "/login",
     error: "/login",
