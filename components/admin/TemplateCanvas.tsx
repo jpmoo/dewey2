@@ -738,7 +738,7 @@ function CanvasInner({
                     }}
                     onDoubleClick={() => addActivity(a.key, { x: 80, y: 80 })}
                     className="text-xs px-2 py-1 rounded border border-dewey-border bg-dewey-surface cursor-grab hover:bg-dewey-surface-2"
-                    title={`${a.defaultInstructions}\n\n(Drag onto the canvas, or double-click to add)`}
+                    title={a.defaultInstructions}
                   >
                     {a.label}
                   </div>
