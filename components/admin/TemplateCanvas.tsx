@@ -120,6 +120,8 @@ function CanvasInner({
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
+  const [dragPhaseIndex, setDragPhaseIndex] = useState<number | null>(null);
 
   // Match React Flow's chrome (controls, minimap, background) to the app theme.
   const [colorMode, setColorMode] = useState<ColorMode>("light");
@@ -372,6 +374,35 @@ function CanvasInner({
     [setNodes]
   );
 
+  // Edit a phase's name / exit conditions (from the phase modal).
+  const updatePhase = useCallback(
+    (phaseId: string, patch: { name?: string; exitConditions?: string }) => {
+      setPhases((ps) => ps.map((p) => (p.id === phaseId ? { ...p, ...patch } : p)));
+      if (patch.name !== undefined) {
+        setNodes((nds) =>
+          nds.map((n) =>
+            n.data.phaseId === phaseId
+              ? { ...n, data: { ...n.data, phaseName: patch.name } }
+              : n
+          )
+        );
+      }
+    },
+    [setNodes]
+  );
+
+  // Reorder phases (the array order is the sequence). Used by panel drag-and-drop.
+  const movePhase = useCallback((from: number, to: number) => {
+    if (from === to) return;
+    setPhases((ps) => {
+      if (from < 0 || from >= ps.length || to < 0 || to >= ps.length) return ps;
+      const next = ps.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }, []);
+
   // ---- Save ----
   const save = useCallback(async () => {
     setSaving(true);
@@ -423,6 +454,7 @@ function CanvasInner({
   const someSelectedInPhase = selectedNodes.some((n) => n.data.phaseId);
 
   const editingNode = editingNodeId ? nodes.find((n) => n.id === editingNodeId) : null;
+  const editingPhase = editingPhaseId ? phases.find((p) => p.id === editingPhaseId) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-dewey-cream">
@@ -543,6 +575,8 @@ function CanvasInner({
                   }}
                 >
                   <span
+                    onDoubleClick={() => setEditingPhaseId(c.id)}
+                    title="Double-click to edit phase exit conditions"
                     style={{
                       position: "absolute",
                       top: 10,
@@ -550,6 +584,8 @@ function CanvasInner({
                       fontSize: 11,
                       fontWeight: 600,
                       color: c.color,
+                      cursor: "pointer",
+                      pointerEvents: "auto", // label is clickable; the cloud body isn't
                     }}
                   >
                     {c.name}
@@ -564,43 +600,83 @@ function CanvasInner({
 
         {/* Phases panel */}
         <aside className="w-56 shrink-0 border-l border-dewey-border overflow-y-auto p-3">
-          <h3 className="text-xs font-semibold mb-2">Phases</h3>
+          <h3 className="text-xs font-semibold mb-1">Phases</h3>
           {phases.length === 0 ? (
             <p className="text-xs text-dewey-mute">
               Select activities and click “Group into new phase”. Double-click an
               activity to edit it.
             </p>
           ) : (
-            <ul className="space-y-2">
-              {phases.map((p) => {
-                const count = nodes.filter((n) => n.data.phaseId === p.id).length;
-                return (
-                  <li key={p.id} className="rounded border border-dewey-border p-2">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span
-                        className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-                        style={{ background: p.color }}
-                      />
-                      <input
-                        className="dewey-input py-1 text-xs"
-                        value={p.name}
-                        onChange={(e) => renamePhase(p.id, e.target.value)}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between text-[11px] text-dewey-mute">
-                      <span>{count} activit{count === 1 ? "y" : "ies"}</span>
-                      <button
-                        type="button"
-                        className="text-red-700 hover:underline"
-                        onClick={() => removePhase(p.id)}
-                      >
-                        Ungroup
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <p className="text-[11px] text-dewey-mute mb-2">
+                Drag to reorder. Double-click to edit exit conditions.
+              </p>
+              <ul className="space-y-2">
+                {phases.map((p, i) => {
+                  const count = nodes.filter((n) => n.data.phaseId === p.id).length;
+                  return (
+                    <li
+                      key={p.id}
+                      onDragOver={(e) => {
+                        if (dragPhaseIndex !== null) e.preventDefault();
+                      }}
+                      onDrop={() => {
+                        if (dragPhaseIndex !== null) movePhase(dragPhaseIndex, i);
+                        setDragPhaseIndex(null);
+                      }}
+                      onDoubleClick={() => setEditingPhaseId(p.id)}
+                      className={`rounded border border-dewey-border p-2 bg-dewey-surface ${
+                        dragPhaseIndex === i ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span
+                          draggable
+                          onDragStart={() => setDragPhaseIndex(i)}
+                          onDragEnd={() => setDragPhaseIndex(null)}
+                          className="cursor-grab text-dewey-mute select-none px-0.5"
+                          title="Drag to reorder"
+                        >
+                          ⠿
+                        </span>
+                        <span className="text-[11px] text-dewey-mute w-4 shrink-0">{i + 1}.</span>
+                        <span
+                          className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ background: p.color }}
+                        />
+                        <input
+                          className="dewey-input py-1 text-xs"
+                          value={p.name}
+                          onChange={(e) => renamePhase(p.id, e.target.value)}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-dewey-mute pl-1">
+                        <span>
+                          {count} activit{count === 1 ? "y" : "ies"}
+                          {p.exitConditions ? " · has exit conditions" : ""}
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="text-dewey-accent hover:underline"
+                            onClick={() => setEditingPhaseId(p.id)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="text-red-700 hover:underline"
+                            onClick={() => removePhase(p.id)}
+                          >
+                            Ungroup
+                          </button>
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
         </aside>
       </div>
@@ -615,6 +691,77 @@ function CanvasInner({
           onClose={() => setEditingNodeId(null)}
         />
       )}
+
+      {editingPhase && (
+        <PhaseEditModal
+          phase={editingPhase}
+          onSave={(patch) => {
+            updatePhase(editingPhase.id, patch);
+            setEditingPhaseId(null);
+          }}
+          onClose={() => setEditingPhaseId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---- Phase edit modal -------------------------------------------------------
+
+function PhaseEditModal({
+  phase,
+  onSave,
+  onClose,
+}: {
+  phase: TemplatePhase;
+  onSave: (patch: { name: string; exitConditions: string }) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(phase.name);
+  const [exitConditions, setExitConditions] = useState(phase.exitConditions ?? "");
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-dewey-surface text-dewey-ink rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold">Edit phase</h3>
+
+        <div>
+          <label className="dewey-label">Name</label>
+          <input className="dewey-input" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+
+        <div>
+          <label className="dewey-label">Exit conditions</label>
+          <textarea
+            className="dewey-input min-h-[140px]"
+            value={exitConditions}
+            onChange={(e) => setExitConditions(e.target.value)}
+            placeholder="Criteria the AI evaluates once all activities are done, surfaced to the coach before they approve advancement to the next phase…"
+          />
+          <p className="text-xs text-dewey-mute mt-1">
+            Evaluated across the phase's artifacts — distinct from individual activity done-states.
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="dewey-btn-primary w-auto"
+            onClick={() => onSave({ name: name.trim() || phase.name, exitConditions })}
+          >
+            Done
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -30,7 +30,15 @@ export interface TemplatePhase {
   name: string;
   /** Display color for the phase grouping on the canvas. */
   color?: string;
+  /**
+   * Criteria the AI evaluates (and surfaces to the coach) once all of the
+   * phase's activities are done, before the coach approves advancement.
+   * Distinct from activity done-states.
+   */
+  exitConditions?: string;
 }
+
+// Phase ordering is the array order in TemplateGraph.phases.
 
 export interface TemplateGraph {
   nodes: TemplateNode[];
