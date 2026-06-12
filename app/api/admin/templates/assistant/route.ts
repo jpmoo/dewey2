@@ -181,7 +181,23 @@ export async function GET(request: NextRequest) {
   const tid = Number(url.searchParams.get("templateId"));
   const contextId = Number.isFinite(tid) && tid > 0 ? tid : null;
 
-  const conversation = await getConversationForContext(ownerId, "template", contextId);
+  // If the client still holds the conversation it started on this (now-saved)
+  // plan, link it to the plan id so it can be restored later — even if no
+  // further message was sent after saving.
+  let conversation = null as Awaited<ReturnType<typeof getConversation>>;
+  const cidParam = Number(url.searchParams.get("conversationId"));
+  if (Number.isFinite(cidParam)) {
+    const c = await getConversation(cidParam);
+    if (c && c.owner_id === ownerId) {
+      if (c.context_id == null && contextId != null) {
+        await setConversationContext(c.id, contextId);
+      }
+      conversation = c;
+    }
+  }
+  if (!conversation) {
+    conversation = await getConversationForContext(ownerId, "template", contextId);
+  }
   if (!conversation) return NextResponse.json({ conversationId: null, messages: [] });
   const msgs = await getMessages(conversation.id);
   return NextResponse.json({

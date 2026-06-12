@@ -1272,8 +1272,12 @@ function CanvasAssistant({
   useEffect(() => {
     if (templateId == null) return;
     let cancelled = false;
+    // Pass any in-progress conversation so that, when this plan was just saved,
+    // the server links the existing transcript to the new plan id (so it's
+    // restorable next time even if no further message is sent).
+    const cidQ = conversationId.current != null ? `&conversationId=${conversationId.current}` : "";
     apiFetch<{ conversationId: number | null; messages: ChatTurn[] }>(
-      `/api/admin/templates/assistant?templateId=${templateId}`
+      `/api/admin/templates/assistant?templateId=${templateId}${cidQ}`
     )
       .then((d) => {
         if (cancelled) return;
