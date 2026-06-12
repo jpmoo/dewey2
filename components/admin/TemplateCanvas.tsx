@@ -1105,11 +1105,40 @@ function CanvasAssistant({
   const [proposed, setProposed] = useState<TemplateGraph | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [constructing, setConstructing] = useState(false);
+  // Resizable transcript height (drag the top border).
+  const [transcriptHeight, setTranscriptHeight] = useState(200);
+  const transcriptRef = useRef<HTMLDivElement>(null);
 
   // Wake the coaching model when the canvas opens so the first call is warm.
   useEffect(() => {
     fetch(pathWithBase("/api/admin/ai/warmup"), { method: "POST" }).catch(() => {});
   }, []);
+
+  // Keep the latest message in view as turns are added and tokens stream in.
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  // Drag the panel's top border to resize the transcript.
+  const startResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = transcriptHeight;
+      const onMove = (ev: MouseEvent) => {
+        const dy = startY - ev.clientY; // dragging up grows the panel
+        setTranscriptHeight(Math.max(80, Math.min(window.innerHeight * 0.7, startH + dy)));
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [transcriptHeight]
+  );
 
   const send = useCallback(async () => {
     const q = input.trim();
@@ -1203,6 +1232,13 @@ function CanvasAssistant({
 
   return (
     <div className="border-t border-dewey-border bg-dewey-surface">
+      {open && (
+        <div
+          onMouseDown={startResize}
+          title="Drag to resize"
+          className="h-1.5 w-full cursor-ns-resize hover:bg-dewey-surface-2"
+        />
+      )}
       <button
         type="button"
         className="w-full flex items-center justify-between px-4 py-1.5 text-xs text-dewey-mute hover:text-dewey-ink"
@@ -1215,7 +1251,11 @@ function CanvasAssistant({
       {open && (
         <div className="px-4 pb-3">
           {messages.length > 0 && (
-            <div className="max-h-56 overflow-y-auto space-y-2 mb-2">
+            <div
+              ref={transcriptRef}
+              style={{ height: transcriptHeight }}
+              className="overflow-y-auto space-y-2 mb-2"
+            >
               {messages.map((m, i) =>
                 m.role === "user" ? (
                   <div key={i} className="text-right">
@@ -1243,8 +1283,8 @@ function CanvasAssistant({
                         </div>
                       )}
                       {m.sources && m.sources.length > 0 && (
-                        <div className="mt-1.5 pt-1.5 border-t border-dewey-border text-xs">
-                          <span className="text-dewey-mute">Sources: </span>
+                        <div className="mt-1.5 pt-1.5 border-t border-dewey-border flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] text-dewey-mute">Sources</span>
                           {m.sources.map((s, j) => (
                             <a
                               key={j}
@@ -1253,7 +1293,8 @@ function CanvasAssistant({
                               )}
                               target="_blank"
                               rel="noreferrer"
-                              className="text-dewey-accent hover:underline mr-2 break-all"
+                              title={s.name}
+                              className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute hover:text-dewey-ink hover:border-dewey-mute"
                             >
                               {s.name}
                             </a>
