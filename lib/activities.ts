@@ -13,6 +13,8 @@ export interface ActivityType {
   label: string;
   category: ActivityCategory;
   defaultGating: Gating;
+  /** Pre-filled partner-facing instructions when an activity is first added. */
+  defaultInstructions: string;
 }
 
 export const CATEGORY_META: Record<
@@ -43,36 +45,36 @@ export const CATEGORY_META: Record<
 
 export const ACTIVITY_TYPES: ActivityType[] = [
   // Category 1 — Reflecting & Solving (default REVIEWED)
-  { key: "describe_current_reality", label: "Describe Current Reality", category: "reflecting", defaultGating: "REVIEWED" },
-  { key: "develop_a_goal", label: "Develop a Goal", category: "reflecting", defaultGating: "REVIEWED" },
-  { key: "identify_root_cause", label: "Identify Root Cause", category: "reflecting", defaultGating: "REVIEWED" },
-  { key: "define_conditions_for_success", label: "Define Conditions for Success", category: "reflecting", defaultGating: "REVIEWED" },
-  { key: "interrogate_an_assumption", label: "Interrogate an Assumption", category: "reflecting", defaultGating: "REVIEWED" },
-  { key: "navigate_a_stakeholder_situation", label: "Navigate a Stakeholder Situation", category: "reflecting", defaultGating: "REVIEWED" },
-  { key: "take_a_perspective", label: "Take a Perspective", category: "reflecting", defaultGating: "REVIEWED" },
-  { key: "reflect_on_a_measured_outcome", label: "Reflect on a Measured Outcome", category: "reflecting", defaultGating: "REVIEWED" },
+  { key: "describe_current_reality", label: "Describe Current Reality", category: "reflecting", defaultGating: "REVIEWED", defaultInstructions: "Describe the current state of your problem or practice gap as specifically as you can — what's happening now, for whom, and how you know." },
+  { key: "develop_a_goal", label: "Develop a Goal", category: "reflecting", defaultGating: "REVIEWED", defaultInstructions: "Work toward a specific, measurable improvement goal: what will be different, by how much, and by when." },
+  { key: "identify_root_cause", label: "Identify Root Cause", category: "reflecting", defaultGating: "REVIEWED", defaultInstructions: "Surface and test hypotheses about why this problem persists. Look past the symptoms to the underlying causes." },
+  { key: "define_conditions_for_success", label: "Define Conditions for Success", category: "reflecting", defaultGating: "REVIEWED", defaultInstructions: "Describe concretely what solving this problem will look like — the conditions and evidence that would tell you you've succeeded." },
+  { key: "interrogate_an_assumption", label: "Interrogate an Assumption", category: "reflecting", defaultGating: "REVIEWED", defaultInstructions: "Examine a belief or mental model you hold about this situation. What are you assuming, and what changes if it isn't true?" },
+  { key: "navigate_a_stakeholder_situation", label: "Navigate a Stakeholder Situation", category: "reflecting", defaultGating: "REVIEWED", defaultInstructions: "Map the stakeholders involved and develop a strategy for influencing or working with them." },
+  { key: "take_a_perspective", label: "Take a Perspective", category: "reflecting", defaultGating: "REVIEWED", defaultInstructions: "Step into another person's point of view. What do they see, value, and worry about in this situation?" },
+  { key: "reflect_on_a_measured_outcome", label: "Reflect on a Measured Outcome", category: "reflecting", defaultGating: "REVIEWED", defaultInstructions: "Examine your results and decide whether to declare success, refine your approach, or revisit the goal." },
 
   // Category 2 — Input & Inquiry (default OPEN)
-  { key: "read_a_text", label: "Read a Text", category: "inquiry", defaultGating: "OPEN" },
-  { key: "analyze_data", label: "Analyze Data", category: "inquiry", defaultGating: "OPEN" },
-  { key: "interview_a_stakeholder", label: "Interview a Stakeholder", category: "inquiry", defaultGating: "OPEN" },
-  { key: "observe_a_classroom", label: "Observe a Classroom", category: "inquiry", defaultGating: "OPEN" },
-  { key: "review_student_work", label: "Review Student Work", category: "inquiry", defaultGating: "OPEN" },
-  { key: "survey_your_team", label: "Survey Your Team", category: "inquiry", defaultGating: "OPEN" },
-  { key: "research_a_strategy", label: "Research a Strategy", category: "inquiry", defaultGating: "OPEN" },
+  { key: "read_a_text", label: "Read a Text", category: "inquiry", defaultGating: "OPEN", defaultInstructions: "Read the assigned article, chapter, or section and capture your key takeaways and the questions it raised." },
+  { key: "analyze_data", label: "Analyze Data", category: "inquiry", defaultGating: "OPEN", defaultInstructions: "Examine the relevant data (student performance, observation, survey, etc.) and note the patterns and surprises you find." },
+  { key: "interview_a_stakeholder", label: "Interview a Stakeholder", category: "inquiry", defaultGating: "OPEN", defaultInstructions: "Conduct a structured conversation to gather this person's perspective. Prepare your questions and record what you learn." },
+  { key: "observe_a_classroom", label: "Observe a Classroom", category: "inquiry", defaultGating: "OPEN", defaultInstructions: "Conduct or attend a classroom observation and capture what you notice against your focus." },
+  { key: "review_student_work", label: "Review Student Work", category: "inquiry", defaultGating: "OPEN", defaultInstructions: "Examine student work against a standard or rubric and note what it reveals about learning." },
+  { key: "survey_your_team", label: "Survey Your Team", category: "inquiry", defaultGating: "OPEN", defaultInstructions: "Gather structured input from your colleagues and summarize what you hear." },
+  { key: "research_a_strategy", label: "Research a Strategy", category: "inquiry", defaultGating: "OPEN", defaultInstructions: "Investigate an approach or intervention before trying it. Note how it works, the evidence behind it, and its fit for your context." },
 
   // Category 3 — Observation & Being Observed (default REVIEWED)
-  { key: "host_coachs_observation", label: "Host Coach's Observation", category: "observation", defaultGating: "REVIEWED" },
-  { key: "record_and_review_own_practice", label: "Record and Review Own Practice", category: "observation", defaultGating: "REVIEWED" },
-  { key: "conduct_a_peer_observation", label: "Conduct a Peer Observation", category: "observation", defaultGating: "REVIEWED" },
-  { key: "participate_in_a_learning_walk", label: "Participate in a Learning Walk", category: "observation", defaultGating: "REVIEWED" },
+  { key: "host_coachs_observation", label: "Host Coach's Observation", category: "observation", defaultGating: "REVIEWED", defaultInstructions: "Arrange for your coach to observe your practice, in person or via recording, and note what you'd like feedback on." },
+  { key: "record_and_review_own_practice", label: "Record and Review Own Practice", category: "observation", defaultGating: "REVIEWED", defaultInstructions: "Record yourself in practice, then review the recording and note what you see." },
+  { key: "conduct_a_peer_observation", label: "Conduct a Peer Observation", category: "observation", defaultGating: "REVIEWED", defaultInstructions: "Observe a colleague's practice and capture what you notice and what you'll borrow." },
+  { key: "participate_in_a_learning_walk", label: "Participate in a Learning Walk", category: "observation", defaultGating: "REVIEWED", defaultInstructions: "Take part in a structured walkthrough and capture patterns across the classrooms you visit." },
 
   // Category 4 — Implementation (default REVIEWED)
-  { key: "try_a_strategy", label: "Try a Strategy", category: "implementation", defaultGating: "REVIEWED" },
-  { key: "co_teach_a_session", label: "Co-Teach a Session", category: "implementation", defaultGating: "REVIEWED" },
-  { key: "facilitate_a_meeting", label: "Facilitate a Meeting", category: "implementation", defaultGating: "REVIEWED" },
-  { key: "deliver_professional_development", label: "Deliver Professional Development", category: "implementation", defaultGating: "REVIEWED" },
-  { key: "implement_a_plan", label: "Implement a Plan", category: "implementation", defaultGating: "REVIEWED" },
+  { key: "try_a_strategy", label: "Try a Strategy", category: "implementation", defaultGating: "REVIEWED", defaultInstructions: "Implement the specific strategy in your practice, then capture how it went and what you'd adjust." },
+  { key: "co_teach_a_session", label: "Co-Teach a Session", category: "implementation", defaultGating: "REVIEWED", defaultInstructions: "Co-deliver a session with your coach or a colleague, then debrief what worked and what you'd change." },
+  { key: "facilitate_a_meeting", label: "Facilitate a Meeting", category: "implementation", defaultGating: "REVIEWED", defaultInstructions: "Lead a team, PLG, or staff meeting with an intentional structure, then reflect on your facilitation." },
+  { key: "deliver_professional_development", label: "Deliver Professional Development", category: "implementation", defaultGating: "REVIEWED", defaultInstructions: "Design and deliver professional development to your team, then gather feedback and reflect." },
+  { key: "implement_a_plan", label: "Implement a Plan", category: "implementation", defaultGating: "REVIEWED", defaultInstructions: "Execute the multi-step action plan you developed, tracking progress against the steps." },
 ];
 
 export const ACTIVITY_BY_KEY: Record<string, ActivityType> = Object.fromEntries(

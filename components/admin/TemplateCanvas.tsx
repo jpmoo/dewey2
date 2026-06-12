@@ -269,7 +269,7 @@ function CanvasInner({
           label: def.label,
           category: def.category,
           gating: def.defaultGating,
-          instructions: "",
+          instructions: def.defaultInstructions,
           phaseId: null,
           phaseName: null,
           phaseColor: null,

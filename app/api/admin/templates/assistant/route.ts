@@ -88,7 +88,10 @@ function sanitizeProposed(raw: unknown): TemplateGraph | null {
       activityKey: key,
       label: def.label, // labels are fixed by activity type
       gating: no.gating === "OPEN" || no.gating === "REVIEWED" ? no.gating : def.defaultGating,
-      instructions: typeof no.instructions === "string" ? no.instructions : "",
+      instructions:
+        typeof no.instructions === "string" && no.instructions
+          ? no.instructions
+          : def.defaultInstructions,
       phaseId,
       position: { x: 0, y: 0 },
     });
