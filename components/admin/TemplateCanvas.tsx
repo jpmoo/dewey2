@@ -14,6 +14,7 @@ import {
   SelectionMode,
   ConnectionMode,
   addEdge,
+  applyNodeChanges,
   useNodesState,
   useEdgesState,
   useReactFlow,
@@ -21,10 +22,12 @@ import {
   type Edge,
   type Connection,
   type NodeProps,
+  type NodeChange,
   type ColorMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { apiFetch } from "@/lib/api-client";
+import { getHelperLines, HelperLines } from "./helper-lines";
 import {
   ACTIVITY_TYPES,
   ACTIVITY_BY_KEY,
@@ -171,7 +174,29 @@ function CanvasInner({
     [template]
   );
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<ActivityNodeData>>(initialNodes);
+  const [nodes, setNodes] = useNodesState<Node<ActivityNodeData>>(initialNodes);
+
+  // Alignment guides shown while dragging a single node.
+  const [helperLineH, setHelperLineH] = useState<number | undefined>(undefined);
+  const [helperLineV, setHelperLineV] = useState<number | undefined>(undefined);
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<ActivityNodeData>>[]) => {
+      setHelperLineH(undefined);
+      setHelperLineV(undefined);
+      // Snap a single dragged node to other nodes' edges/centers.
+      const c = changes[0];
+      if (changes.length === 1 && c.type === "position" && c.dragging && c.position) {
+        const lines = getHelperLines(c, nodes);
+        c.position.x = lines.snapPosition.x ?? c.position.x;
+        c.position.y = lines.snapPosition.y ?? c.position.y;
+        setHelperLineH(lines.horizontal);
+        setHelperLineV(lines.vertical);
+      }
+      setNodes((nds) => applyNodeChanges(changes, nds));
+    },
+    [nodes, setNodes]
+  );
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   // React Flow assigns source/target by handle type, not drag direction. We
@@ -734,6 +759,7 @@ function CanvasInner({
               ))}
             </ViewportPortal>
             <Background />
+            <HelperLines horizontal={helperLineH} vertical={helperLineV} />
             <Controls>
               <ControlButton onClick={clearCanvas} title="Clear canvas">
                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
