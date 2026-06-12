@@ -8,11 +8,15 @@ export interface TemplateNode {
   id: string;
   /** ACTIVITY_TYPES key. */
   activityKey: string;
-  /** Display label (defaults to the activity label; editable later). */
+  /** Display label (defaults to the activity label; editable). */
   label: string;
   position: { x: number; y: number };
   /** Phase this activity belongs to, if grouped. */
   phaseId?: string | null;
+  /** Done-state gating: OPEN (self-attest) or REVIEWED (coach approves). */
+  gating?: "OPEN" | "REVIEWED";
+  /** Coach-authored instructions / prompt shown to the partner. */
+  instructions?: string;
 }
 
 export interface TemplateEdge {

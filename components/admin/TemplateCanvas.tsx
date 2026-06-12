@@ -28,6 +28,7 @@ import {
   ACTIVITY_BY_KEY,
   CATEGORY_META,
   type ActivityCategory,
+  type Gating,
 } from "@/lib/activities";
 import type { CoachingTemplate, TemplateGraph, TemplatePhase } from "@/lib/templates";
 
@@ -41,6 +42,8 @@ type ActivityNodeData = {
   activityKey: string;
   label: string;
   category: ActivityCategory;
+  gating: Gating;
+  instructions: string;
   phaseId?: string | null;
   phaseName?: string | null;
   phaseColor?: string | null;
@@ -70,6 +73,7 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
       <div className="h-1 rounded-t" style={{ background: catColor }} />
       <div className="px-2 py-1.5">
         <div className="font-medium leading-tight">{data.label}</div>
+        <div className="text-[10px] text-dewey-mute mt-0.5">{data.gating}</div>
         {data.phaseName && (
           <div
             className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] text-white"
@@ -102,6 +106,7 @@ function CanvasInner({
   const [phases, setPhases] = useState<TemplatePhase[]>(template.graph.phases ?? []);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
 
   // Match React Flow's chrome (controls, minimap, background) to the app theme.
   const [colorMode, setColorMode] = useState<ColorMode>("light");
@@ -123,6 +128,8 @@ function CanvasInner({
             activityKey: n.activityKey,
             label: n.label,
             category: cat,
+            gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
+            instructions: n.instructions ?? "",
             phaseId: n.phaseId ?? null,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
@@ -163,6 +170,8 @@ function CanvasInner({
           activityKey,
           label: def.label,
           category: def.category,
+          gating: def.defaultGating,
+          instructions: "",
           phaseId: null,
           phaseName: null,
           phaseColor: null,
@@ -189,13 +198,51 @@ function CanvasInner({
     [screenToFlowPosition, addActivity]
   );
 
-  // ---- Grouping selected nodes into a phase ----
-  const groupIntoPhase = useCallback(() => {
+  const updateNodeData = useCallback(
+    (id: string, patch: Partial<ActivityNodeData>) => {
+      setNodes((nds) =>
+        nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n))
+      );
+    },
+    [setNodes]
+  );
+
+  // ---- Grouping: create a new phase, or add unphased nodes to an existing one ----
+  // Disallowed when the selection spans more than one phase.
+  const handleGroup = useCallback(() => {
     const selected = nodes.filter((n) => n.selected);
-    if (selected.length === 0) {
-      alert("Select activities first (drag a box around them or shift-click).");
+    if (selected.length === 0) return;
+    const phaseIds = Array.from(
+      new Set(selected.map((n) => n.data.phaseId).filter(Boolean) as string[])
+    );
+    if (phaseIds.length > 1) return; // spans multiple phases — not allowed
+
+    if (phaseIds.length === 1) {
+      // Add the unphased selected activities to the one phase represented.
+      const phase = phases.find((p) => p.id === phaseIds[0]);
+      if (!phase) return;
+      const toAdd = new Set(selected.filter((n) => !n.data.phaseId).map((n) => n.id));
+      if (toAdd.size === 0) return;
+      setNodes((nds) =>
+        nds.map((n) =>
+          toAdd.has(n.id)
+            ? {
+                ...n,
+                selected: false,
+                data: {
+                  ...n.data,
+                  phaseId: phase.id,
+                  phaseName: phase.name,
+                  phaseColor: phase.color ?? null,
+                },
+              }
+            : n
+        )
+      );
       return;
     }
+
+    // No phase in the selection — create a new one from all selected.
     const phaseId = newId("p");
     const color = PHASE_COLORS[phases.length % PHASE_COLORS.length];
     const phase: TemplatePhase = { id: phaseId, name: `Phase ${phases.length + 1}`, color };
@@ -251,6 +298,8 @@ function CanvasInner({
           label: n.data.label,
           position: n.position,
           phaseId: n.data.phaseId ?? null,
+          gating: n.data.gating,
+          instructions: n.data.instructions,
         })),
         edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
         phases,
@@ -267,6 +316,28 @@ function CanvasInner({
     }
   }, [nodes, edges, phases, name, template.id]);
 
+  // ---- Grouping-button state, derived from the current selection ----
+  const selectedNodes = nodes.filter((n) => n.selected);
+  const selectedPhaseIds = Array.from(
+    new Set(selectedNodes.map((n) => n.data.phaseId).filter(Boolean) as string[])
+  );
+  const unphasedSelectedCount = selectedNodes.filter((n) => !n.data.phaseId).length;
+  const multiPhaseSelected = selectedPhaseIds.length > 1;
+  const targetPhase =
+    selectedPhaseIds.length === 1 ? phases.find((p) => p.id === selectedPhaseIds[0]) : null;
+  const groupDisabled =
+    selectedNodes.length === 0 ||
+    multiPhaseSelected ||
+    (selectedPhaseIds.length === 1 && unphasedSelectedCount === 0);
+  const groupLabel = targetPhase ? `Add to ${targetPhase.name}` : "Group into new phase";
+  const groupTitle = multiPhaseSelected
+    ? "Selection spans more than one phase — not allowed"
+    : selectedNodes.length === 0
+    ? "Select activities first (box-select or shift-click)"
+    : undefined;
+
+  const editingNode = editingNodeId ? nodes.find((n) => n.id === editingNodeId) : null;
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-dewey-cream">
       {/* Toolbar */}
@@ -277,8 +348,14 @@ function CanvasInner({
           onChange={(e) => setName(e.target.value)}
           placeholder="Template name"
         />
-        <button type="button" className="dewey-btn-secondary" onClick={groupIntoPhase}>
-          Group selection into phase
+        <button
+          type="button"
+          className="dewey-btn-secondary"
+          onClick={handleGroup}
+          disabled={groupDisabled}
+          title={groupTitle}
+        >
+          {groupLabel}
         </button>
         <div className="ml-auto flex items-center gap-3">
           {savedAt && <span className="text-xs text-dewey-mute">Saved {savedAt}</span>}
@@ -335,6 +412,7 @@ function CanvasInner({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
             nodeTypes={nodeTypes}
             colorMode={colorMode}
             defaultEdgeOptions={{ markerEnd: ARROW }}
@@ -359,7 +437,8 @@ function CanvasInner({
           <h3 className="text-xs font-semibold mb-2">Phases</h3>
           {phases.length === 0 ? (
             <p className="text-xs text-dewey-mute">
-              Select activities and click “Group selection into phase”.
+              Select activities and click “Group into new phase”. Double-click an
+              activity to edit it.
             </p>
           ) : (
             <ul className="space-y-2">
@@ -394,6 +473,96 @@ function CanvasInner({
             </ul>
           )}
         </aside>
+      </div>
+
+      {editingNode && (
+        <NodeEditModal
+          node={editingNode}
+          onSave={(patch) => {
+            updateNodeData(editingNode.id, patch);
+            setEditingNodeId(null);
+          }}
+          onClose={() => setEditingNodeId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---- Node edit modal --------------------------------------------------------
+
+function NodeEditModal({
+  node,
+  onSave,
+  onClose,
+}: {
+  node: Node<ActivityNodeData>;
+  onSave: (patch: Partial<ActivityNodeData>) => void;
+  onClose: () => void;
+}) {
+  const def = ACTIVITY_BY_KEY[node.data.activityKey];
+  const [label, setLabel] = useState(node.data.label);
+  const [gating, setGating] = useState<Gating>(node.data.gating);
+  const [instructions, setInstructions] = useState(node.data.instructions);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-dewey-surface text-dewey-ink rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div>
+          <h3 className="text-lg font-semibold">Edit activity</h3>
+          <p className="text-xs text-dewey-mute">
+            {def?.label ?? node.data.activityKey} · {CATEGORY_META[node.data.category]?.label}
+          </p>
+        </div>
+
+        <div>
+          <label className="dewey-label">Label</label>
+          <input className="dewey-input" value={label} onChange={(e) => setLabel(e.target.value)} />
+        </div>
+
+        <div>
+          <label className="dewey-label">Completion gating</label>
+          <select
+            className="dewey-input"
+            value={gating}
+            onChange={(e) => setGating(e.target.value as Gating)}
+          >
+            <option value="OPEN">OPEN — partner self-attests</option>
+            <option value="REVIEWED">REVIEWED — coach approves</option>
+          </select>
+          <p className="text-xs text-dewey-mute mt-1">
+            Default for this type: {def?.defaultGating ?? "REVIEWED"}.
+          </p>
+        </div>
+
+        <div>
+          <label className="dewey-label">Instructions</label>
+          <textarea
+            className="dewey-input min-h-[100px]"
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="What the partner should do in this activity…"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="dewey-btn-primary w-auto"
+            onClick={() => onSave({ label: label.trim() || def?.label || "Activity", gating, instructions })}
+          >
+            Done
+          </button>
+        </div>
       </div>
     </div>
   );
