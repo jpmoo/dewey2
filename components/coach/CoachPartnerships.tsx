@@ -7,7 +7,12 @@ import { Avatar } from "@/components/Avatar";
 import { ThreadPane, AttachmentLightbox } from "@/components/messages/MessageCenter";
 
 type Member = { id: number; full_name: string; accepted: boolean | null };
-type Partnership = { thread_id: number; created_at: string; members: Member[] };
+type Partnership = {
+  thread_id: number;
+  created_at: string;
+  status: "done" | "abandoned" | null;
+  members: Member[];
+};
 type Recipient = { id: number; full_name: string; username: string; system_role: string };
 type AttachmentMeta = { id: number; filename: string; mime_type: string; size_bytes: number };
 
@@ -68,8 +73,19 @@ export function CoachPartnerships() {
               onClick={() => setOpen(p.thread_id)}
               className="block w-full rounded-lg border border-dewey-border bg-dewey-surface p-4 text-left hover:bg-dewey-surface-2"
             >
-              <div className="text-xs text-dewey-mute">
-                Started {new Date(p.created_at).toLocaleDateString()}
+              <div className="flex items-center gap-2 text-xs text-dewey-mute">
+                <span>Started {new Date(p.created_at).toLocaleDateString()}</span>
+                {p.status && (
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${
+                      p.status === "done"
+                        ? "bg-green-100 text-green-800"
+                        : "bg-dewey-surface-2 text-dewey-mute"
+                    }`}
+                  >
+                    {p.status}
+                  </span>
+                )}
               </div>
               <div className="mt-3 flex flex-wrap gap-4">
                 {p.members.map((m) => (

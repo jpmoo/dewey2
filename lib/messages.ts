@@ -20,7 +20,7 @@ export type ThreadKind =
   | "template_submission"
   | "partnership"
   | "compliance";
-export type ThreadStatus = "open" | "approved" | "rejected" | null;
+export type ThreadStatus = "open" | "approved" | "rejected" | "done" | "abandoned" | null;
 
 function toIso(v: unknown): string {
   return v instanceof Date ? v.toISOString() : String(v);
@@ -395,6 +395,7 @@ export interface PartnershipMember {
 export interface PartnershipCard {
   thread_id: number;
   created_at: string;
+  status: ThreadStatus;
   members: PartnershipMember[];
 }
 
@@ -403,7 +404,7 @@ export async function getPartnershipsForUser(userId: number): Promise<Partnershi
   const pool = getPool();
   await ensureSchema();
   const threads = await pool.query(
-    `SELECT DISTINCT t.id, t.created_at
+    `SELECT DISTINCT t.id, t.created_at, t.status
        FROM message_threads t
        JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
       WHERE t.kind = 'partnership' AND t.deleted_at IS NULL
@@ -422,6 +423,7 @@ export async function getPartnershipsForUser(userId: number): Promise<Partnershi
     out.push({
       thread_id: t.id as number,
       created_at: toIso(t.created_at),
+      status: (t.status ?? null) as ThreadStatus,
       members: members.rows.map((m) => ({
         id: m.id as number,
         full_name: m.full_name as string,

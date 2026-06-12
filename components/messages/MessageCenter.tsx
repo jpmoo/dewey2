@@ -38,7 +38,7 @@ type ThreadSummary = {
   subject: string | null;
   template_id: number | null;
   template_name: string | null;
-  status: "open" | "approved" | "rejected" | null;
+  status: "open" | "approved" | "rejected" | "done" | "abandoned" | null;
   created_by: number | null;
   created_at: string;
   updated_at: string;
@@ -59,6 +59,8 @@ const STATUS_BADGE: Record<string, string> = {
   open: "bg-amber-100 text-amber-800",
   approved: "bg-green-100 text-green-800",
   rejected: "bg-red-100 text-red-700",
+  done: "bg-green-100 text-green-800",
+  abandoned: "bg-dewey-surface-2 text-dewey-mute",
 };
 
 function attachmentUrl(id: number) {
@@ -573,18 +575,47 @@ export function ThreadPane({
   const [openPlan, setOpenPlan] = useState<{ id: number; name: string; phase: string | null } | null>(
     null
   );
-  const amCoach = thread?.kind === "partnership" && thread?.created_by === meId;
+  const isPartnership = thread?.kind === "partnership";
+  const amCoach = isPartnership && thread?.created_by === meId;
+  const ended = thread?.status === "done" || thread?.status === "abandoned";
 
   const toggleArchive = async () => {
     try {
-      await fetch(pathWithBase(`/api/messages/threads/${threadId}/archive`), {
+      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/archive`), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ archived: !archived }),
       });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't archive");
+      }
       onArchived();
-    } catch {
-      dialog.alert("Couldn't update the conversation.");
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't update the conversation.");
+    }
+  };
+
+  const setPartnershipStatus = async (status: "done" | "abandoned" | "active") => {
+    const labels: Record<string, string> = {
+      done: "Mark this partnership as done?",
+      abandoned: "Mark this partnership as abandoned?",
+      active: "Reopen this partnership?",
+    };
+    if (!(await dialog.confirm(labels[status], { title: "Partnership status" }))) return;
+    try {
+      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/partnership-status`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't update status");
+      }
+      fetchThread(false);
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't update the partnership.");
     }
   };
 
@@ -673,7 +704,7 @@ export function ThreadPane({
             </span>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-3">
-            {amCoach && (
+            {amCoach && !ended && (
               <button
                 type="button"
                 className="text-xs text-dewey-accent hover:underline"
@@ -682,13 +713,45 @@ export function ThreadPane({
                 + Add plan
               </button>
             )}
-            <button
-              type="button"
-              className="text-xs text-dewey-accent hover:underline"
-              onClick={toggleArchive}
-            >
-              {archived ? "Unarchive" : "Archive"}
-            </button>
+            {/* Partnership lifecycle (coach only). */}
+            {amCoach && !ended && (
+              <>
+                <button
+                  type="button"
+                  className="text-xs text-dewey-accent hover:underline"
+                  onClick={() => setPartnershipStatus("done")}
+                >
+                  Mark done
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-dewey-mute hover:text-dewey-ink"
+                  onClick={() => setPartnershipStatus("abandoned")}
+                >
+                  Abandon
+                </button>
+              </>
+            )}
+            {amCoach && ended && !archived && (
+              <button
+                type="button"
+                className="text-xs text-dewey-accent hover:underline"
+                onClick={() => setPartnershipStatus("active")}
+              >
+                Reopen
+              </button>
+            )}
+            {/* Archive: non-partnership = anyone; partnership = coach, only once
+                it's ended (or to unarchive). */}
+            {(!isPartnership || (amCoach && (ended || archived))) && (
+              <button
+                type="button"
+                className="text-xs text-dewey-accent hover:underline"
+                onClick={toggleArchive}
+              >
+                {archived ? "Unarchive" : "Archive"}
+              </button>
+            )}
           </div>
         </div>
         {thread && thread.participants.length > 0 && (

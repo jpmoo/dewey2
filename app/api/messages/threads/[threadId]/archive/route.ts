@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { canAccessThread, setThreadArchived } from "@/lib/messages";
+import { canAccessThread, getThreadMeta, setThreadArchived } from "@/lib/messages";
 
 /** Archive or unarchive a thread for the signed-in user (their view only). */
 export async function POST(
@@ -21,6 +21,26 @@ export async function POST(
   }
 
   const body = await request.json().catch(() => ({}));
-  await setThreadArchived(id, userId, body.archived !== false);
+  const archived = body.archived !== false;
+
+  // A partnership can only be archived by its coach, and only once it's been
+  // marked done or abandoned. Anyone may unarchive their own view.
+  const thread = await getThreadMeta(id);
+  if (thread?.kind === "partnership" && archived) {
+    if (thread.created_by !== userId) {
+      return NextResponse.json(
+        { error: "Only the coach can archive a partnership." },
+        { status: 403 }
+      );
+    }
+    if (thread.status !== "done" && thread.status !== "abandoned") {
+      return NextResponse.json(
+        { error: "Mark the partnership done or abandoned before archiving it." },
+        { status: 400 }
+      );
+    }
+  }
+
+  await setThreadArchived(id, userId, archived);
   return NextResponse.json({ ok: true });
 }
