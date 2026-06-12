@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CoachDirectory } from "./CoachDirectory";
 import { CoachTemplates } from "./CoachTemplates";
+import { MessageCenter } from "@/components/messages/MessageCenter";
 
 type Tab = "messages" | "partnerships" | "directory" | "canvas";
 
@@ -41,12 +42,7 @@ export function CoachTabs() {
         })}
       </nav>
 
-      {tab === "messages" && (
-        <Placeholder
-          title="Message Center"
-          blurb="Conversations are organized by partnership — one thread per partner. This is where you'll review submissions, replies from the admin on templates you've submitted, and templates other coaches share with you. Coming soon."
-        />
-      )}
+      {tab === "messages" && <MessageCenter />}
       {tab === "partnerships" && (
         <Placeholder
           title="Partnerships"

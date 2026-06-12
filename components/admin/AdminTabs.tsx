@@ -5,14 +5,16 @@ import { AdminSettings } from "./AdminSettings";
 import { AdminOrgManager } from "./AdminOrgManager";
 import { AdminUserManager } from "./AdminUserManager";
 import { AdminTemplates } from "./AdminTemplates";
+import { MessageCenter } from "@/components/messages/MessageCenter";
 
-type Tab = "system" | "organization" | "users" | "templates";
+type Tab = "system" | "organization" | "users" | "templates" | "messages";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "system", label: "System" },
   { id: "organization", label: "Organization" },
   { id: "users", label: "Users" },
   { id: "templates", label: "Templates" },
+  { id: "messages", label: "Messages" },
 ];
 
 /**
@@ -50,6 +52,7 @@ export function AdminTabs() {
       {tab === "organization" && <AdminOrgManager />}
       {tab === "users" && <AdminUserManager />}
       {tab === "templates" && <AdminTemplates />}
+      {tab === "messages" && <MessageCenter />}
     </div>
   );
 }

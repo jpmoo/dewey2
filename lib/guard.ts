@@ -49,3 +49,12 @@ export async function requireCoachOrAdmin(): Promise<{ session: Session } | Next
   }
   return { session };
 }
+
+/** Guard for any authenticated user (e.g. the message center). */
+export async function requireUser(): Promise<{ session: Session } | NextResponse> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return { session };
+}

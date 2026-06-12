@@ -1,0 +1,403 @@
+import { getPool } from "@/lib/pg";
+import { ensureSchema } from "@/lib/db";
+
+/**
+ * Messaging data layer: threads, messages, and DB-stored file attachments.
+ * Threads group messages between participants; admins can read every thread for
+ * oversight (see listThreadsForUser / canAccessThread).
+ */
+
+export type ThreadKind = "direct" | "template_share" | "template_submission" | "partnership";
+export type ThreadStatus = "open" | "approved" | "rejected" | null;
+
+function toIso(v: unknown): string {
+  return v instanceof Date ? v.toISOString() : String(v);
+}
+
+export interface ThreadParticipant {
+  id: number;
+  full_name: string;
+  system_role: string;
+}
+
+export interface AttachmentMeta {
+  id: number;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+}
+
+export interface MessageView {
+  id: number;
+  sender_id: number | null;
+  sender_name: string | null;
+  body: string;
+  created_at: string;
+  attachments: AttachmentMeta[];
+}
+
+export interface ThreadSummary {
+  id: number;
+  kind: ThreadKind;
+  subject: string | null;
+  template_id: number | null;
+  template_name: string | null;
+  status: ThreadStatus;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  participants: ThreadParticipant[];
+  last_message: { body: string; created_at: string; sender_name: string | null } | null;
+  message_count: number;
+}
+
+// ============================================================
+// Thread creation
+// ============================================================
+
+export async function createThread(params: {
+  kind: ThreadKind;
+  subject?: string | null;
+  templateId?: number | null;
+  status?: ThreadStatus;
+  createdBy: number;
+  participantIds: number[];
+}): Promise<number> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `INSERT INTO message_threads (kind, subject, template_id, status, created_by)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [
+      params.kind,
+      params.subject ?? null,
+      params.templateId ?? null,
+      params.status ?? null,
+      params.createdBy,
+    ]
+  );
+  const threadId = res.rows[0].id as number;
+  const ids = Array.from(new Set([params.createdBy, ...params.participantIds]));
+  for (const uid of ids) {
+    await pool.query(
+      `INSERT INTO thread_participants (thread_id, user_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [threadId, uid]
+    );
+  }
+  return threadId;
+}
+
+export async function addParticipant(threadId: number, userId: number): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query(
+    `INSERT INTO thread_participants (thread_id, user_id) VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [threadId, userId]
+  );
+}
+
+export async function setThreadStatus(threadId: number, status: ThreadStatus): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query("UPDATE message_threads SET status = $2, updated_at = NOW() WHERE id = $1", [
+    threadId,
+    status,
+  ]);
+}
+
+// ============================================================
+// Access
+// ============================================================
+
+/** Admins can read any thread; everyone else only threads they participate in. */
+export async function canAccessThread(
+  threadId: number,
+  userId: number,
+  isAdmin: boolean
+): Promise<boolean> {
+  if (isAdmin) {
+    const pool = getPool();
+    const res = await pool.query("SELECT 1 FROM message_threads WHERE id = $1 LIMIT 1", [threadId]);
+    return res.rows.length > 0;
+  }
+  const pool = getPool();
+  const res = await pool.query(
+    "SELECT 1 FROM thread_participants WHERE thread_id = $1 AND user_id = $2 LIMIT 1",
+    [threadId, userId]
+  );
+  return res.rows.length > 0;
+}
+
+// ============================================================
+// Listing + reading
+// ============================================================
+
+/** Thread summaries newest-activity first. Admins see all; others see their own. */
+export async function listThreadsForUser(
+  userId: number,
+  isAdmin: boolean
+): Promise<ThreadSummary[]> {
+  const pool = getPool();
+  await ensureSchema();
+
+  const threadsRes = isAdmin
+    ? await pool.query(
+        `SELECT t.*, ct.name AS template_name
+           FROM message_threads t
+           LEFT JOIN coaching_templates ct ON ct.id = t.template_id
+          WHERE t.deleted_at IS NULL
+          ORDER BY t.updated_at DESC`
+      )
+    : await pool.query(
+        `SELECT t.*, ct.name AS template_name
+           FROM message_threads t
+           JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
+           LEFT JOIN coaching_templates ct ON ct.id = t.template_id
+          WHERE t.deleted_at IS NULL
+          ORDER BY t.updated_at DESC`,
+        [userId]
+      );
+
+  const threads = threadsRes.rows;
+  if (threads.length === 0) return [];
+  const ids = threads.map((t) => t.id as number);
+
+  const partsRes = await pool.query(
+    `SELECT p.thread_id, u.id, u.full_name, u.system_role
+       FROM thread_participants p
+       JOIN users u ON u.id = p.user_id
+      WHERE p.thread_id = ANY($1::int[])
+      ORDER BY u.full_name`,
+    [ids]
+  );
+  const byThread = new Map<number, ThreadParticipant[]>();
+  for (const r of partsRes.rows) {
+    const list = byThread.get(r.thread_id) ?? [];
+    list.push({ id: r.id, full_name: r.full_name, system_role: r.system_role });
+    byThread.set(r.thread_id, list);
+  }
+
+  // Last message + count per thread.
+  const lastRes = await pool.query(
+    `SELECT m.thread_id, m.body, m.created_at, u.full_name AS sender_name
+       FROM messages m
+       LEFT JOIN users u ON u.id = m.sender_id
+       JOIN (
+         SELECT thread_id, MAX(created_at) AS mx
+           FROM messages WHERE deleted_at IS NULL AND thread_id = ANY($1::int[])
+          GROUP BY thread_id
+       ) last ON last.thread_id = m.thread_id AND last.mx = m.created_at
+      WHERE m.deleted_at IS NULL`,
+    [ids]
+  );
+  const lastByThread = new Map<number, { body: string; created_at: string; sender_name: string | null }>();
+  for (const r of lastRes.rows) {
+    lastByThread.set(r.thread_id, {
+      body: r.body,
+      created_at: toIso(r.created_at),
+      sender_name: r.sender_name ?? null,
+    });
+  }
+  const countRes = await pool.query(
+    `SELECT thread_id, COUNT(*)::int AS n FROM messages
+      WHERE deleted_at IS NULL AND thread_id = ANY($1::int[]) GROUP BY thread_id`,
+    [ids]
+  );
+  const countByThread = new Map<number, number>(countRes.rows.map((r) => [r.thread_id, r.n]));
+
+  return threads.map((t) => ({
+    id: t.id,
+    kind: t.kind,
+    subject: t.subject ?? null,
+    template_id: t.template_id ?? null,
+    template_name: t.template_name ?? null,
+    status: (t.status ?? null) as ThreadStatus,
+    created_by: t.created_by ?? null,
+    created_at: toIso(t.created_at),
+    updated_at: toIso(t.updated_at),
+    participants: byThread.get(t.id) ?? [],
+    last_message: lastByThread.get(t.id) ?? null,
+    message_count: countByThread.get(t.id) ?? 0,
+  }));
+}
+
+/** A single thread's metadata (without messages). */
+export async function getThreadMeta(threadId: number): Promise<ThreadSummary | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT t.*, ct.name AS template_name
+       FROM message_threads t
+       LEFT JOIN coaching_templates ct ON ct.id = t.template_id
+      WHERE t.id = $1 AND t.deleted_at IS NULL LIMIT 1`,
+    [threadId]
+  );
+  const t = res.rows[0];
+  if (!t) return null;
+  const partsRes = await pool.query(
+    `SELECT u.id, u.full_name, u.system_role
+       FROM thread_participants p JOIN users u ON u.id = p.user_id
+      WHERE p.thread_id = $1 ORDER BY u.full_name`,
+    [threadId]
+  );
+  return {
+    id: t.id,
+    kind: t.kind,
+    subject: t.subject ?? null,
+    template_id: t.template_id ?? null,
+    template_name: t.template_name ?? null,
+    status: (t.status ?? null) as ThreadStatus,
+    created_by: t.created_by ?? null,
+    created_at: toIso(t.created_at),
+    updated_at: toIso(t.updated_at),
+    participants: partsRes.rows.map((r) => ({
+      id: r.id,
+      full_name: r.full_name,
+      system_role: r.system_role,
+    })),
+    last_message: null,
+    message_count: 0,
+  };
+}
+
+export async function getThreadMessages(threadId: number): Promise<MessageView[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name
+       FROM messages m
+       LEFT JOIN users u ON u.id = m.sender_id
+      WHERE m.thread_id = $1 AND m.deleted_at IS NULL
+      ORDER BY m.created_at`,
+    [threadId]
+  );
+  const messages = res.rows;
+  if (messages.length === 0) return [];
+
+  const attRes = await pool.query(
+    `SELECT id, message_id, filename, mime_type, size_bytes
+       FROM message_attachments WHERE message_id = ANY($1::bigint[]) ORDER BY id`,
+    [messages.map((m) => m.id)]
+  );
+  const byMessage = new Map<number, AttachmentMeta[]>();
+  for (const r of attRes.rows) {
+    const list = byMessage.get(Number(r.message_id)) ?? [];
+    list.push({
+      id: Number(r.id),
+      filename: r.filename,
+      mime_type: r.mime_type,
+      size_bytes: r.size_bytes,
+    });
+    byMessage.set(Number(r.message_id), list);
+  }
+
+  return messages.map((m) => ({
+    id: Number(m.id),
+    sender_id: (m.sender_id as number | null) ?? null,
+    sender_name: (m.sender_name as string | null) ?? null,
+    body: m.body as string,
+    created_at: toIso(m.created_at),
+    attachments: byMessage.get(Number(m.id)) ?? [],
+  }));
+}
+
+// ============================================================
+// Posting
+// ============================================================
+
+export async function postMessage(params: {
+  threadId: number;
+  senderId: number;
+  body: string;
+}): Promise<number> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `INSERT INTO messages (thread_id, sender_id, body) VALUES ($1, $2, $3) RETURNING id`,
+    [params.threadId, params.senderId, params.body]
+  );
+  await pool.query("UPDATE message_threads SET updated_at = NOW() WHERE id = $1", [params.threadId]);
+  return Number(res.rows[0].id);
+}
+
+export async function addAttachment(params: {
+  messageId: number;
+  filename: string;
+  mimeType: string;
+  data: Buffer;
+}): Promise<number> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `INSERT INTO message_attachments (message_id, filename, mime_type, size_bytes, data)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [params.messageId, params.filename, params.mimeType, params.data.length, params.data]
+  );
+  return Number(res.rows[0].id);
+}
+
+/** Fetch attachment bytes plus the thread it belongs to (for an access check). */
+export async function getAttachmentForDownload(
+  attachmentId: number
+): Promise<{ filename: string; mimeType: string; data: Buffer; threadId: number } | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT a.filename, a.mime_type, a.data, m.thread_id
+       FROM message_attachments a
+       JOIN messages m ON m.id = a.message_id
+      WHERE a.id = $1 LIMIT 1`,
+    [attachmentId]
+  );
+  const r = res.rows[0];
+  if (!r) return null;
+  return {
+    filename: r.filename,
+    mimeType: r.mime_type,
+    data: r.data as Buffer,
+    threadId: r.thread_id as number,
+  };
+}
+
+// ============================================================
+// Template submissions (admin panel)
+// ============================================================
+
+export interface SubmissionView {
+  thread_id: number;
+  template_id: number | null;
+  template_name: string | null;
+  coach_id: number | null;
+  coach_name: string | null;
+  message: string | null;
+  created_at: string;
+}
+
+/** Open (undecided) template submissions, newest first. */
+export async function listOpenSubmissions(): Promise<SubmissionView[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT t.id AS thread_id, t.template_id, t.created_by AS coach_id, t.created_at,
+            ct.name AS template_name, u.full_name AS coach_name,
+            (SELECT body FROM messages m
+              WHERE m.thread_id = t.id AND m.deleted_at IS NULL
+              ORDER BY m.created_at LIMIT 1) AS message
+       FROM message_threads t
+       LEFT JOIN coaching_templates ct ON ct.id = t.template_id
+       LEFT JOIN users u ON u.id = t.created_by
+      WHERE t.kind = 'template_submission' AND t.status = 'open' AND t.deleted_at IS NULL
+      ORDER BY t.created_at DESC`
+  );
+  return res.rows.map((r) => ({
+    thread_id: r.thread_id,
+    template_id: r.template_id ?? null,
+    template_name: r.template_name ?? null,
+    coach_id: r.coach_id ?? null,
+    coach_name: r.coach_name ?? null,
+    message: r.message ?? null,
+    created_at: toIso(r.created_at),
+  }));
+}

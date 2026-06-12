@@ -69,6 +69,10 @@ const ACTION_LABELS: Record<string, string> = {
   template_updated: "Edited a template",
   template_deleted: "Deleted a template",
   template_duplicated: "Duplicated a template",
+  template_shared: "Shared a template",
+  template_submitted: "Submitted a template",
+  template_approved: "Approved a template",
+  template_rejected: "Rejected a template",
   restored: "Restored",
 };
 

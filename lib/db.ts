@@ -199,6 +199,51 @@ export function ensureSchema(): Promise<void> {
         ALTER TABLE districts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         ALTER TABLE schools ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         ALTER TABLE coaching_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+
+        -- Messaging. A thread groups messages between participants; admins can
+        -- read every thread for oversight. 'kind' distinguishes a plain DM, a
+        -- template share (coach→coach), a template submission (coach→admin, with
+        -- a status), and — later — a partnership thread.
+        CREATE TABLE IF NOT EXISTS message_threads (
+          id          SERIAL PRIMARY KEY,
+          kind        TEXT NOT NULL DEFAULT 'direct',
+          subject     TEXT,
+          template_id INTEGER REFERENCES coaching_templates (id) ON DELETE SET NULL,
+          status      TEXT, -- submissions: 'open' | 'approved' | 'rejected'
+          created_by  INTEGER REFERENCES users (id) ON DELETE SET NULL,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          deleted_at  TIMESTAMPTZ
+        );
+
+        CREATE TABLE IF NOT EXISTS thread_participants (
+          thread_id INTEGER NOT NULL REFERENCES message_threads (id) ON DELETE CASCADE,
+          user_id   INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+          PRIMARY KEY (thread_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS messages (
+          id         BIGSERIAL PRIMARY KEY,
+          thread_id  INTEGER NOT NULL REFERENCES message_threads (id) ON DELETE CASCADE,
+          sender_id  INTEGER REFERENCES users (id) ON DELETE SET NULL,
+          body       TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          deleted_at TIMESTAMPTZ
+        );
+        CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages (thread_id, created_at);
+
+        -- File attachments live in the DB (BYTEA) so they're covered by the same
+        -- backups and need no separate storage volume. Previews are by mime type.
+        CREATE TABLE IF NOT EXISTS message_attachments (
+          id         BIGSERIAL PRIMARY KEY,
+          message_id BIGINT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+          filename   TEXT NOT NULL,
+          mime_type  TEXT NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          data       BYTEA NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments (message_id);
       `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
@@ -553,6 +598,41 @@ export async function getCoachDirectory(coach: {
   return { partners, schools, scope };
 }
 
+/** Other coaches in the same district (for the "share a template" picker). */
+export async function getCoachesInDistrict(
+  coachId: number
+): Promise<{ id: number; full_name: string; school_id: number | null }[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT u2.id, u2.full_name, u2.school_id
+       FROM users u1
+       JOIN users u2 ON u2.district_id = u1.district_id
+      WHERE u1.id = $1
+        AND u1.district_id IS NOT NULL
+        AND u2.system_role = 'coach'
+        AND u2.id <> u1.id
+        AND u2.deleted_at IS NULL
+      ORDER BY u2.full_name`,
+    [coachId]
+  );
+  return res.rows.map((r) => ({
+    id: r.id as number,
+    full_name: r.full_name as string,
+    school_id: (r.school_id as number | null) ?? null,
+  }));
+}
+
+/** All admin user ids (participants for template submissions). */
+export async function getAdminIds(): Promise<number[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "SELECT id FROM users WHERE system_role = 'admin' AND deleted_at IS NULL"
+  );
+  return res.rows.map((r) => r.id as number);
+}
+
 // ============================================================
 // Coaching templates
 // ============================================================
@@ -743,6 +823,23 @@ export async function restoreTemplate(id: number): Promise<boolean> {
     [id]
   );
   return (res.rowCount ?? 0) > 0;
+}
+
+/**
+ * Publish a coach's personal template as a global one (admin approval of a
+ * district-wide submission). owner_id is kept as provenance. Returns the updated
+ * template, or null if it isn't a live personal template.
+ */
+export async function publishTemplateAsGlobal(id: number): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `UPDATE coaching_templates SET scope = 'global', updated_at = NOW()
+      WHERE id = $1 AND scope = 'personal' AND deleted_at IS NULL
+      RETURNING *`,
+    [id]
+  );
+  return res.rows[0] ? rowToTemplate(res.rows[0]) : null;
 }
 
 /** Persist a user's theme choice in their settings JSONB (overrides the admin default). */

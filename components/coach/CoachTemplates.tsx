@@ -40,6 +40,9 @@ export function CoachTemplates() {
   const [editing, setEditing] = useState<number | "new" | null>(null);
   // Read-only viewer for a global template.
   const [viewing, setViewing] = useState<number | null>(null);
+  // Share / submit dialogs (the template they target).
+  const [sharing, setSharing] = useState<CoachingTemplate | null>(null);
+  const [submitting, setSubmitting] = useState<CoachingTemplate | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -166,6 +169,21 @@ export function CoachTemplates() {
                 </button>
                 <button
                   type="button"
+                  className="text-xs text-dewey-accent hover:underline"
+                  onClick={() => setSharing(t)}
+                >
+                  Share
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-dewey-accent hover:underline"
+                  onClick={() => setSubmitting(t)}
+                  title="Submit for district-wide consideration"
+                >
+                  Submit
+                </button>
+                <button
+                  type="button"
                   className="text-xs text-dewey-accent hover:underline disabled:opacity-50"
                   onClick={() => duplicate(t.id)}
                   disabled={busy}
@@ -201,6 +219,13 @@ export function CoachTemplates() {
                 </button>
                 <button
                   type="button"
+                  className="text-xs text-dewey-accent hover:underline"
+                  onClick={() => setSharing(t)}
+                >
+                  Share
+                </button>
+                <button
+                  type="button"
                   className="text-xs text-dewey-accent hover:underline disabled:opacity-50"
                   onClick={() => duplicate(t.id)}
                   disabled={busy}
@@ -213,7 +238,217 @@ export function CoachTemplates() {
           />
         </div>
       )}
+
+      {sharing && <ShareModal template={sharing} onClose={() => setSharing(null)} />}
+      {submitting && <SubmitModal template={submitting} onClose={() => setSubmitting(null)} />}
     </section>
+  );
+}
+
+function ShareModal({
+  template,
+  onClose,
+}: {
+  template: CoachingTemplate;
+  onClose: () => void;
+}) {
+  const [coaches, setCoaches] = useState<{ id: number; full_name: string }[]>([]);
+  const [recipientId, setRecipientId] = useState<number | "">("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch<{ coaches: { id: number; full_name: string }[] }>("/api/coach/coaches")
+      .then((d) => setCoaches(d.coaches))
+      .catch(() => setCoaches([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const send = async () => {
+    if (recipientId === "") {
+      setErr("Choose a coach to share with.");
+      return;
+    }
+    setSending(true);
+    setErr(null);
+    try {
+      await apiFetch(`${COACH_BASE}/${template.id}/share`, {
+        method: "POST",
+        body: { recipientId, message },
+      });
+      setDone(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to share");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <ModalShell title={`Share "${template.name}"`} onClose={onClose}>
+      {done ? (
+        <div className="space-y-4">
+          <p className="text-sm text-dewey-ink">
+            Shared. The coach will find it in their Message Center.
+          </p>
+          <div className="flex justify-end">
+            <button type="button" className="dewey-btn-primary w-auto" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {err && <p className="text-sm text-red-600">{err}</p>}
+          <div>
+            <label className="dewey-label">Coach</label>
+            {loading ? (
+              <p className="text-sm text-dewey-mute">Loading coaches…</p>
+            ) : coaches.length === 0 ? (
+              <p className="text-sm text-dewey-mute">No other coaches in your district.</p>
+            ) : (
+              <select
+                className="dewey-input"
+                value={recipientId}
+                onChange={(e) => setRecipientId(e.target.value ? Number(e.target.value) : "")}
+              >
+                <option value="">— choose a coach —</option>
+                {coaches.map((c) => (
+                  <option key={c.id} value={c.id}>{c.full_name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="dewey-label">Message (optional)</label>
+            <textarea
+              className="dewey-input min-h-[80px]"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Add a note for them…"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="dewey-btn-primary w-auto"
+              onClick={send}
+              disabled={sending || coaches.length === 0}
+            >
+              {sending ? "Sharing…" : "Share"}
+            </button>
+          </div>
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+function SubmitModal({
+  template,
+  onClose,
+}: {
+  template: CoachingTemplate;
+  onClose: () => void;
+}) {
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const send = async () => {
+    setSending(true);
+    setErr(null);
+    try {
+      await apiFetch(`${COACH_BASE}/${template.id}/submit`, {
+        method: "POST",
+        body: { message },
+      });
+      setDone(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to submit");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <ModalShell title={`Submit "${template.name}"`} onClose={onClose}>
+      {done ? (
+        <div className="space-y-4">
+          <p className="text-sm text-dewey-ink">
+            Submitted for district-wide consideration. You&apos;ll get the admin&apos;s decision in
+            your Message Center.
+          </p>
+          <div className="flex justify-end">
+            <button type="button" className="dewey-btn-primary w-auto" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {err && <p className="text-sm text-red-600">{err}</p>}
+          <p className="text-sm text-dewey-mute">
+            Submitting sends this template to the admin to review for use as a district-wide
+            template. If approved, it becomes available to all coaches.
+          </p>
+          <div>
+            <label className="dewey-label">Message to the admin (optional)</label>
+            <textarea
+              className="dewey-input min-h-[80px]"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Why this template is worth sharing district-wide…"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="dewey-btn-primary w-auto"
+              onClick={send}
+              disabled={sending}
+            >
+              {sending ? "Submitting…" : "Submit"}
+            </button>
+          </div>
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+function ModalShell({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-dewey-surface p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-4 text-lg font-semibold">{title}</h3>
+        {children}
+      </div>
+    </div>
   );
 }
 
