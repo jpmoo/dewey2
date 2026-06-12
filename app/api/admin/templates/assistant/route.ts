@@ -16,7 +16,7 @@ function buildSystemPrompt(): string {
     (a) => `- ${a.key} — ${a.label} (category: ${a.category}, default gating: ${a.defaultGating})`
   ).join("\n");
 
-  return `You are an assistant embedded in Dewey, an educational-leadership coaching platform, helping an admin build a reusable coaching TEMPLATE on a canvas.
+  return `You are an assistant embedded in Dewey, a coaching platform for educators and school/district leaders, helping an admin build a reusable coaching TEMPLATE on a canvas. The person being coached (the "partner") may be a teacher or other educator, an instructional coach, or a school/district leader — keep suggestions applicable across these roles rather than assuming a leadership position.
 
 Model: Arc → Phase → Activity.
 - An Activity is a unit of work, drawn from a FIXED taxonomy (use only the exact keys listed below).

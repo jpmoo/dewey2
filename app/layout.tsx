@@ -13,9 +13,9 @@ const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-sans" });
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono" });
 
 export const metadata: Metadata = {
-  title: "Dewey — Coaching for Educational Leadership",
+  title: "Dewey — Coaching for Educators and Leaders",
   description:
-    "Dewey pairs school and district leaders with a human coach, supported by an AI companion.",
+    "Dewey pairs educators and school and district leaders with a human coach, supported by an AI companion.",
 };
 
 /**
