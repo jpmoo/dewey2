@@ -154,7 +154,7 @@ export function AdminSettings() {
 
   if (loading) return <p className="text-dewey-mute">Loading settings…</p>;
 
-  // The classification dropdown must always show the saved value even if the
+  // The compliance dropdown must always show the saved value even if the
   // server isn't currently reachable.
   const classOptions = Array.from(new Set([classModel, ...models].filter(Boolean)));
   const coachingIsClaude = coachingModel.startsWith("claude:");

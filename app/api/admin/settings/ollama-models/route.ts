@@ -6,7 +6,7 @@ import { getSystemSettings } from "@/lib/settings";
  * Fetch the live model list from an Ollama server (GET {url}/api/tags). The URL
  * may be supplied in the body (so the admin can test a URL before saving it);
  * otherwise the stored ollama_url is used. Powers the Test/Refresh button and
- * the classification/coaching model dropdowns.
+ * the compliance/coaching model dropdowns.
  */
 export async function POST(request: NextRequest) {
   const guard = await requireAdmin();
