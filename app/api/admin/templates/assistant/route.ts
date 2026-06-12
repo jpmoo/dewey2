@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
 import { chatComplete, type ChatMessage } from "@/lib/ai";
+import { queryRagDefault, formatRagContext } from "@/lib/rag";
 import { ACTIVITY_TYPES, ACTIVITY_BY_KEY } from "@/lib/activities";
 import type { TemplateGraph } from "@/lib/templates";
 
@@ -168,8 +169,17 @@ export async function POST(request: NextRequest) {
     },
   ];
 
+  // Ground the call in the org's documents via RAGDoll (default collections).
+  let system = buildSystemPrompt();
+  const chunks = await queryRagDefault(message).catch(() => []);
+  if (chunks.length > 0) {
+    system +=
+      "\n\nRelevant excerpts from the organization's documents — ground your suggestions in these where applicable, and refer to document names when useful:\n" +
+      formatRagContext(chunks);
+  }
+
   try {
-    const { text } = await chatComplete({ system: buildSystemPrompt(), messages, maxTokens: 4096 });
+    const { text } = await chatComplete({ system, messages, maxTokens: 4096 });
     const parsed = extractJsonObject(text);
     if (!parsed) {
       // Model didn't return JSON — surface its text as the reply, no graph change.
