@@ -26,18 +26,29 @@ import type { TemplateGraph } from "@/lib/templates";
 const ATTACH_MARKER = "===ATTACH===";
 const GRAPH_MARKER = "===GRAPH===";
 
-function buildSystemPrompt(library: { id: number; name: string; description: string | null }[]): string {
-  const catalog = ACTIVITY_TYPES.map(
-    (a) => `- ${a.key} — ${a.label} (${a.category})`
-  ).join("\n");
+function buildSystemPrompt(
+  library: { id: number; name: string; description: string | null }[],
+  allowPlans: boolean
+): string {
+  const base = `You are @dewey, an AI coaching companion participating in a conversation on Dewey, a coaching platform for educators and school/district leaders. You can see the whole conversation and any plan attached to it.
+
+Respond to the most recent message: answer the question or respond to the comment, concisely and helpfully, grounded in the conversation and the attached plan when relevant.`;
+
+  // Only the coach may have @dewey suggest/build a plan. For everyone else,
+  // @dewey answers and comments but never proposes a plan.
+  if (!allowPlans) {
+    return `${base}
+
+You may answer questions and offer reflections, but do NOT propose, choose, or build a coaching plan in this conversation — only the coach can ask you to do that. If asked for a plan, suggest they ask their coach.`;
+  }
+
+  const catalog = ACTIVITY_TYPES.map((a) => `- ${a.key} — ${a.label} (${a.category})`).join("\n");
   const lib = library.length
     ? library.map((p) => `- id ${p.id}: ${p.name}${p.description ? ` — ${p.description}` : ""}`).join("\n")
     : "(none)";
-  return `You are @dewey, an AI coaching companion participating in a conversation on Dewey, a coaching platform for educators and school/district leaders. You can see the whole conversation and any plan attached to it.
+  return `${base}
 
-Respond to the most recent message: answer the question or respond to the comment, concisely and helpfully, grounded in the conversation and the attached plan when relevant.
-
-Only when explicitly asked to provide or build a plan:
+Only when the coach explicitly asks you to provide or build a plan:
 - To attach an EXISTING plan from the coach's library, end your prose, then on a new line output exactly:
 ${ATTACH_MARKER}
 followed by a single JSON object: {"sourcePlanId": <id from the library list>}
@@ -47,7 +58,7 @@ followed by a single JSON object:
 { "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "artifact": "<what they produce>", "phaseId": "p1"|null } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }
 
 Rules:
-- Do NOT output a marker or JSON unless the user asked you to choose or build a plan.
+- Do NOT output a marker or JSON unless the coach asked you to choose or build a plan.
 - Use ONLY activityKey values from the list. Never invent activities.
 - Keep prose natural; do not mention these markers to the user.
 
@@ -170,8 +181,13 @@ export async function runDeweyForThread(params: {
     }
   }
 
-  const library = coachId ? await getTemplatesForCoach(coachId) : [];
-  const system = buildSystemPrompt(library.map((p) => ({ id: p.id, name: p.name, description: p.description })));
+  // Only the coach (thread creator) may have @dewey suggest or build a plan.
+  const canSuggestPlans = isPartnership && coachId != null && coachId === invokerId;
+  const library = canSuggestPlans ? await getTemplatesForCoach(coachId) : [];
+  const system = buildSystemPrompt(
+    library.map((p) => ({ id: p.id, name: p.name, description: p.description })),
+    canSuggestPlans
+  );
 
   let reply = "";
   try {
@@ -218,8 +234,8 @@ export async function runDeweyForThread(params: {
 
   await postMessage({ threadId, senderId: null, isAi: true, body: prose });
 
-  // Plan directives only apply in partnerships (the coach owns the copy).
-  if (outbound.allowed && isPartnership && coachId != null) {
+  // Plan directives only apply when the coach invoked @dewey (they own the copy).
+  if (outbound.allowed && canSuggestPlans && coachId != null) {
     if (attach && typeof attach === "object") {
       const sourceId = Number((attach as { sourcePlanId?: unknown }).sourcePlanId);
       if (library.some((p) => p.id === sourceId)) {
