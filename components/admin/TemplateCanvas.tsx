@@ -6,6 +6,7 @@ import {
   ReactFlowProvider,
   Background,
   Controls,
+  ControlButton,
   ViewportPortal,
   Handle,
   Position,
@@ -500,6 +501,14 @@ function CanvasInner({
     onClose();
   }, [dirty, onClose]);
 
+  // Clear the whole canvas (activities, edges, and phases).
+  const clearCanvas = useCallback(() => {
+    if (!confirm("Clear the entire canvas? This removes all activities and phases.")) return;
+    setNodes([]);
+    setEdges([]);
+    setPhases([]);
+  }, [setNodes, setEdges]);
+
   // ---- Grouping-button state, derived from the current selection ----
   const selectedNodes = nodes.filter((n) => n.selected);
   const selectedPhaseIds = Array.from(
@@ -666,7 +675,14 @@ function CanvasInner({
               ))}
             </ViewportPortal>
             <Background />
-            <Controls />
+            <Controls>
+              <ControlButton onClick={clearCanvas} title="Clear canvas">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18M8 6V4h8v2m-1 0v14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6" />
+                  <path d="M10 11v6M14 11v6" />
+                </svg>
+              </ControlButton>
+            </Controls>
           </ReactFlow>
         </div>
 
@@ -929,6 +945,7 @@ function CanvasAssistant({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [proposed, setProposed] = useState<TemplateGraph | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   const send = useCallback(async () => {
     const q = input.trim();
@@ -995,6 +1012,13 @@ function CanvasAssistant({
               <span className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
+                  className="dewey-btn-secondary"
+                  onClick={() => setPreviewing(true)}
+                >
+                  Preview
+                </button>
+                <button
+                  type="button"
                   className="dewey-btn-primary w-auto"
                   onClick={() => {
                     onApply(proposed);
@@ -1012,6 +1036,18 @@ function CanvasAssistant({
                 </button>
               </span>
             </div>
+          )}
+
+          {previewing && proposed && (
+            <PreviewModal
+              graph={proposed}
+              onApply={() => {
+                onApply(proposed);
+                setProposed(null);
+                setPreviewing(false);
+              }}
+              onClose={() => setPreviewing(false)}
+            />
           )}
 
           <div className="flex gap-2">
@@ -1034,6 +1070,96 @@ function CanvasAssistant({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- Proposed-graph preview -------------------------------------------------
+
+function PreviewModal({
+  graph,
+  onApply,
+  onClose,
+}: {
+  graph: TemplateGraph;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  const [colorMode, setColorMode] = useState<ColorMode>("light");
+  useEffect(() => {
+    setColorMode(document.documentElement.classList.contains("dark") ? "dark" : "light");
+  }, []);
+
+  const nodes: Node<ActivityNodeData>[] = useMemo(
+    () =>
+      (graph.nodes ?? []).map((n) => {
+        const phase = graph.phases?.find((p) => p.id === n.phaseId);
+        const cat = ACTIVITY_BY_KEY[n.activityKey]?.category ?? "reflecting";
+        return {
+          id: n.id,
+          type: "activity",
+          position: n.position,
+          data: {
+            activityKey: n.activityKey,
+            label: ACTIVITY_BY_KEY[n.activityKey]?.label ?? n.label,
+            category: cat,
+            gating: n.gating ?? "REVIEWED",
+            instructions: n.instructions ?? "",
+            phaseId: n.phaseId ?? null,
+            phaseName: phase?.name ?? null,
+            phaseColor: phase?.color ?? null,
+          },
+        };
+      }),
+    [graph]
+  );
+  const edges: Edge[] = useMemo(
+    () => (graph.edges ?? []).map((e) => ({ id: e.id, source: e.source, target: e.target, markerEnd: ARROW })),
+    [graph]
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-6"
+      onClick={onClose}
+    >
+      <div
+        className="bg-dewey-surface rounded-lg shadow-xl w-full max-w-4xl h-[70vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-2 border-b border-dewey-border">
+          <h3 className="text-sm font-semibold">Proposed graph — preview</h3>
+          <span className="text-xs text-dewey-mute">
+            {nodes.length} activities · {graph.phases?.length ?? 0} phases
+          </span>
+        </div>
+        <div className="flex-1 min-h-0">
+          {/* Own provider so the preview's React Flow store is isolated from the editor's. */}
+          <ReactFlowProvider>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              colorMode={colorMode}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+              fitView
+              proOptions={{ hideAttribution: true }}
+            >
+              <Background />
+            </ReactFlow>
+          </ReactFlowProvider>
+        </div>
+        <div className="flex justify-end gap-2 px-4 py-2 border-t border-dewey-border">
+          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+            Close
+          </button>
+          <button type="button" className="dewey-btn-primary w-auto" onClick={onApply}>
+            Apply to canvas
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
