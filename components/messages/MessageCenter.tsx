@@ -105,8 +105,10 @@ export function MessageCenter() {
   const [showArchived, setShowArchived] = useState(false);
   // Collapse the left conversation list to give the chat more room.
   const [listCollapsed, setListCollapsed] = useState(false);
-  // Plan preview opened from the thread-list "View plan" pill.
+  // Plan preview opened from the thread-list "View plan" pill. `listPlanFocus`
+  // opens straight to the current activity ("Current activity" pill).
   const [listPlanId, setListPlanId] = useState<number | null>(null);
+  const [listPlanFocus, setListPlanFocus] = useState(false);
 
   const loadThreads = useCallback(async () => {
     try {
@@ -261,7 +263,14 @@ export function MessageCenter() {
                     meId={meId}
                     active={t.id === activeId}
                     onSelect={() => setActiveId(t.id)}
-                    onViewPlan={(planId) => setListPlanId(planId)}
+                    onViewPlan={(planId) => {
+                      setListPlanFocus(false);
+                      setListPlanId(planId);
+                    }}
+                    onViewActivity={(planId) => {
+                      setListPlanFocus(true);
+                      setListPlanId(planId);
+                    }}
                   />
                 ))
               )}
@@ -301,6 +310,7 @@ export function MessageCenter() {
         <TemplateReadOnly
           templateId={listPlanId}
           templatesBase="/api/partnership-plans"
+          focusCurrentActivity={listPlanFocus}
           onClose={() => setListPlanId(null)}
         />
       )}
@@ -557,12 +567,14 @@ function ThreadListItem({
   active,
   onSelect,
   onViewPlan,
+  onViewActivity,
 }: {
   thread: ThreadSummary;
   meId: number | null;
   active: boolean;
   onSelect: () => void;
   onViewPlan: (planId: number) => void;
+  onViewActivity: (planId: number) => void;
 }) {
   return (
     <li
@@ -614,14 +626,24 @@ function ThreadListItem({
         )}
       </button>
       {t.accepted_plan_id != null && (
-        <button
-          type="button"
-          onClick={() => onViewPlan(t.accepted_plan_id as number)}
-          className="mt-1 flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
-          title={t.accepted_plan_name ?? "Plan"}
-        >
-          🗂️ <span className="max-w-[160px] truncate">View plan</span>
-        </button>
+        <div className="mt-1 flex flex-wrap items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onViewPlan(t.accepted_plan_id as number)}
+            className="flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
+            title={t.accepted_plan_name ?? "Plan"}
+          >
+            🗂️ <span className="max-w-[160px] truncate">View plan</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewActivity(t.accepted_plan_id as number)}
+            className="flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
+            title="Open the current activity"
+          >
+            🎯 <span className="max-w-[160px] truncate">Current activity</span>
+          </button>
+        </div>
       )}
     </li>
   );
@@ -660,6 +682,8 @@ export function ThreadPane({
   // Embedded-plan UI.
   const [picking, setPicking] = useState(false);
   const [viewPlanId, setViewPlanId] = useState<number | null>(null);
+  // Open the plan straight to its current activity ("Current activity" pill).
+  const [viewPlanFocus, setViewPlanFocus] = useState(false);
   const [editPlanId, setEditPlanId] = useState<number | null>(null);
   // A coach can add/manage plans in any thread they're in; coach or admin can rename.
   const canManage = iAmCoach || isAdmin;
@@ -980,14 +1004,32 @@ export function ThreadPane({
             </span>
           )}
           {acceptedPlan && (
-            <button
-              type="button"
-              className="flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10"
-              onClick={() => setViewPlanId(acceptedPlan.plan_id as number)}
-              title={acceptedPlan.plan_name ?? "Plan"}
-            >
-              🗂️ <span className="max-w-[140px] truncate">View plan</span>
-            </button>
+            <>
+              <button
+                type="button"
+                className="flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10"
+                onClick={() => {
+                  setViewPlanFocus(false);
+                  setViewPlanId(acceptedPlan.plan_id as number);
+                }}
+                title={acceptedPlan.plan_name ?? "Plan"}
+              >
+                🗂️ <span className="max-w-[140px] truncate">View plan</span>
+              </button>
+              {hasActivePlan && (
+                <button
+                  type="button"
+                  className="flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10"
+                  onClick={() => {
+                    setViewPlanFocus(true);
+                    setViewPlanId(acceptedPlan.plan_id as number);
+                  }}
+                  title="Open the current activity"
+                >
+                  🎯 <span className="max-w-[140px] truncate">Current activity</span>
+                </button>
+              )}
+            </>
           )}
           <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
             {isAdmin && submissionPending && (
@@ -1045,7 +1087,10 @@ export function ThreadPane({
                 iAmCoach={iAmCoach}
                 senderIsCoach={m.sender_id != null && coachIds.has(m.sender_id)}
                 onPreview={onPreview}
-                onViewPlan={(planId) => setViewPlanId(planId)}
+                onViewPlan={(planId) => {
+                  setViewPlanFocus(false);
+                  setViewPlanId(planId);
+                }}
                 onAcceptPlan={acceptPlan}
                 onUnlockPlan={unlockPlan}
                 onSetOutcome={setPlanOutcome}
@@ -1117,6 +1162,7 @@ export function ThreadPane({
         <TemplateReadOnly
           templateId={viewPlanId}
           templatesBase="/api/partnership-plans"
+          focusCurrentActivity={viewPlanFocus}
           onClose={() => setViewPlanId(null)}
         />
       )}

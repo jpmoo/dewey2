@@ -1829,6 +1829,7 @@ export function TemplateReadOnly({
   onClose,
   onDuplicate,
   duplicating = false,
+  focusCurrentActivity = false,
 }: {
   templateId: number;
   templatesBase?: string;
@@ -1836,6 +1837,8 @@ export function TemplateReadOnly({
   /** Make an editable personal copy. Omit to hide the Duplicate action (e.g. when an admin opens a template from a log). */
   onDuplicate?: () => void;
   duplicating?: boolean;
+  /** Open straight to the current activity's detail (the "View current activity" entry point). */
+  focusCurrentActivity?: boolean;
 }) {
   const [template, setTemplate] = useState<CoachingTemplate | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1926,6 +1929,17 @@ export function TemplateReadOnly({
     const posById = new Map((graph.nodes ?? []).map((n) => [n.id, n.position]));
     return toFlowEdges(graph.edges ?? [], posById);
   }, [graph]);
+
+  // "View current activity" entry point: once the plan loads, open straight to
+  // the current node's detail panel (over the canvas behind it).
+  useEffect(() => {
+    if (!focusCurrentActivity || !template?.current_node_id) return;
+    const node = nodes.find((n) => n.id === template.current_node_id);
+    if (node) setDetail({ kind: "activity", data: node.data });
+    // Only on first load of this plan — re-running on every node change would
+    // fight the user closing the panel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusCurrentActivity, template?.current_node_id, template?.id]);
 
   if (error) {
     return (

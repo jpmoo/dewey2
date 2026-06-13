@@ -616,6 +616,7 @@ export async function listThreadsForUser(
          SELECT cp.id, cp.name FROM coaching_templates cp
           WHERE cp.thread_id = t.id AND cp.scope = 'partnership'
             AND cp.deleted_at IS NULL AND cp.accepted_at IS NOT NULL
+            AND cp.outcome IS NULL AND cp.deactivated_at IS NULL
           ORDER BY cp.accepted_at DESC LIMIT 1
        ) ap ON TRUE
        ${join}
@@ -740,6 +741,7 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
          SELECT cp.id, cp.name FROM coaching_templates cp
           WHERE cp.thread_id = t.id AND cp.scope = 'partnership'
             AND cp.deleted_at IS NULL AND cp.accepted_at IS NOT NULL
+            AND cp.outcome IS NULL AND cp.deactivated_at IS NULL
           ORDER BY cp.accepted_at DESC LIMIT 1
        ) ap ON TRUE
       WHERE t.id = $1 AND t.deleted_at IS NULL LIMIT 1`,
