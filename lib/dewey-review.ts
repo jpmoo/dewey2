@@ -32,10 +32,17 @@ async function messageContent(
   ]);
   if (!m.rows[0]) return null;
   const a = await pool.query(
-    "SELECT filename FROM message_attachments WHERE message_id = $1 ORDER BY id",
+    "SELECT filename, extracted_text FROM message_attachments WHERE message_id = $1 ORDER BY id",
     [messageId]
   );
-  return { body: m.rows[0].body as string, attachments: a.rows.map((r) => r.filename as string) };
+  // Include the parsed contents so the consult assesses the actual document, not
+  // just its filename.
+  const attachments = a.rows.map((r) =>
+    r.extracted_text
+      ? `${r.filename}:\n"""${r.extracted_text}"""`
+      : (r.filename as string)
+  );
+  return { body: m.rows[0].body as string, attachments };
 }
 
 function describeActivity(graph: TemplateGraph, nodeId: string): string {

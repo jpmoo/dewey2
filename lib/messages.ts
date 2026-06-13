@@ -1058,15 +1058,44 @@ export async function addAttachment(params: {
   filename: string;
   mimeType: string;
   data: Buffer;
+  /** Parsed text contents for the AI (PDF/Word/text/typed doc), if extractable. */
+  extractedText?: string | null;
 }): Promise<number> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `INSERT INTO message_attachments (message_id, filename, mime_type, size_bytes, data)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [params.messageId, params.filename, params.mimeType, params.data.length, params.data]
+    `INSERT INTO message_attachments (message_id, filename, mime_type, size_bytes, data, extracted_text)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [params.messageId, params.filename, params.mimeType, params.data.length, params.data, params.extractedText ?? null]
   );
   return Number(res.rows[0].id);
+}
+
+/**
+ * Parsed text of every attachment in a thread, keyed by message id (server-only;
+ * kept off the client payload). Lets the AI read what was attached.
+ */
+export async function getAttachmentTextsForThread(
+  threadId: number
+): Promise<Map<number, { name: string; text: string }[]>> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT a.message_id, a.filename, a.extracted_text
+       FROM message_attachments a
+       JOIN messages m ON m.id = a.message_id
+      WHERE m.thread_id = $1 AND a.extracted_text IS NOT NULL AND m.deleted_at IS NULL
+      ORDER BY a.id`,
+    [threadId]
+  );
+  const map = new Map<number, { name: string; text: string }[]>();
+  for (const r of res.rows) {
+    const mid = Number(r.message_id);
+    const list = map.get(mid) ?? [];
+    list.push({ name: r.filename as string, text: r.extracted_text as string });
+    map.set(mid, list);
+  }
+  return map;
 }
 
 /** Fetch attachment bytes plus the thread it belongs to (for an access check). */

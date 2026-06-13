@@ -11,6 +11,7 @@ import {
 } from "@/lib/db";
 import {
   getActiveActivity,
+  getAttachmentTextsForThread,
   getThreadMessages,
   getThreadMeta,
   logThreadEvent,
@@ -95,13 +96,19 @@ export async function runDeweyForThread(params: {
     return;
   }
 
-  // Context: the full transcript + the most recent attached plan, if any.
+  // Context: the full transcript + the most recent attached plan, if any. Parsed
+  // attachment text (uploaded files and typed documents) is woven in so @dewey
+  // can read what participants attached.
   const history = await getThreadMessages(threadId);
+  const attachTexts = await getAttachmentTextsForThread(threadId).catch(() => new Map());
   const transcript = history
     .map((m) => {
       if (m.plan_id) return `[Attached plan: ${m.plan_name ?? "plan"}]`;
       const who = m.is_ai ? "Dewey" : m.sender_name ?? "User";
-      return `${who}: ${m.body}`;
+      const docs = (attachTexts.get(m.id) ?? [])
+        .map((a: { name: string; text: string }) => `\n[Attached document "${a.name}":\n${a.text}\n]`)
+        .join("");
+      return `${who}: ${m.body}${docs}`;
     })
     .join("\n");
 
@@ -159,7 +166,17 @@ export async function runDeweyForThread(params: {
   // Retrieve against the activity's prompt/goal too (not just the latest message,
   // which is often terse like "what do you think?"), so the right strategic plans
   // and goals surface to guide feedback.
-  const ragQuery = [active?.nodeLabel, active?.instructions, invokingMessage]
+  // Include the latest attachment's text so retrieval reflects uploaded content.
+  const latestAttach = [...history]
+    .reverse()
+    .map((m) => attachTexts.get(m.id))
+    .find((a): a is { name: string; text: string }[] => Array.isArray(a) && a.length > 0);
+  const ragQuery = [
+    active?.nodeLabel,
+    active?.instructions,
+    invokingMessage,
+    latestAttach?.[0]?.text?.slice(0, 2000),
+  ]
     .filter(Boolean)
     .join("\n");
   const chunks = await queryRagDefault(ragQuery).catch(() => []);

@@ -9,6 +9,7 @@ import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
 import { Avatar } from "@/components/Avatar";
 import { Fireworks } from "@/components/Fireworks";
+import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
 
 // Loaded only when a partnership plan is opened/edited (React Flow is heavy).
 const TemplateCanvas = dynamic(
@@ -1689,7 +1690,19 @@ function Attachment({
   const url = attachmentUrl(att.id);
   const isImage = att.mime_type.startsWith("image/");
   const isPdf = att.mime_type === "application/pdf";
+  const isDoc = att.mime_type === "text/html";
 
+  if (isDoc) {
+    return (
+      <button
+        type="button"
+        onClick={() => onPreview(att)}
+        className="flex items-center gap-2 rounded border border-dewey-border bg-dewey-surface-2 px-2 py-1 text-xs text-dewey-accent hover:underline"
+      >
+        📝 {att.filename.replace(/\.html$/i, "")}
+      </button>
+    );
+  }
   if (isImage) {
     return (
       <button type="button" onClick={() => onPreview(att)} className="block">
@@ -1745,6 +1758,7 @@ function Composer({
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
+  const [writing, setWriting] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1919,9 +1933,17 @@ function Composer({
           type="button"
           className="dewey-btn-secondary shrink-0"
           onClick={() => fileInput.current?.click()}
-          title="Attach files"
+          title="Upload a file"
         >
           📎
+        </button>
+        <button
+          type="button"
+          className="dewey-btn-secondary shrink-0"
+          onClick={() => setWriting(true)}
+          title="Write a document"
+        >
+          📝
         </button>
         <input
           ref={fileInput}
@@ -1952,6 +1974,114 @@ function Composer({
         >
           {sending ? "Sending…" : "Send"}
         </button>
+      </div>
+      {writing && (
+        <DocumentEditorModal
+          onClose={() => setWriting(false)}
+          onAttach={(filename, html) => {
+            setWriting(false);
+            const safe = sanitizeDocumentHtml(html);
+            const file = new File([safe], `${filename}.html`, { type: "text/html" });
+            setFiles((prev) => [...prev, file]);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Lightweight WYSIWYG document editor (no dependency): a title, a small toolbar
+ * (bold / italic / underline / font size via document.execCommand), and a
+ * contentEditable body. Yields sanitized HTML the composer attaches as a file.
+ */
+function DocumentEditorModal({
+  onClose,
+  onAttach,
+}: {
+  onClose: () => void;
+  onAttach: (filename: string, html: string) => void;
+}) {
+  const dialog = useDialog();
+  const [title, setTitle] = useState("Document");
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  const cmd = (command: string, value?: string) => {
+    bodyRef.current?.focus();
+    // Prefer CSS spans over deprecated presentational tags where supported.
+    try {
+      document.execCommand("styleWithCSS", false, "true");
+    } catch {
+      /* not supported — falls back to <font>/<b>, both handled by the sanitizer */
+    }
+    document.execCommand(command, false, value);
+  };
+
+  const attach = () => {
+    const html = bodyRef.current?.innerHTML ?? "";
+    if (!html.replace(/<[^>]*>/g, "").trim()) {
+      dialog.alert("Write something in the document first.");
+      return;
+    }
+    onAttach(title.trim() || "Document", html);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-dewey-border bg-dewey-cream shadow-xl">
+        <div className="flex items-center justify-between gap-2 border-b border-dewey-border px-4 py-2">
+          <input
+            className="dewey-input flex-1"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Document title"
+          />
+          <button
+            type="button"
+            className="shrink-0 text-dewey-mute hover:text-dewey-ink"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-1 border-b border-dewey-border px-3 py-1.5">
+          <button type="button" onClick={() => cmd("bold")} className="rounded px-2 py-1 text-sm font-bold hover:bg-dewey-surface-2" title="Bold">
+            B
+          </button>
+          <button type="button" onClick={() => cmd("italic")} className="rounded px-2 py-1 text-sm italic hover:bg-dewey-surface-2" title="Italic">
+            I
+          </button>
+          <button type="button" onClick={() => cmd("underline")} className="rounded px-2 py-1 text-sm underline hover:bg-dewey-surface-2" title="Underline">
+            U
+          </button>
+          <span className="mx-1 text-dewey-border">|</span>
+          <select
+            className="dewey-input h-8 w-auto py-0 text-sm"
+            defaultValue="3"
+            onChange={(e) => cmd("fontSize", e.target.value)}
+            title="Font size"
+          >
+            <option value="1">Small</option>
+            <option value="3">Normal</option>
+            <option value="5">Large</option>
+            <option value="7">Huge</option>
+          </select>
+        </div>
+        <div
+          ref={bodyRef}
+          contentEditable
+          suppressContentEditableWarning
+          className="chat-md min-h-[240px] flex-1 overflow-y-auto bg-white px-4 py-3 text-sm text-black focus:outline-none"
+        />
+        <div className="flex justify-end gap-2 border-t border-dewey-border px-4 py-3">
+          <button type="button" className="dewey-btn-secondary w-auto" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="dewey-btn-primary w-auto" onClick={attach}>
+            Attach document
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2422,6 +2552,23 @@ export function AttachmentLightbox({
 }) {
   const url = useMemo(() => attachmentUrl(attachment.id), [attachment.id]);
   const isPdf = attachment.mime_type === "application/pdf";
+  const isDoc = attachment.mime_type === "text/html";
+  const [docHtml, setDocHtml] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isDoc) return;
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.text())
+      .then((t) => {
+        if (!cancelled) setDocHtml(sanitizeDocumentHtml(t));
+      })
+      .catch(() => {
+        if (!cancelled) setDocHtml("<p>Couldn't load this document.</p>");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDoc, url]);
   return (
     <div
       className="fixed inset-0 z-[70] flex flex-col items-center justify-center bg-black/80 p-4"
@@ -2444,7 +2591,12 @@ export function AttachmentLightbox({
         </div>
       </div>
       <div className="max-h-[85vh] w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
-        {isPdf ? (
+        {isDoc ? (
+          <div
+            className="chat-md max-h-[85vh] overflow-y-auto rounded bg-white px-6 py-5 text-black"
+            dangerouslySetInnerHTML={{ __html: docHtml ?? "Loading…" }}
+          />
+        ) : isPdf ? (
           <iframe src={url} title={attachment.filename} className="h-[85vh] w-full rounded bg-white" />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element

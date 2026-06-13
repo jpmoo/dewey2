@@ -8,6 +8,11 @@ import {
   postMessage,
 } from "@/lib/messages";
 import { mentionsDewey, runDeweyForThread } from "@/lib/dewey";
+import { extractText } from "@/lib/extract";
+import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
+
+// pdf-parse / mammoth need the Node runtime (not edge).
+export const runtime = "nodejs";
 
 // Per-file cap. Attachments are stored in the DB, so keep them modest.
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -73,13 +78,17 @@ export async function POST(
     replyTo,
   });
   for (const f of files) {
-    const data = Buffer.from(await f.arrayBuffer());
-    await addAttachment({
-      messageId,
-      filename: f.name || "attachment",
-      mimeType: f.type || "application/octet-stream",
-      data,
-    });
+    let data = Buffer.from(await f.arrayBuffer());
+    const filename = f.name || "attachment";
+    const mimeType = f.type || "application/octet-stream";
+    // Typed documents arrive as text/html — sanitize before storing so a crafted
+    // document can't inject script into the chat.
+    if (mimeType === "text/html") {
+      data = Buffer.from(sanitizeDocumentHtml(data.toString("utf8")), "utf8");
+    }
+    // Parse contents so the AI can read the attachment (null when not extractable).
+    const extractedText = await extractText(filename, mimeType, data).catch(() => null);
+    await addAttachment({ messageId, filename, mimeType, data, extractedText });
   }
   const me = Number(session.user.id);
   await logThreadEvent({

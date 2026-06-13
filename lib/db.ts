@@ -352,6 +352,9 @@ export function ensureSchema(): Promise<void> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_attachments_message ON message_attachments (message_id);
+        -- Parsed text contents (PDF/Word/text uploads, or a typed document's plain
+        -- text) so the AI can read what was attached. NULL when not extractable.
+        ALTER TABLE message_attachments ADD COLUMN IF NOT EXISTS extracted_text TEXT;
 
         -- Per-user thread archiving. A row hides the thread from that user's
         -- active list and surfaces it under "Archived"; it does not affect other
