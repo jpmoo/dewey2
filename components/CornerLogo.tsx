@@ -29,7 +29,7 @@ export function CornerLogo() {
       <img
         src={pathWithBase("/logo.png")}
         alt="Dewey"
-        style={{ height: 36, width: "auto" }}
+        style={{ height: 31, width: "auto" }}
         className="dark:bg-white dark:p-1 dark:-m-1 dark:rounded-lg dark:box-content"
       />
     </Link>

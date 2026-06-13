@@ -64,6 +64,8 @@ export interface MessageView {
   plan_accepted_by: number[];
   /** Total thread participants — the plan locks once all have accepted. */
   plan_participant_count: number;
+  /** Outcome of an accepted plan: finished / abandoned / null (in progress). */
+  plan_outcome: "finished" | "abandoned" | null;
   is_ai: boolean;
   reply_to: number | null;
   reply_excerpt: string | null;
@@ -764,6 +766,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
             (ct.accepted_at IS NOT NULL) AS plan_accepted,
             (ct.deactivated_at IS NOT NULL) AS plan_deactivated,
             ct.owner_id AS plan_owner_id,
+            ct.outcome AS plan_outcome,
             m.sources,
             m.reply_to,
             LEFT(rm.body, 120) AS reply_excerpt,
@@ -826,6 +829,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
     plan_owner_id: (m.plan_owner_id as number | null) ?? null,
     plan_accepted_by: m.plan_id != null ? acceptances.get(Number(m.plan_id)) ?? [] : [],
     plan_participant_count: participantCount,
+    plan_outcome: (m.plan_outcome as "finished" | "abandoned" | null) ?? null,
     is_ai: m.is_ai === true,
     reply_to: m.reply_to != null ? Number(m.reply_to) : null,
     reply_excerpt: (m.reply_excerpt as string | null) ?? null,

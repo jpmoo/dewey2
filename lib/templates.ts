@@ -81,6 +81,8 @@ export interface CoachingTemplate {
   deactivated_at?: string | null;
   /** Partnership plans only: the thread this plan is embedded in. */
   thread_id?: number | null;
+  /** Outcome of an accepted plan: 'finished' | 'abandoned' | null (in progress). */
+  outcome?: "finished" | "abandoned" | null;
   /** Latest district-submission status for this plan (from its submission thread), if any. */
   submission_status?: "open" | "approved" | "rejected" | null;
 }

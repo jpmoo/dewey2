@@ -36,6 +36,7 @@ type MessageView = {
   plan_owner_id: number | null;
   plan_accepted_by: number[];
   plan_participant_count: number;
+  plan_outcome: "finished" | "abandoned" | null;
   is_ai: boolean;
   reply_to: number | null;
   reply_excerpt: string | null;
@@ -586,8 +587,11 @@ export function ThreadPane({
   // A plan submission awaiting an admin decision.
   const submissionPending =
     thread?.kind === "template_submission" && (thread?.status == null || thread?.status === "open");
-  // The active (fully-accepted) plan in this thread, surfaced as a header link.
+  // The most recent fully-accepted plan, surfaced as a header "View plan" link.
   const acceptedPlan = [...messages].reverse().find((m) => m.plan_id != null && m.plan_accepted);
+  // An accepted plan that's still in progress (not finished/abandoned) blocks
+  // adding a new one. A terminal plan frees the coach to add the next.
+  const hasActivePlan = messages.some((m) => m.plan_accepted && !m.plan_outcome && !m.plan_deactivated);
 
   const toggleArchive = async () => {
     if (
@@ -802,6 +806,29 @@ export function ThreadPane({
     [dialog]
   );
 
+  const setPlanOutcome = useCallback(
+    async (messageId: number, outcome: "finished" | "abandoned" | "active") => {
+      const prompts: Record<typeof outcome, string> = {
+        finished: "Mark this plan finished?",
+        abandoned: "Mark this plan abandoned?",
+        active: "Reopen this plan (back to in progress)?",
+      };
+      if (!(await dialog.confirm(prompts[outcome], { title: "Plan status" }))) return;
+      try {
+        const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/plan-outcome`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageId, outcome }),
+        });
+        if (!res.ok) throw new Error();
+        fetchThread(false);
+      } catch {
+        dialog.alert("Couldn't update the plan.");
+      }
+    },
+    [dialog, threadId, fetchThread]
+  );
+
   const dismissPlan = useCallback(
     async (messageId: number) => {
       if (!(await dialog.confirm("Dismiss this plan from the conversation?", { title: "Dismiss plan" })))
@@ -874,7 +901,7 @@ export function ThreadPane({
                 Rename
               </button>
             )}
-            {iAmCoach && !acceptedPlan && (
+            {iAmCoach && !hasActivePlan && (
               <button
                 type="button"
                 className="text-xs text-dewey-accent hover:underline"
@@ -918,6 +945,7 @@ export function ThreadPane({
                 onViewPlan={(planId) => setViewPlanId(planId)}
                 onAcceptPlan={acceptPlan}
                 onUnlockPlan={unlockPlan}
+                onSetOutcome={setPlanOutcome}
                 onEditPlan={editPlan}
                 onCopyPlan={copyPlan}
                 onDismissPlan={dismissPlan}
@@ -1010,6 +1038,7 @@ function MessageBubble({
   onViewPlan,
   onAcceptPlan,
   onUnlockPlan,
+  onSetOutcome,
   onEditPlan,
   onCopyPlan,
   onDismissPlan,
@@ -1022,6 +1051,7 @@ function MessageBubble({
   onViewPlan: (planId: number) => void;
   onAcceptPlan: (messageId: number) => void;
   onUnlockPlan: (messageId: number) => void;
+  onSetOutcome: (messageId: number, outcome: "finished" | "abandoned" | "active") => void;
   onEditPlan: (planId: number) => void;
   onCopyPlan: (planId: number) => void;
   onDismissPlan: (messageId: number) => void;
@@ -1075,9 +1105,17 @@ function MessageBubble({
                     <span className="rounded bg-dewey-surface px-1.5 py-0.5 text-[9px] font-medium text-dewey-mute">
                       Superseded
                     </span>
+                  ) : m.plan_outcome === "finished" ? (
+                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
+                      Finished
+                    </span>
+                  ) : m.plan_outcome === "abandoned" ? (
+                    <span className="rounded bg-dewey-surface-2 px-1.5 py-0.5 text-[9px] font-medium text-dewey-mute">
+                      Abandoned
+                    </span>
                   ) : m.plan_accepted ? (
                     <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
-                      Accepted
+                      Active
                     </span>
                   ) : (
                     acceptedCount > 0 && (
@@ -1115,18 +1153,45 @@ function MessageBubble({
                     Dismiss
                   </button>
                 )
+              ) : m.plan_accepted && m.plan_outcome ? (
+                // Terminal (finished/abandoned). Owner can reopen it.
+                amPlanOwner && (
+                  <button
+                    type="button"
+                    className="text-xs text-dewey-accent hover:underline"
+                    onClick={() => onSetOutcome(m.id, "active")}
+                  >
+                    Reopen
+                  </button>
+                )
               ) : m.plan_accepted ? (
-                // Fully accepted = locked in. Owner can unlock (restarts it).
-                <span className="flex items-center gap-2 text-[11px] text-dewey-mute">
+                // Active (locked in). Owner: mark finished/abandoned, or unlock to edit.
+                <span className="flex flex-wrap items-center gap-3 text-[11px] text-dewey-mute">
                   🔒 Locked in
                   {amPlanOwner && (
-                    <button
-                      type="button"
-                      className="text-xs text-dewey-accent hover:underline"
-                      onClick={() => onUnlockPlan(m.id)}
-                    >
-                      Unlock
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="text-xs text-green-700 hover:underline"
+                        onClick={() => onSetOutcome(m.id, "finished")}
+                      >
+                        Mark finished
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-mute hover:text-dewey-ink"
+                        onClick={() => onSetOutcome(m.id, "abandoned")}
+                      >
+                        Abandon
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-accent hover:underline"
+                        onClick={() => onUnlockPlan(m.id)}
+                      >
+                        Unlock
+                      </button>
+                    </>
                   )}
                 </span>
               ) : (

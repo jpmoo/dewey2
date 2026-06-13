@@ -259,6 +259,10 @@ export function ensureSchema(): Promise<void> {
         -- prior plans in the thread are deactivated (kept visible but inactive).
         ALTER TABLE coaching_templates
           ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
+        -- Outcome of an accepted (active) plan: 'finished' or 'abandoned'. NULL =
+        -- in progress. This is about the PLAN, not the thread (archive is separate).
+        ALTER TABLE coaching_templates
+          ADD COLUMN IF NOT EXISTS outcome TEXT;
 
         -- Invitation state for partnership threads: NULL = invited/pending,
         -- TRUE = accepted, FALSE = declined. Ignored for non-partnership threads.
@@ -1053,6 +1057,7 @@ function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
     deactivated_at: row.deactivated_at ? toIso(row.deactivated_at) : null,
     thread_id: (row.thread_id as number | null) ?? null,
     submission_status: (row.submission_status as "open" | "approved" | "rejected" | null) ?? null,
+    outcome: (row.outcome as "finished" | "abandoned" | null) ?? null,
   };
 }
 
@@ -1206,34 +1211,67 @@ export async function deactivatePriorThreadPlans(
 ): Promise<void> {
   const pool = getPool();
   await ensureSchema();
-  // Drop pending acceptances on the plans we're about to supersede.
+  // Drop pending acceptances on the plans we're about to supersede. Terminal
+  // plans (finished/abandoned) are left intact as history.
   await pool.query(
     `DELETE FROM plan_acceptances WHERE plan_id IN (
        SELECT id FROM coaching_templates
-        WHERE thread_id = $1 AND id <> $2 AND scope = 'partnership' AND deleted_at IS NULL)`,
+        WHERE thread_id = $1 AND id <> $2 AND scope = 'partnership' AND deleted_at IS NULL
+          AND outcome IS NULL)`,
     [threadId, keepId]
   );
   await pool.query(
     `UPDATE coaching_templates
         SET deactivated_at = NOW(), accepted_at = NULL, current_node_id = NULL, updated_at = NOW()
       WHERE thread_id = $1 AND id <> $2 AND scope = 'partnership'
-        AND deleted_at IS NULL AND deactivated_at IS NULL`,
+        AND deleted_at IS NULL AND deactivated_at IS NULL AND outcome IS NULL`,
     [threadId, keepId]
   );
 }
 
-/** Whether a thread already has a fully-accepted (locked-in) embedded plan. */
+/**
+ * Whether a thread has an ACTIVE locked-in plan (accepted + still in progress).
+ * A finished/abandoned plan doesn't count — the coach is free to add the next one.
+ */
 export async function threadHasAcceptedPlan(threadId: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
     `SELECT 1 FROM coaching_templates
       WHERE thread_id = $1 AND scope = 'partnership'
-        AND deleted_at IS NULL AND accepted_at IS NOT NULL
+        AND deleted_at IS NULL AND accepted_at IS NOT NULL AND outcome IS NULL
       LIMIT 1`,
     [threadId]
   );
   return res.rows.length > 0;
+}
+
+/**
+ * Mark an accepted plan finished or abandoned (or back to in-progress with null).
+ * The plan's owner (the coach who added it) only; the plan must be accepted.
+ */
+export async function setPlanOutcome(
+  planId: number,
+  coachId: number,
+  outcome: "finished" | "abandoned" | null
+): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (
+    !plan ||
+    plan.deleted_at ||
+    plan.scope !== "partnership" ||
+    plan.owner_id !== coachId ||
+    !plan.accepted_at
+  ) {
+    return null;
+  }
+  await pool.query(
+    "UPDATE coaching_templates SET outcome = $2, updated_at = NOW() WHERE id = $1",
+    [planId, outcome]
+  );
+  return getTemplate(planId);
 }
 
 /** Remove all acceptances for a plan (e.g. on edit/revise/unlock). */
