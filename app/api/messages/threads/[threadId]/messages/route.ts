@@ -77,6 +77,8 @@ export async function POST(
     body,
     replyTo,
   });
+  let docCount = 0;
+  let fileCount = 0;
   for (const f of files) {
     let data = Buffer.from(await f.arrayBuffer());
     const filename = f.name || "attachment";
@@ -85,18 +87,24 @@ export async function POST(
     // document can't inject script into the chat.
     if (mimeType === "text/html") {
       data = Buffer.from(sanitizeDocumentHtml(data.toString("utf8")), "utf8");
+      docCount++;
+    } else {
+      fileCount++;
     }
     // Parse contents so the AI can read the attachment (null when not extractable).
     const extractedText = await extractText(filename, mimeType, data).catch(() => null);
     await addAttachment({ messageId, filename, mimeType, data, extractedText });
   }
   const me = Number(session.user.id);
+  const parts: string[] = [];
+  if (fileCount) parts.push(`${fileCount} file${fileCount > 1 ? "s" : ""}`);
+  if (docCount) parts.push(`${docCount} document${docCount > 1 ? "s" : ""}`);
   await logThreadEvent({
     userId: me,
     actorId: me,
     action: "message_sent",
     threadId: id,
-    detail: files.length ? `${files.length} attachment(s)` : null,
+    detail: parts.length ? `attached ${parts.join(", ")}` : null,
   });
 
   // @dewey runs when mentioned OR when replying to one of its messages.

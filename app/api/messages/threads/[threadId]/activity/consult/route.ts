@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { canAccessThread, getActiveActivity } from "@/lib/messages";
+import { canAccessThread, getActiveActivity, logThreadEvent } from "@/lib/messages";
 import { userManagesThreadPlan } from "@/lib/db";
 import { consultDeweyOnSubmission } from "@/lib/dewey-review";
 
@@ -36,6 +36,7 @@ export async function POST(
 
   try {
     const reply = await consultDeweyOnSubmission({ submissionId: active.submission.id, question });
+    await logThreadEvent({ userId: me, actorId: me, action: "activity_consulted", threadId: id });
     return NextResponse.json({ reply });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Dewey couldn't respond.";

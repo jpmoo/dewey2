@@ -123,6 +123,7 @@ const ACTION_LABELS: Record<string, string> = {
   activity_attested: "Attested an activity complete",
   activity_approved: "Approved an activity submission",
   activity_returned: "Returned a submission with feedback",
+  activity_consulted: "Consulted Dewey on a submission",
   dewey_replied: "@dewey replied",
   participant_added: "Added someone to a conversation",
   invitation_accepted: "Accepted a partnership",
