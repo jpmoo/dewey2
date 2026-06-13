@@ -7,7 +7,6 @@ import {
   duplicatePlanForPartnership,
   getTemplate,
   getTemplatesForCoach,
-  revisePartnershipPlan,
   threadHasAcceptedPlan,
 } from "@/lib/db";
 import {
@@ -37,6 +36,13 @@ import type { TemplateGraph } from "@/lib/templates";
  */
 
 const ATTACH_MARKER = "===ATTACH===";
+
+/** Append/bump an "(edited)" suffix on a plan name when @dewey revises it. */
+function nextEditedName(name: string): string {
+  const m = name.match(/^(.*?)\s*\(edited(?: (\d+))?\)\s*$/);
+  if (m) return `${m[1]} (edited ${m[2] ? Number(m[2]) + 1 : 2})`;
+  return `${name} (edited)`;
+}
 
 function buildSystemPrompt(
   library: { id: number; name: string; description: string | null }[],
@@ -240,18 +246,27 @@ export async function runDeweyForThread(params: {
         }
       }
     } else if (graph && currentPlanId != null) {
-      // A plan is already attached — revise it in place (like the canvas does).
-      const updated = await revisePartnershipPlan(currentPlanId, coachId, graph);
-      if (updated) {
-        await postMessage({
-          threadId,
-          senderId: null,
-          isAi: true,
-          body: `I've updated the plan "${updated.name}". Re-accept, edit, or dismiss it.`,
-          planId: updated.id,
-        });
-        await logThreadEvent({ userId: invokerId, actorId: invokerId, action: "plan_edited", threadId, detail: "via @dewey" });
-      }
+      // Adjusting an attached plan creates a NEW edited version and supersedes the
+      // old one (so the prior card grays out), rather than mutating in place.
+      const base = await getTemplate(currentPlanId);
+      const copy = await createTemplate({
+        name: nextEditedName(base?.name ?? "Plan from @dewey"),
+        description: base?.description ?? "Drafted by @dewey in a conversation.",
+        graph,
+        createdBy: coachId,
+        scope: "partnership",
+        ownerId: coachId,
+        threadId,
+      });
+      await deactivatePriorThreadPlans(threadId, copy.id);
+      await postMessage({
+        threadId,
+        senderId: null,
+        isAi: true,
+        body: `I've updated the plan — here's "${copy.name}". Accept, edit, or dismiss it.`,
+        planId: copy.id,
+      });
+      await logThreadEvent({ userId: invokerId, actorId: invokerId, action: "plan_edited", threadId, detail: "via @dewey" });
     } else if (graph) {
       const copy = await createTemplate({
         name: "Plan from @dewey",
