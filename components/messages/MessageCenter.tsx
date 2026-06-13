@@ -73,6 +73,11 @@ function attachmentUrl(id: number) {
   return pathWithBase(`/api/messages/attachments/${id}`);
 }
 
+/** Display every case variant of the assistant mention (@Dewey, @DEWEY, …) as @dewey. */
+function normalizeDeweyMention(body: string): string {
+  return body.replace(/@dewey\b/gi, "@dewey");
+}
+
 /**
  * Shared message center for coaches and admins. Two panes: a thread list and the
  * active conversation with a composer that supports file attachments (images and
@@ -835,10 +840,13 @@ export function ThreadPane({
           {deweyThinking && (
             <div className="flex justify-start">
               <div className="max-w-[min(75%,620px)]">
-                <div className="mb-0.5 flex items-center gap-1.5 text-[11px] text-dewey-mute">
-                  <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-dewey-accent/20 text-[11px]">
-                    🤖
-                  </span>
+                <div className="mb-0.5 flex items-center gap-2 text-[11px] text-dewey-mute">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={pathWithBase("/logo.png")}
+                    alt="@dewey"
+                    className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-0.5 ring-1 ring-dewey-border"
+                  />
                   <span className="font-medium text-dewey-ink">@dewey</span>
                 </div>
                 <div className="rounded-lg border border-dewey-border bg-dewey-accent/10 px-3 py-2">
@@ -918,13 +926,16 @@ function MessageBubble({
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`flex max-w-[min(75%,620px)] flex-col ${mine ? "items-end" : "items-start"}`}>
-        <div className="mb-0.5 flex items-center gap-1.5 text-[11px] text-dewey-mute">
+        <div className="mb-0.5 flex items-center gap-2 text-[11px] text-dewey-mute">
           {m.is_ai ? (
-            <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-dewey-accent/20 text-[11px]">
-              🤖
-            </span>
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={pathWithBase("/logo.png")}
+              alt="@dewey"
+              className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-0.5 ring-1 ring-dewey-border"
+            />
           ) : (
-            <Avatar userId={m.sender_id} name={m.sender_name} size={18} />
+            <Avatar userId={m.sender_id} name={m.sender_name} size={36} />
           )}
           <span className="font-medium text-dewey-ink">{senderLabel}</span>
           <span>{new Date(m.created_at).toLocaleString()}</span>
@@ -988,10 +999,10 @@ function MessageBubble({
             {m.body &&
               (m.is_ai ? (
                 <div className="chat-md text-sm">
-                  <ReactMarkdown>{m.body}</ReactMarkdown>
+                  <ReactMarkdown>{normalizeDeweyMention(m.body)}</ReactMarkdown>
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap">{m.body}</p>
+                <p className="whitespace-pre-wrap">{normalizeDeweyMention(m.body)}</p>
               ))}
             {m.attachments.length > 0 && (
               <div className="mt-2 space-y-2">
