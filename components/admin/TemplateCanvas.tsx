@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -118,9 +118,12 @@ const CLOUD_LABEL_STRIP = 30;
 function PhaseClouds({
   phases,
   onEditPhase,
+  onPhaseInfo,
 }: {
   phases: TemplatePhase[];
   onEditPhase?: (id: string) => void;
+  /** Read-only: click the phase label to see its details. */
+  onPhaseInfo?: (id: string) => void;
 }) {
   const nodes = useNodes();
   const clouds = useMemo(() => {
@@ -146,6 +149,7 @@ function PhaseClouds({
         return {
           id: p.id,
           name: p.name,
+          exitConditions: p.exitConditions ?? "",
           color,
           x: minX - CLOUD_PAD,
           y: minY - CLOUD_PAD - CLOUD_LABEL_STRIP,
@@ -158,40 +162,47 @@ function PhaseClouds({
 
   return (
     <ViewportPortal>
-      {clouds.map((c) => (
-        <div
-          key={c.id}
-          style={{
-            position: "absolute",
-            transform: `translate(${c.x}px, ${c.y}px)`,
-            width: c.w,
-            height: c.h,
-            background: rgba(c.color, 0.1),
-            border: `1px solid ${rgba(c.color, 0.4)}`,
-            borderRadius: 36,
-            boxShadow: `0 2px 18px ${rgba(c.color, 0.12)}`,
-            zIndex: -1,
-            pointerEvents: "none",
-          }}
-        >
-          <span
-            onDoubleClick={onEditPhase ? () => onEditPhase(c.id) : undefined}
-            title={onEditPhase ? "Double-click to edit phase exit conditions" : undefined}
+      {clouds.map((c) => {
+        const interactive = !!(onEditPhase || onPhaseInfo);
+        const tip = onEditPhase
+          ? "Double-click to edit phase exit conditions"
+          : `Phase: ${c.name}${c.exitConditions ? `\n\nExit conditions: ${c.exitConditions}` : ""}\n\nClick for details`;
+        return (
+          <div
+            key={c.id}
             style={{
               position: "absolute",
-              top: 10,
-              left: 20,
-              fontSize: 11,
-              fontWeight: 600,
-              color: c.color,
-              cursor: onEditPhase ? "pointer" : "default",
-              pointerEvents: onEditPhase ? "auto" : "none",
+              transform: `translate(${c.x}px, ${c.y}px)`,
+              width: c.w,
+              height: c.h,
+              background: rgba(c.color, 0.1),
+              border: `1px solid ${rgba(c.color, 0.4)}`,
+              borderRadius: 36,
+              boxShadow: `0 2px 18px ${rgba(c.color, 0.12)}`,
+              zIndex: -1,
+              pointerEvents: "none",
             }}
           >
-            {c.name}
-          </span>
-        </div>
-      ))}
+            <span
+              onDoubleClick={onEditPhase ? () => onEditPhase(c.id) : undefined}
+              onClick={onPhaseInfo ? () => onPhaseInfo(c.id) : undefined}
+              title={interactive ? tip : undefined}
+              style={{
+                position: "absolute",
+                top: 10,
+                left: 20,
+                fontSize: 11,
+                fontWeight: 600,
+                color: c.color,
+                cursor: interactive ? "pointer" : "default",
+                pointerEvents: interactive ? "auto" : "none",
+              }}
+            >
+              {c.name}
+            </span>
+          </div>
+        );
+      })}
     </ViewportPortal>
   );
 }
@@ -1815,6 +1826,12 @@ export function TemplateReadOnly({
   const [template, setTemplate] = useState<CoachingTemplate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>("light");
+  // Clicking an activity or a phase opens this read-only detail panel.
+  const [detail, setDetail] = useState<
+    | { kind: "activity"; data: ActivityNodeData }
+    | { kind: "phase"; phase: TemplatePhase }
+    | null
+  >(null);
 
   useEffect(() => {
     setColorMode(document.documentElement.classList.contains("dark") ? "dark" : "light");
@@ -1955,15 +1972,106 @@ export function TemplateReadOnly({
             nodesDraggable={false}
             nodesConnectable={false}
             elementsSelectable={false}
+            onNodeClick={(_e, node) => setDetail({ kind: "activity", data: node.data as ActivityNodeData })}
             fitView
             proOptions={{ hideAttribution: true }}
           >
-            <PhaseClouds phases={graph.phases ?? []} />
+            <PhaseClouds
+              phases={graph.phases ?? []}
+              onPhaseInfo={(id) => {
+                const phase = (graph.phases ?? []).find((p) => p.id === id);
+                if (phase) setDetail({ kind: "phase", phase });
+              }}
+            />
             <Background />
             <Controls showInteractive={false} />
           </ReactFlow>
         </ReactFlowProvider>
       </div>
+      {detail && <PlanDetailModal detail={detail} onClose={() => setDetail(null)} />}
+    </div>
+  );
+}
+
+/** Read-only detail panel for an activity or phase clicked in a plan preview. */
+function PlanDetailModal({
+  detail,
+  onClose,
+}: {
+  detail:
+    | { kind: "activity"; data: ActivityNodeData }
+    | { kind: "phase"; phase: TemplatePhase };
+  onClose: () => void;
+}) {
+  const isActivity = detail.kind === "activity";
+  const d = isActivity ? detail.data : null;
+  const p = !isActivity ? detail.phase : null;
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-lg bg-dewey-surface p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-dewey-mute">
+              {isActivity ? "Activity" : "Phase"}
+            </div>
+            <h3 className="text-base font-semibold text-dewey-ink">
+              {isActivity ? d!.label : p!.name}
+            </h3>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-sm text-dewey-mute hover:text-dewey-ink"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        {isActivity ? (
+          <dl className="space-y-3 text-sm">
+            <DetailRow label="Category">{CATEGORY_META[d!.category]?.label ?? d!.category}</DetailRow>
+            <DetailRow label="Completion">
+              {d!.gating === "OPEN" ? "Partner self-attests (OPEN)" : "Coach reviews (REVIEWED)"}
+            </DetailRow>
+            {d!.phaseName && <DetailRow label="Phase">{d!.phaseName}</DetailRow>}
+            <DetailBlock label="Instructions">
+              {d!.instructions || ACTIVITY_BY_KEY[d!.activityKey]?.defaultInstructions || "—"}
+            </DetailBlock>
+            <DetailBlock label="Expected artifact">
+              {d!.artifact || ACTIVITY_BY_KEY[d!.activityKey]?.defaultArtifact || "—"}
+            </DetailBlock>
+          </dl>
+        ) : (
+          <dl className="space-y-3 text-sm">
+            <DetailBlock label="Exit conditions">
+              {p!.exitConditions || "Not set."}
+            </DetailBlock>
+          </dl>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="text-dewey-mute">{label}</dt>
+      <dd className="text-right font-medium text-dewey-ink">{children}</dd>
+    </div>
+  );
+}
+
+function DetailBlock({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <dt className="text-dewey-mute">{label}</dt>
+      <dd className="mt-0.5 whitespace-pre-wrap text-dewey-ink">{children}</dd>
     </div>
   );
 }

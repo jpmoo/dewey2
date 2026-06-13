@@ -52,6 +52,8 @@ type ThreadSummary = {
   last_message: { body: string; created_at: string; sender_name: string | null } | null;
   message_count: number;
   unread: boolean;
+  accepted_plan_id: number | null;
+  accepted_plan_name: string | null;
 };
 
 type Invitation = {
@@ -99,6 +101,8 @@ export function MessageCenter() {
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  // Plan preview opened from the thread-list "View plan" pill.
+  const [listPlanId, setListPlanId] = useState<number | null>(null);
 
   const loadThreads = useCallback(async () => {
     try {
@@ -287,6 +291,7 @@ export function MessageCenter() {
                     meId={meId}
                     active={t.id === activeId}
                     onSelect={() => setActiveId(t.id)}
+                    onViewPlan={(planId) => setListPlanId(planId)}
                   />
                 ))
               )}
@@ -319,6 +324,13 @@ export function MessageCenter() {
       {preview && <AttachmentLightbox attachment={preview} onClose={() => setPreview(null)} />}
       {composing && (
         <ComposeModal onClose={() => setComposing(false)} onSent={onComposed} />
+      )}
+      {listPlanId != null && (
+        <TemplateReadOnly
+          templateId={listPlanId}
+          templatesBase="/api/partnership-plans"
+          onClose={() => setListPlanId(null)}
+        />
       )}
     </section>
   );
@@ -530,21 +542,19 @@ function ThreadListItem({
   meId,
   active,
   onSelect,
+  onViewPlan,
 }: {
   thread: ThreadSummary;
   meId: number | null;
   active: boolean;
   onSelect: () => void;
+  onViewPlan: (planId: number) => void;
 }) {
   return (
-    <li>
-      <button
-        type="button"
-        onClick={onSelect}
-        className={`block w-full px-3 py-2 text-left ${
-          active ? "bg-dewey-surface-2" : "hover:bg-dewey-surface-2"
-        }`}
-      >
+    <li
+      className={`px-3 py-2 ${active ? "bg-dewey-surface-2" : "hover:bg-dewey-surface-2"}`}
+    >
+      <button type="button" onClick={onSelect} className="block w-full text-left">
         <div className="flex items-center justify-between gap-2">
           <span
             className={`flex min-w-0 items-center gap-1.5 truncate text-sm text-dewey-ink ${
@@ -584,6 +594,16 @@ function ThreadListItem({
           </>
         )}
       </button>
+      {t.accepted_plan_id != null && (
+        <button
+          type="button"
+          onClick={() => onViewPlan(t.accepted_plan_id as number)}
+          className="mt-1 flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
+          title={t.accepted_plan_name ?? "Plan"}
+        >
+          🗂️ <span className="max-w-[160px] truncate">View plan</span>
+        </button>
+      )}
     </li>
   );
 }
@@ -625,6 +645,9 @@ export function ThreadPane({
   // Coach or admin may manage a partnership's lifecycle (done/abandon/archive).
   const canManage = isPartnership && (amCoach || isAdmin);
   const ended = thread?.status === "done" || thread?.status === "abandoned";
+  // A plan submission awaiting an admin decision.
+  const submissionPending =
+    thread?.kind === "template_submission" && (thread?.status == null || thread?.status === "open");
   // The active (accepted) plan in this thread, surfaced as a header link once accepted.
   const acceptedPlan = [...messages].reverse().find((m) => m.plan_id != null && m.plan_accepted);
 
@@ -676,6 +699,35 @@ export function ThreadPane({
       onPosted();
     } catch (e) {
       dialog.alert(e instanceof Error ? e.message : "Couldn't rename the conversation.");
+    }
+  };
+
+  const decideSubmission = async (decision: "approve" | "reject") => {
+    const verb = decision === "approve" ? "Approve" : "Reject";
+    const note = await dialog.prompt(`${verb} this plan submission?`, {
+      title: `${verb} plan`,
+      placeholder: "Optional note to the coach…",
+      multiline: true,
+      confirmText: verb,
+    });
+    if (note == null) return; // cancelled
+    try {
+      const res = await fetch(
+        pathWithBase(`/api/admin/templates/submissions/${threadId}/decision`),
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ decision, message: note }),
+        }
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't submit decision");
+      }
+      fetchThread(false);
+      onPosted();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't submit the decision.");
     }
   };
 
@@ -756,7 +808,7 @@ export function ThreadPane({
     async (messageId: number) => {
       if (
         !(await dialog.confirm(
-          "Accept this plan? It becomes the active plan for the partner and is locked in — you won't be able to edit or replace it afterward.",
+          "Accept this plan? It becomes the active plan for the partner and locks in — you can't edit or replace it without unlocking, which restarts the plan from the beginning.",
           { title: "Accept plan", confirmText: "Accept" }
         ))
       )
@@ -880,6 +932,24 @@ export function ThreadPane({
             </button>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-3">
+            {isAdmin && submissionPending && (
+              <>
+                <button
+                  type="button"
+                  className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700"
+                  onClick={() => decideSubmission("approve")}
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border border-dewey-border px-3 py-1 text-xs text-dewey-ink hover:bg-dewey-surface-2"
+                  onClick={() => decideSubmission("reject")}
+                >
+                  Reject
+                </button>
+              </>
+            )}
             {canManage && (
               <button
                 type="button"
@@ -984,7 +1054,7 @@ export function ThreadPane({
                   />
                   <span className="font-medium text-dewey-ink">@dewey</span>
                 </div>
-                <div className="rounded-lg border border-dewey-border bg-dewey-accent/10 px-3 py-2">
+                <div className="inline-flex h-7 w-fit items-center justify-center rounded-full border border-dewey-border bg-dewey-accent/10 px-3">
                   <span className="typing-dots" aria-label="@dewey is typing">
                     <span />
                     <span />

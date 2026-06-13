@@ -77,6 +77,9 @@ export interface ThreadSummary {
   last_message: { body: string; created_at: string; sender_name: string | null } | null;
   message_count: number;
   unread: boolean;
+  /** The thread's accepted partnership plan (id + name), if any — for the list "View plan" pill. */
+  accepted_plan_id: number | null;
+  accepted_plan_name: string | null;
 }
 
 // ============================================================
@@ -568,6 +571,7 @@ export async function listThreadsForUser(
 
   const threadsRes = await pool.query(
     `SELECT t.*, ct.name AS template_name,
+            ap.id AS accepted_plan_id, ap.name AS accepted_plan_name,
             (
               EXISTS (SELECT 1 FROM thread_participants tp WHERE tp.thread_id = t.id AND tp.user_id = $1)
               AND EXISTS (
@@ -580,6 +584,12 @@ export async function listThreadsForUser(
               )
             ) AS unread
        FROM message_threads t
+       LEFT JOIN LATERAL (
+         SELECT cp.id, cp.name FROM coaching_templates cp
+          WHERE cp.thread_id = t.id AND cp.scope = 'partnership'
+            AND cp.deleted_at IS NULL AND cp.accepted_at IS NOT NULL
+          ORDER BY cp.accepted_at DESC LIMIT 1
+       ) ap ON TRUE
        ${join}
       WHERE ${where.join(" AND ")}
       ORDER BY COALESCE(
@@ -653,6 +663,8 @@ export async function listThreadsForUser(
     last_message: lastByThread.get(t.id) ?? null,
     message_count: countByThread.get(t.id) ?? 0,
     unread: t.unread === true,
+    accepted_plan_id: (t.accepted_plan_id as number | null) ?? null,
+    accepted_plan_name: (t.accepted_plan_name as string | null) ?? null,
   }));
 }
 
@@ -693,9 +705,16 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `SELECT t.*, ct.name AS template_name
+    `SELECT t.*, ct.name AS template_name,
+            ap.id AS accepted_plan_id, ap.name AS accepted_plan_name
        FROM message_threads t
        LEFT JOIN coaching_templates ct ON ct.id = t.template_id
+       LEFT JOIN LATERAL (
+         SELECT cp.id, cp.name FROM coaching_templates cp
+          WHERE cp.thread_id = t.id AND cp.scope = 'partnership'
+            AND cp.deleted_at IS NULL AND cp.accepted_at IS NOT NULL
+          ORDER BY cp.accepted_at DESC LIMIT 1
+       ) ap ON TRUE
       WHERE t.id = $1 AND t.deleted_at IS NULL LIMIT 1`,
     [threadId]
   );
@@ -725,6 +744,8 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
     last_message: null,
     message_count: 0,
     unread: false,
+    accepted_plan_id: (t.accepted_plan_id as number | null) ?? null,
+    accepted_plan_name: (t.accepted_plan_name as string | null) ?? null,
   };
 }
 
