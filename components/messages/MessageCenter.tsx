@@ -182,7 +182,7 @@ export function MessageCenter() {
       {error ? (
         <p className="text-red-600">{error}</p>
       ) : (
-        <div className="flex h-[calc(100dvh-180px)] min-h-[420px] overflow-hidden rounded-lg border border-dewey-border">
+        <div className="flex h-[calc(100dvh-240px)] min-h-[340px] overflow-hidden rounded-lg border border-dewey-border">
           {listCollapsed ? (
             <div className="flex w-10 shrink-0 flex-col items-center border-r border-dewey-border bg-dewey-surface py-2">
               <button
