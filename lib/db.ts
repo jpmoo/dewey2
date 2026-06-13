@@ -330,6 +330,18 @@ export function ensureSchema(): Promise<void> {
           created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
         CREATE INDEX IF NOT EXISTS idx_consult_submission ON activity_review_consults (submission_id, id);
+        -- RAG sources Dewey cited in a consult turn: [{name, path}].
+        ALTER TABLE activity_review_consults ADD COLUMN IF NOT EXISTS sources JSONB;
+
+        -- Per-user record of which completion notes a participant has already
+        -- celebrated (fireworks). Per user, not per browser, so each participant
+        -- gets their own fireworks for the same event.
+        CREATE TABLE IF NOT EXISTS celebration_seen (
+          user_id    INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+          message_id BIGINT NOT NULL REFERENCES messages (id) ON DELETE CASCADE,
+          seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, message_id)
+        );
 
         -- Multi-party plan acceptance: an embedded plan becomes active only once
         -- every thread participant has accepted it. One row per (plan, user).
@@ -1622,18 +1634,20 @@ export interface ConsultTurn {
   role: "coach" | "dewey";
   body: string;
   created_at: string;
+  sources: { name: string; path: string }[];
 }
 
 export async function addConsultTurn(
   submissionId: number,
   role: "coach" | "dewey",
-  body: string
+  body: string,
+  sources?: { name: string; path: string }[] | null
 ): Promise<void> {
   const pool = getPool();
   await ensureSchema();
   await pool.query(
-    "INSERT INTO activity_review_consults (submission_id, role, body) VALUES ($1, $2, $3)",
-    [submissionId, role, body]
+    "INSERT INTO activity_review_consults (submission_id, role, body, sources) VALUES ($1, $2, $3, $4)",
+    [submissionId, role, body, sources && sources.length ? JSON.stringify(sources) : null]
   );
 }
 
@@ -1641,7 +1655,7 @@ export async function getConsultTurns(submissionId: number): Promise<ConsultTurn
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    "SELECT id, role, body, created_at FROM activity_review_consults WHERE submission_id = $1 ORDER BY id ASC",
+    "SELECT id, role, body, sources, created_at FROM activity_review_consults WHERE submission_id = $1 ORDER BY id ASC",
     [submissionId]
   );
   return res.rows.map((r) => ({
@@ -1649,6 +1663,7 @@ export async function getConsultTurns(submissionId: number): Promise<ConsultTurn
     role: r.role as "coach" | "dewey",
     body: r.body as string,
     created_at: toIso(r.created_at),
+    sources: Array.isArray(r.sources) ? (r.sources as { name: string; path: string }[]) : [],
   }));
 }
 

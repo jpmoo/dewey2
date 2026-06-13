@@ -8,7 +8,6 @@ import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
 import { Avatar } from "@/components/Avatar";
-import { Fireworks } from "@/components/Fireworks";
 import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
 
 // Loaded only when a partnership plan is opened/edited (React Flow is heavy).
@@ -736,7 +735,6 @@ export function ThreadPane({
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [activeActivity, setActiveActivity] = useState<ActiveActivity | null>(null);
   const [reviewing, setReviewing] = useState(false);
-  const [celebration, setCelebration] = useState<{ big: boolean; key: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Only auto-scroll on new messages when already near the bottom.
@@ -903,32 +901,6 @@ export function ThreadPane({
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [messages, deweyThinking]);
-
-  // Fireworks the first time a participant sees a completion note (BIG when the
-  // whole plan finishes). Per-browser: a session-start timestamp avoids firing
-  // retroactively for old notes, and a seen-id set fires each one only once.
-  useEffect(() => {
-    const events = messages.filter((m) => m.event === "advance" || m.event === "finish");
-    if (events.length === 0) return;
-    try {
-      let since = Number(localStorage.getItem("dewey-fw-since"));
-      if (!since) {
-        since = Date.now();
-        localStorage.setItem("dewey-fw-since", String(since));
-      }
-      const seen = new Set<number>(JSON.parse(localStorage.getItem("dewey-fw-seen") ?? "[]"));
-      const fresh = events.filter(
-        (m) => !seen.has(m.id) && new Date(m.created_at).getTime() >= since
-      );
-      if (fresh.length === 0) return;
-      fresh.forEach((m) => seen.add(m.id));
-      localStorage.setItem("dewey-fw-seen", JSON.stringify(Array.from(seen)));
-      const big = fresh.some((m) => m.event === "finish");
-      setCelebration({ big, key: fresh[fresh.length - 1].id });
-    } catch {
-      /* localStorage unavailable — skip the celebration */
-    }
-  }, [messages]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -1242,13 +1214,6 @@ export function ThreadPane({
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {celebration && (
-          <Fireworks
-            key={celebration.key}
-            big={celebration.big}
-            onDone={() => setCelebration(null)}
-          />
-        )}
         <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-4 py-3">
         {/* min-h-full + justify-end anchors a short conversation to the bottom so
             the pane reads as filled, while long threads scroll normally. */}
@@ -2155,7 +2120,13 @@ type SubmissionView = {
   body: string;
   attachments: AttachmentMeta[];
 };
-type ConsultTurn = { id: number; role: "coach" | "dewey"; body: string; created_at: string };
+type ConsultTurn = {
+  id: number;
+  role: "coach" | "dewey";
+  body: string;
+  created_at: string;
+  sources: { name: string; path: string }[];
+};
 type ReviewData = {
   activity: {
     nodeLabel: string;
@@ -2394,6 +2365,23 @@ function ReviewModal({
                         </div>
                       ) : (
                         <p className="whitespace-pre-wrap">{c.body}</p>
+                      )}
+                      {c.sources.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-dewey-border pt-1.5">
+                          <span className="text-[11px] text-dewey-mute">Sources</span>
+                          {c.sources.map((s, j) => (
+                            <a
+                              key={j}
+                              href={pathWithBase(`/api/rag/source?path=${encodeURIComponent(s.path)}`)}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={s.name}
+                              className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute hover:border-dewey-mute hover:text-dewey-ink"
+                            >
+                              {s.name}
+                            </a>
+                          ))}
+                        </div>
                       )}
                     </div>
                   ))}

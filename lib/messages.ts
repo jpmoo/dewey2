@@ -776,9 +776,9 @@ export interface Celebration {
 }
 
 /**
- * Recent activity/phase/plan completion notes in the user's threads (last 14
- * days) — the login fireworks check. The client dedupes against what it has
- * already celebrated.
+ * Recent completion notes in the user's threads (last 14 days) this user hasn't
+ * celebrated yet — the fireworks check. "Seen" is tracked per user (server-side)
+ * so each participant gets their own fireworks for the same event.
  */
 export async function getRecentCelebrations(
   userId: number,
@@ -797,6 +797,9 @@ export async function getRecentCelebrations(
       WHERE m.deleted_at IS NULL AND m.event IN ('advance', 'finish')
         AND m.created_at > NOW() - INTERVAL '14 days'
         AND (m.audience IS NULL OR $1 = ANY(m.audience) OR ${isAdmin ? "TRUE" : "FALSE"})
+        AND NOT EXISTS (
+          SELECT 1 FROM celebration_seen cs WHERE cs.message_id = m.id AND cs.user_id = $1
+        )
       ORDER BY m.created_at ASC`,
     [userId]
   );
@@ -808,6 +811,19 @@ export async function getRecentCelebrations(
     body: r.body as string,
     createdAt: toIso(r.created_at),
   }));
+}
+
+/** Mark completion notes as celebrated for this user (so they won't re-fire). */
+export async function markCelebrationsSeen(userId: number, ids: number[]): Promise<void> {
+  if (!ids.length) return;
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query(
+    `INSERT INTO celebration_seen (user_id, message_id)
+       SELECT $1, UNNEST($2::bigint[])
+     ON CONFLICT DO NOTHING`,
+    [userId, ids]
+  );
 }
 
 export async function getUnreadThreadCount(userId: number): Promise<number> {

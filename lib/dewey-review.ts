@@ -1,6 +1,6 @@
 import { getPool } from "@/lib/pg";
 import { chatComplete } from "@/lib/ai";
-import { queryRagDefault, formatRagContext } from "@/lib/rag";
+import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
 import {
   addConsultTurn,
@@ -149,6 +149,6 @@ export async function consultDeweyOnSubmission(params: {
   const reply = result.text.trim();
 
   await addConsultTurn(params.submissionId, "coach", params.question);
-  await addConsultTurn(params.submissionId, "dewey", reply);
+  await addConsultTurn(params.submissionId, "dewey", reply, uniqueSources(chunks));
   return reply;
 }
