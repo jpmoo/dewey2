@@ -10,7 +10,10 @@ const ALLOWED_TAGS = new Set([
   "ul", "ol", "li", "span", "div", "h1", "h2", "h3", "blockquote", "font",
 ]);
 // style declarations we keep (purely cosmetic, no urls/expressions).
-const ALLOWED_STYLE = new Set(["font-size", "font-weight", "font-style", "text-decoration", "text-align"]);
+const ALLOWED_STYLE = new Set([
+  "font-size", "font-weight", "font-style", "text-decoration", "text-align",
+  "margin-left", "padding-left", // indent/outdent
+]);
 
 function safeStyle(raw: string): string {
   const out: string[] = [];

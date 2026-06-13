@@ -1994,9 +1994,10 @@ function Composer({
 }
 
 /**
- * Lightweight WYSIWYG document editor (no dependency): a title, a small toolbar
- * (bold / italic / underline / font size via document.execCommand), and a
- * contentEditable body. Yields sanitized HTML the composer attaches as a file.
+ * Lightweight WYSIWYG document editor (no dependency): a title, a toolbar
+ * (bold / italic / underline / font size / lists / indent, with active-state
+ * highlighting) and a contentEditable body. Yields sanitized HTML the composer
+ * attaches as a file.
  */
 function DocumentEditorModal({
   onClose,
@@ -2008,16 +2009,43 @@ function DocumentEditorModal({
   const dialog = useDialog();
   const [title, setTitle] = useState("Document");
   const bodyRef = useRef<HTMLDivElement>(null);
+  // Which inline/list commands are active for the current selection (for toolbar
+  // highlighting). Updated on every selection change while the editor has focus.
+  const [active, setActive] = useState<Record<string, boolean>>({});
+
+  const refreshActive = useCallback(() => {
+    if (typeof document === "undefined") return;
+    const q = (c: string) => {
+      try {
+        return document.queryCommandState(c);
+      } catch {
+        return false;
+      }
+    };
+    setActive({
+      bold: q("bold"),
+      italic: q("italic"),
+      underline: q("underline"),
+      insertOrderedList: q("insertOrderedList"),
+      insertUnorderedList: q("insertUnorderedList"),
+    });
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener("selectionchange", refreshActive);
+    return () => document.removeEventListener("selectionchange", refreshActive);
+  }, [refreshActive]);
 
   const cmd = (command: string, value?: string) => {
     bodyRef.current?.focus();
-    // Prefer CSS spans over deprecated presentational tags where supported.
+    // Prefer CSS styles over deprecated presentational tags where supported.
     try {
       document.execCommand("styleWithCSS", false, "true");
     } catch {
-      /* not supported — falls back to <font>/<b>, both handled by the sanitizer */
+      /* falls back to <font>/<b>, both handled by the sanitizer */
     }
     document.execCommand(command, false, value);
+    refreshActive();
   };
 
   const attach = () => {
@@ -2028,6 +2056,36 @@ function DocumentEditorModal({
     }
     onAttach(title.trim() || "Document", html);
   };
+
+  // Toolbar button: onMouseDown + preventDefault keeps the selection in the
+  // editable while the command runs (a plain click would blur it first).
+  const ToolBtn = ({
+    cmdName,
+    value,
+    label,
+    title: t,
+    extra,
+  }: {
+    cmdName: string;
+    value?: string;
+    label: string;
+    title: string;
+    extra?: string;
+  }) => (
+    <button
+      type="button"
+      title={t}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        cmd(cmdName, value);
+      }}
+      className={`rounded px-2 py-1 text-sm hover:bg-dewey-surface-2 ${extra ?? ""} ${
+        active[cmdName] ? "bg-dewey-accent/15 text-dewey-accent" : ""
+      }`}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
@@ -2049,15 +2107,9 @@ function DocumentEditorModal({
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-1 border-b border-dewey-border px-3 py-1.5">
-          <button type="button" onClick={() => cmd("bold")} className="rounded px-2 py-1 text-sm font-bold hover:bg-dewey-surface-2" title="Bold">
-            B
-          </button>
-          <button type="button" onClick={() => cmd("italic")} className="rounded px-2 py-1 text-sm italic hover:bg-dewey-surface-2" title="Italic">
-            I
-          </button>
-          <button type="button" onClick={() => cmd("underline")} className="rounded px-2 py-1 text-sm underline hover:bg-dewey-surface-2" title="Underline">
-            U
-          </button>
+          <ToolBtn cmdName="bold" label="B" title="Bold" extra="font-bold" />
+          <ToolBtn cmdName="italic" label="I" title="Italic" extra="italic" />
+          <ToolBtn cmdName="underline" label="U" title="Underline" extra="underline" />
           <span className="mx-1 text-dewey-border">|</span>
           <select
             className="dewey-input h-8 w-auto py-0 text-sm"
@@ -2070,12 +2122,19 @@ function DocumentEditorModal({
             <option value="5">Large</option>
             <option value="7">Huge</option>
           </select>
+          <span className="mx-1 text-dewey-border">|</span>
+          <ToolBtn cmdName="insertUnorderedList" label="• List" title="Bulleted list" />
+          <ToolBtn cmdName="insertOrderedList" label="1. List" title="Numbered list" />
+          <ToolBtn cmdName="outdent" label="⇤" title="Decrease indent" />
+          <ToolBtn cmdName="indent" label="⇥" title="Increase indent" />
         </div>
         <div
           ref={bodyRef}
           contentEditable
           suppressContentEditableWarning
-          className="chat-md min-h-[240px] flex-1 overflow-y-auto bg-white px-4 py-3 text-sm text-black focus:outline-none"
+          onKeyUp={refreshActive}
+          onMouseUp={refreshActive}
+          className="chat-md min-h-[240px] flex-1 overflow-y-auto bg-white px-4 py-3 text-sm text-black focus:outline-none [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6"
         />
         <div className="flex justify-end gap-2 border-t border-dewey-border px-4 py-3">
           <button type="button" className="dewey-btn-secondary w-auto" onClick={onClose}>
@@ -2596,7 +2655,7 @@ export function AttachmentLightbox({
       <div className="max-h-[85vh] w-full max-w-4xl" onClick={(e) => e.stopPropagation()}>
         {isDoc ? (
           <div
-            className="chat-md max-h-[85vh] overflow-y-auto rounded bg-white px-6 py-5 text-black"
+            className="chat-md max-h-[85vh] overflow-y-auto rounded bg-white px-6 py-5 text-black [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6"
             dangerouslySetInnerHTML={{ __html: docHtml ?? "Loading…" }}
           />
         ) : isPdf ? (
