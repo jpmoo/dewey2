@@ -1262,8 +1262,8 @@ export async function setPlanOutcome(
     !plan ||
     plan.deleted_at ||
     plan.scope !== "partnership" ||
-    plan.owner_id !== coachId ||
-    !plan.accepted_at
+    !plan.accepted_at ||
+    !(await userManagesThreadPlan(planId, coachId))
   ) {
     return null;
   }
@@ -1272,6 +1272,26 @@ export async function setPlanOutcome(
     [planId, outcome]
   );
   return getTemplate(planId);
+}
+
+/**
+ * Whether a user may MANAGE an embedded plan (edit/dismiss/unlock/outcome). Any
+ * coach who participates in the plan's thread can — not just the one who added
+ * it — so multiple coaches share the same rights over a thread's plans.
+ */
+export async function userManagesThreadPlan(planId: number, userId: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT 1 FROM coaching_templates ct
+       JOIN thread_participants p ON p.thread_id = ct.thread_id AND p.user_id = $2
+       JOIN users u ON u.id = p.user_id
+      WHERE ct.id = $1 AND ct.scope = 'partnership' AND ct.deleted_at IS NULL
+        AND u.system_role = 'coach'
+      LIMIT 1`,
+    [planId, userId]
+  );
+  return res.rows.length > 0;
 }
 
 /** Remove all acceptances for a plan (e.g. on edit/revise/unlock). */
@@ -1368,8 +1388,8 @@ export async function unlockPartnershipPlan(
     !plan ||
     plan.deleted_at ||
     plan.scope !== "partnership" ||
-    plan.owner_id !== coachId ||
-    !plan.accepted_at
+    !plan.accepted_at ||
+    !(await userManagesThreadPlan(planId, coachId))
   ) {
     return null;
   }
@@ -1401,8 +1421,8 @@ export async function revisePartnershipPlan(
     !plan ||
     plan.deleted_at ||
     plan.scope !== "partnership" ||
-    plan.owner_id !== coachId ||
-    plan.accepted_at // locked plans can't be revised
+    plan.accepted_at || // locked plans can't be revised
+    !(await userManagesThreadPlan(planId, coachId))
   ) {
     return null;
   }
@@ -1426,13 +1446,16 @@ export async function updateCoachTemplate(
   params: { name?: string; description?: string | null; graph?: TemplateGraph }
 ): Promise<CoachingTemplate | null> {
   const owned = await getTemplate(id);
-  // The coach owns personal plans and partnership-copy plans; both are editable —
-  // except an accepted partnership plan, which is locked in.
-  if (!owned || owned.deleted_at || owned.scope === "global" || owned.owner_id !== coachId)
-    return null;
-  if (owned.scope === "partnership" && owned.accepted_at) return null;
-  // Editing an embedded (not-yet-locked) plan resets acceptances — everyone re-accepts.
-  if (owned.scope === "partnership" && params.graph !== undefined) await clearPlanAcceptances(id);
+  if (!owned || owned.deleted_at || owned.scope === "global") return null;
+  if (owned.scope === "partnership") {
+    // Any coach in the thread can edit an embedded plan — except a locked one.
+    if (owned.accepted_at) return null;
+    if (!(await userManagesThreadPlan(id, coachId))) return null;
+    // Editing a not-yet-locked plan resets acceptances — everyone re-accepts.
+    if (params.graph !== undefined) await clearPlanAcceptances(id);
+  } else if (owned.owner_id !== coachId) {
+    return null; // a coach's own personal plan only
+  }
   return updateTemplate(id, params);
 }
 

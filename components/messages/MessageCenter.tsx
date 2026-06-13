@@ -19,7 +19,12 @@ const TemplateReadOnly = dynamic(
   { ssr: false }
 );
 
-type Participant = { id: number; full_name: string; system_role: string };
+type Participant = {
+  id: number;
+  full_name: string;
+  nickname: string | null;
+  system_role: string;
+};
 type AttachmentMeta = { id: number; filename: string; mime_type: string; size_bytes: number };
 type MessageView = {
   id: number;
@@ -477,6 +482,48 @@ function threadTitle(t: ThreadSummary, meId: number | null): string {
   return others.length ? others.join(", ") : "Conversation";
 }
 
+/**
+ * Row of participant avatars with nicknames below; coaches are highlighted with
+ * an accent ring + label so it's clear who's coaching.
+ */
+function ParticipantAvatars({
+  participants,
+  size,
+}: {
+  participants: Participant[];
+  size: number;
+}) {
+  if (participants.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {participants.map((p) => {
+        const isCoach = p.system_role === "coach";
+        const name = p.nickname || p.full_name.split(" ")[0];
+        return (
+          <div key={p.id} className="flex w-14 flex-col items-center gap-0.5 text-center">
+            <div className={isCoach ? "rounded-full ring-2 ring-dewey-accent ring-offset-1" : ""}>
+              <Avatar userId={p.id} name={p.full_name} size={size} />
+            </div>
+            <span
+              className={`max-w-full truncate text-[10px] leading-tight ${
+                isCoach ? "font-semibold text-dewey-accent" : "text-dewey-mute"
+              }`}
+              title={p.full_name}
+            >
+              {name}
+            </span>
+            {isCoach && (
+              <span className="text-[8px] font-medium uppercase tracking-wide text-dewey-accent">
+                Coach
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ThreadListItem({
   thread: t,
   meId,
@@ -516,6 +563,11 @@ function ThreadListItem({
             </span>
           )}
         </div>
+        {t.participants.length > 0 && (
+          <div className="mt-1.5">
+            <ParticipantAvatars participants={t.participants} size={24} />
+          </div>
+        )}
         {t.last_message && (
           <>
             <div
@@ -892,9 +944,9 @@ export function ThreadPane({
           </div>
         </div>
         {thread && thread.participants.length > 0 && (
-          <p className="truncate text-xs text-dewey-mute">
-            {thread.participants.map((p) => p.full_name).join(", ")}
-          </p>
+          <div className="mt-2">
+            <ParticipantAvatars participants={thread.participants} size={30} />
+          </div>
         )}
       </div>
 
@@ -913,6 +965,7 @@ export function ThreadPane({
                 message={m}
                 mine={m.sender_id === meId}
                 meId={meId}
+                iAmCoach={iAmCoach}
                 onPreview={onPreview}
                 onViewPlan={(planId) => setViewPlanId(planId)}
                 onAcceptPlan={acceptPlan}
@@ -935,10 +988,10 @@ export function ThreadPane({
                     alt="@dewey"
                     className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-1.5 ring-1 ring-dewey-border"
                   />
-                  <span className="font-medium text-dewey-ink">@dewey</span>
+                  <span className="font-medium text-dewey-ink">Dewey</span>
                 </div>
                 <div className="inline-flex h-7 w-fit items-center justify-center rounded-full border border-dewey-border bg-dewey-accent/10 px-3">
-                  <span className="typing-dots" aria-label="@dewey is typing">
+                  <span className="typing-dots" aria-label="Dewey is typing">
                     <span />
                     <span />
                     <span />
@@ -1027,6 +1080,7 @@ function MessageBubble({
   message: m,
   mine,
   meId,
+  iAmCoach,
   onPreview,
   onViewPlan,
   onAcceptPlan,
@@ -1040,6 +1094,7 @@ function MessageBubble({
   message: MessageView;
   mine: boolean;
   meId: number | null;
+  iAmCoach: boolean;
   onPreview: (a: AttachmentMeta) => void;
   onViewPlan: (planId: number) => void;
   onAcceptPlan: (messageId: number) => void;
@@ -1050,12 +1105,14 @@ function MessageBubble({
   onDismissPlan: (messageId: number) => void;
   onReply: (t: ReplyTarget) => void;
 }) {
-  const senderLabel = m.is_ai ? "@dewey" : m.sender_name ?? "Unknown";
-  // Per-plan acceptance state (multi-party): the owner manages it; any
-  // participant accepts; it locks once everyone has.
-  const amPlanOwner = m.plan_owner_id != null && m.plan_owner_id === meId;
+  const senderLabel = m.is_ai ? "Dewey" : m.sender_name ?? "Unknown";
+  // Per-plan acceptance state (multi-party): any coach in the thread manages the
+  // plan; any participant accepts; it locks once everyone has.
+  const canManagePlan = iAmCoach;
   const iAccepted = meId != null && m.plan_accepted_by.includes(meId);
   const acceptedCount = m.plan_accepted_by.length;
+  // Quoted reply: collapsed (one line) by default, click to expand.
+  const [replyExpanded, setReplyExpanded] = useState(false);
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`flex max-w-[min(75%,620px)] flex-col ${mine ? "items-end" : "items-start"}`}>
@@ -1073,12 +1130,20 @@ function MessageBubble({
           <span className="font-medium text-dewey-ink">{senderLabel}</span>
           <span>{new Date(m.created_at).toLocaleString()}</span>
         </div>
-        {/* Quoted reply target (iMessage-style). */}
+        {/* Quoted reply target (iMessage-style): hover for the full text, click to
+            expand/collapse. */}
         {m.reply_to != null && m.reply_excerpt != null && (
-          <div className="mb-1 max-w-full truncate rounded-md border-l-2 border-dewey-accent/50 bg-dewey-surface-2 px-2 py-1 text-[11px] text-dewey-mute">
+          <button
+            type="button"
+            onClick={() => setReplyExpanded((v) => !v)}
+            title={`${m.reply_sender}: ${m.reply_excerpt}`}
+            className={`mb-1 max-w-full rounded-md border-l-2 border-dewey-accent/50 bg-dewey-surface-2 px-2 py-1 text-left text-[11px] text-dewey-mute hover:bg-dewey-surface ${
+              replyExpanded ? "whitespace-pre-wrap" : "truncate"
+            }`}
+          >
             <span className="font-medium text-dewey-ink">↩ {m.reply_sender}: </span>
             {m.reply_excerpt}
-          </div>
+          </button>
         )}
         {m.plan_id != null ? (
           // Specialized plan bubble. "View plan" opens the plan preview directly.
@@ -1131,17 +1196,17 @@ function MessageBubble({
               <PlanPill icon="🗂️" label="View plan" onClick={() => onViewPlan(m.plan_id as number)} />
               {/* Superseded: owner can clear it away. */}
               {m.plan_deactivated ? (
-                amPlanOwner && (
+                canManagePlan && (
                   <PlanPill icon="🗑️" label="Dismiss" onClick={() => onDismissPlan(m.id)} />
                 )
               ) : m.plan_accepted && m.plan_outcome ? (
                 // Terminal (finished/abandoned). Owner can reopen it.
-                amPlanOwner && (
+                canManagePlan && (
                   <PlanPill icon="🔄" label="Reopen" onClick={() => onSetOutcome(m.id, "active")} />
                 )
               ) : m.plan_accepted ? (
                 // Active + locked. Owner: unlock to edit, complete, or abandon.
-                amPlanOwner && (
+                canManagePlan && (
                   <>
                     <PlanPill icon="🔓" label="Unlock" onClick={() => onUnlockPlan(m.id)} />
                     <PlanPill icon="🏁" label="Complete" onClick={() => onSetOutcome(m.id, "finished")} />
@@ -1156,7 +1221,7 @@ function MessageBubble({
                   ) : (
                     <PlanPill icon="✅" label="Accept" onClick={() => onAcceptPlan(m.id)} />
                   )}
-                  {amPlanOwner && (
+                  {canManagePlan && (
                     <>
                       <PlanPill icon="✏️" label="Edit" onClick={() => onEditPlan(m.plan_id as number)} />
                       <PlanPill icon="📋" label="Copy to my plans" onClick={() => onCopyPlan(m.plan_id as number)} />
@@ -1225,7 +1290,7 @@ function MessageBubble({
               })
             }
           >
-            {m.is_ai ? "Reply to @dewey" : "Reply"}
+            {m.is_ai ? "Reply to Dewey" : "Reply"}
           </button>
         )}
       </div>

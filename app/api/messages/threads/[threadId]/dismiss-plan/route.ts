@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
 import { canAccessThread, deleteMessage, logThreadEvent } from "@/lib/messages";
 import { getPool } from "@/lib/pg";
-import { deleteTemplate, getTemplate } from "@/lib/db";
+import { deleteTemplate, getTemplate, userManagesThreadPlan } from "@/lib/db";
 
 /** Dismiss an embedded plan (remove the plan message). The plan's owner only. */
 export async function POST(
@@ -37,10 +37,10 @@ export async function POST(
   const planId = res.rows[0]?.plan_id as number | null | undefined;
   if (planId == null) return NextResponse.json({ error: "Not a plan message" }, { status: 404 });
 
-  // Only the plan's owner (the coach who added it) can dismiss it.
+  // Any coach in the thread can dismiss a plan.
   const plan = await getTemplate(planId);
-  if (!plan || plan.owner_id !== me) {
-    return NextResponse.json({ error: "Only the coach who added this plan can dismiss it." }, { status: 403 });
+  if (!plan || !(await userManagesThreadPlan(planId, me))) {
+    return NextResponse.json({ error: "Only a coach in this conversation can dismiss this plan." }, { status: 403 });
   }
   // An accepted plan is locked in — it can't be dismissed/replaced.
   if (plan.accepted_at) {

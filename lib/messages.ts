@@ -33,6 +33,7 @@ function toIso(v: unknown): string {
 export interface ThreadParticipant {
   id: number;
   full_name: string;
+  nickname: string | null;
   system_role: string;
 }
 
@@ -613,7 +614,7 @@ export async function listThreadsForUser(
   const ids = threads.map((t) => t.id as number);
 
   const partsRes = await pool.query(
-    `SELECT p.thread_id, u.id, u.full_name, u.system_role
+    `SELECT p.thread_id, u.id, u.full_name, u.nickname, u.system_role
        FROM thread_participants p
        JOIN users u ON u.id = p.user_id
       WHERE p.thread_id = ANY($1::int[])
@@ -623,7 +624,7 @@ export async function listThreadsForUser(
   const byThread = new Map<number, ThreadParticipant[]>();
   for (const r of partsRes.rows) {
     const list = byThread.get(r.thread_id) ?? [];
-    list.push({ id: r.id, full_name: r.full_name, system_role: r.system_role });
+    list.push({ id: r.id, full_name: r.full_name, nickname: r.nickname ?? null, system_role: r.system_role });
     byThread.set(r.thread_id, list);
   }
 
@@ -728,7 +729,7 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
   const t = res.rows[0];
   if (!t) return null;
   const partsRes = await pool.query(
-    `SELECT u.id, u.full_name, u.system_role
+    `SELECT u.id, u.full_name, u.nickname, u.system_role
        FROM thread_participants p JOIN users u ON u.id = p.user_id
       WHERE p.thread_id = $1 ORDER BY u.full_name`,
     [threadId]
@@ -746,6 +747,7 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
     participants: partsRes.rows.map((r) => ({
       id: r.id,
       full_name: r.full_name,
+      nickname: r.nickname ?? null,
       system_role: r.system_role,
     })),
     last_message: null,
@@ -769,7 +771,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
             ct.outcome AS plan_outcome,
             m.sources,
             m.reply_to,
-            LEFT(rm.body, 120) AS reply_excerpt,
+            LEFT(rm.body, 2000) AS reply_excerpt,
             CASE WHEN rm.id IS NULL THEN NULL
                  WHEN rm.is_ai THEN '@dewey'
                  ELSE COALESCE(NULLIF(ru.nickname, ''), ru.full_name) END AS reply_sender
