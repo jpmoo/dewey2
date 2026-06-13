@@ -653,6 +653,32 @@ export function ThreadPane({
     }
   };
 
+  const renameThread = async () => {
+    const current = thread?.subject ?? "";
+    const next = await dialog.prompt("Rename this partnership", {
+      title: "Rename",
+      defaultValue: current,
+      placeholder: "Partnership name",
+      confirmText: "Save",
+    });
+    if (next == null || !next.trim() || next.trim() === current) return;
+    try {
+      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/rename`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ subject: next.trim() }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't rename");
+      }
+      fetchThread(false);
+      onPosted();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't rename the conversation.");
+    }
+  };
+
   const setPartnershipStatus = async (status: "done" | "abandoned" | "active") => {
     const labels: Record<string, string> = {
       done: "Mark this partnership as done?",
@@ -854,6 +880,15 @@ export function ThreadPane({
             </button>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-3">
+            {canManage && (
+              <button
+                type="button"
+                className="text-xs text-dewey-accent hover:underline"
+                onClick={renameThread}
+              >
+                Rename
+              </button>
+            )}
             {amCoach && !ended && !acceptedPlan && (
               <button
                 type="button"

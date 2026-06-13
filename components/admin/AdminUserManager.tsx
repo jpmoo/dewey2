@@ -101,6 +101,7 @@ const ACTION_LABELS: Record<string, string> = {
   partnership_done: "Marked a partnership done",
   partnership_abandoned: "Abandoned a partnership",
   partnership_reopened: "Reopened a partnership",
+  partnership_renamed: "Renamed a partnership",
   message_sent: "Sent a message",
   plan_added: "Added a plan to a partnership",
   plan_dismissed: "Dismissed a plan",

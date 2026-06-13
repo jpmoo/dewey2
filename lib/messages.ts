@@ -183,6 +183,16 @@ export async function setThreadStatus(threadId: number, status: ThreadStatus): P
   ]);
 }
 
+/** Rename a thread (set its subject). */
+export async function setThreadSubject(threadId: number, subject: string): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query("UPDATE message_threads SET subject = $2, updated_at = NOW() WHERE id = $1", [
+    threadId,
+    subject,
+  ]);
+}
+
 // ============================================================
 // Access
 // ============================================================
