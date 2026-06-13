@@ -496,7 +496,7 @@ function Group({
                   )}
                 </div>
                 {t.description && (
-                  <div className="truncate text-xs text-dewey-mute">{t.description}</div>
+                  <div className="whitespace-pre-wrap text-xs text-dewey-mute">{t.description}</div>
                 )}
                 <div className="text-xs text-dewey-mute">
                   {t.graph.nodes.length} activit{t.graph.nodes.length === 1 ? "y" : "ies"} ·{" "}

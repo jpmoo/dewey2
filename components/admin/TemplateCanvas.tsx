@@ -1112,6 +1112,15 @@ function CanvasInner({
                 ? "This saves the partnership's copy in the conversation only — it won't be added to your plan library. Add a short description so everyone knows what it's for."
                 : "Add a description so coaches know what this plan is for. We've drafted one you can edit."}
             </p>
+            <div className="mt-3">
+              <label className="dewey-label">Plan name</label>
+              <input
+                className="dewey-input mt-1"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Plan name"
+              />
+            </div>
             <div className="mt-3 flex items-center justify-between">
               <label className="dewey-label mb-0">Description</label>
               <button
@@ -1142,7 +1151,7 @@ function CanvasInner({
                 type="button"
                 className="dewey-btn-primary w-auto"
                 onClick={persist}
-                disabled={saving}
+                disabled={saving || !name.trim()}
               >
                 {saving ? "Saving…" : "Save plan"}
               </button>
