@@ -1,5 +1,6 @@
 import { getPool } from "@/lib/pg";
 import { chatComplete } from "@/lib/ai";
+import { queryRagDefault, formatRagContext } from "@/lib/rag";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
 import {
   addConsultTurn,
@@ -79,7 +80,27 @@ export async function consultDeweyOnSubmission(params: {
     );
   }
 
-  const system = `You are @dewey, an AI coaching companion on Dewey, advising a human COACH as they review a partner's work. You are speaking ONLY to the coach — never to the partner — and you do NOT make the decision. Give the coach a clear, honest, concise assessment of whether the submission meets the activity's goal, what's strong, and what (if anything) is missing. The coach decides whether to approve or return it.`;
+  // Ground the advice in the organization's strategic plans/goals via RAGDoll.
+  // Retrieve against the activity goal + the partner's submission + the coach's
+  // question so the right strategic documents surface.
+  const node = (graph.nodes ?? []).find((n) => n.id === sub.node_id);
+  const ragQuery = [
+    node?.label || node?.activityKey,
+    node?.instructions,
+    node?.artifact,
+    submissionMsg?.body,
+    params.question,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const chunks = await queryRagDefault(ragQuery).catch(() => []);
+
+  let system = `You are @dewey, an AI coaching companion on Dewey, advising a human COACH as they review a partner's work. You are speaking ONLY to the coach — never to the partner — and you do NOT make the decision. Give the coach a clear, honest, concise assessment of whether the submission meets the activity's goal, what's strong, and what (if anything) is missing. Weigh the work against the organization's strategic plans, goals, and priorities (excerpts below when available) and reference the specific source so the coach can connect the partner's work to those goals. The coach decides whether to approve or return it.`;
+  if (chunks.length > 0) {
+    system +=
+      "\n\nRelevant excerpts from the organization's documents (strategic plans, goals, priorities, frameworks, etc.) — ground your assessment in these and name the source:\n" +
+      formatRagContext(chunks);
+  }
 
   const contextParts = [
     `Coaching plan: ${plan.name}`,
