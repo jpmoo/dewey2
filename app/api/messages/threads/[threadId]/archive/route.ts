@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { canAccessThread, logThreadEvent, setThreadArchived } from "@/lib/messages";
+import {
+  canAccessThread,
+  logThreadEvent,
+  setThreadArchived,
+  setThreadArchivedForAll,
+} from "@/lib/messages";
 import { threadHasLivePlan } from "@/lib/db";
 
 /** Archive or unarchive a thread for the signed-in user (their view only). */
@@ -33,8 +38,12 @@ export async function POST(
     );
   }
 
-  // Archiving is per-user (their own view); anyone else in the thread may do it.
-  await setThreadArchived(id, userId, archived);
+  // An admin archives for everyone (oversight); others only their own view.
+  if (session.user.system_role === "admin") {
+    await setThreadArchivedForAll(id, archived);
+  } else {
+    await setThreadArchived(id, userId, archived);
+  }
   await logThreadEvent({
     userId,
     actorId: userId,

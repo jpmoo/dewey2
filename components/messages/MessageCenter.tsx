@@ -681,10 +681,12 @@ export function ThreadPane({
   const toggleArchive = async () => {
     if (
       !archived &&
-      !(await dialog.confirm("Archive this conversation?", {
-        title: "Archive",
-        confirmText: "Archive",
-      }))
+      !(await dialog.confirm(
+        isAdmin
+          ? "Archive this conversation for ALL participants?"
+          : "Archive this conversation?",
+        { title: "Archive", confirmText: "Archive" }
+      ))
     )
       return;
     try {

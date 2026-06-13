@@ -189,6 +189,25 @@ export async function setThreadArchived(
   }
 }
 
+/** Archive/unarchive a thread for EVERY participant (admin oversight action). */
+export async function setThreadArchivedForAll(
+  threadId: number,
+  archived: boolean
+): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  if (archived) {
+    await pool.query(
+      `INSERT INTO thread_archived (thread_id, user_id)
+         SELECT $1, p.user_id FROM thread_participants p WHERE p.thread_id = $1
+       ON CONFLICT DO NOTHING`,
+      [threadId]
+    );
+  } else {
+    await pool.query("DELETE FROM thread_archived WHERE thread_id = $1", [threadId]);
+  }
+}
+
 export async function setThreadStatus(threadId: number, status: ThreadStatus): Promise<void> {
   const pool = getPool();
   await ensureSchema();
