@@ -1240,6 +1240,37 @@ export async function acceptPartnershipPlan(
 }
 
 /**
+ * Unlock an accepted partnership plan so the coach can edit/dismiss/replace it
+ * again. This RESTARTS the plan: acceptance and the current-activity pointer are
+ * cleared, so progress resets to the beginning (the coach re-accepts when ready).
+ * Returns the updated plan, or null if it isn't a coach-owned accepted plan.
+ */
+export async function unlockPartnershipPlan(
+  planId: number,
+  coachId: number
+): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (
+    !plan ||
+    plan.deleted_at ||
+    plan.scope !== "partnership" ||
+    plan.owner_id !== coachId ||
+    !plan.accepted_at
+  ) {
+    return null;
+  }
+  await pool.query(
+    `UPDATE coaching_templates
+        SET accepted_at = NULL, current_node_id = NULL, updated_at = NOW()
+      WHERE id = $1`,
+    [planId]
+  );
+  return getTemplate(planId);
+}
+
+/**
  * Revise an embedded partnership plan in place (e.g. @dewey adjusting it on
  * request). Replaces the graph and resets acceptance so the coach re-accepts the
  * revised plan. Returns the updated plan, or null if not a coach-owned

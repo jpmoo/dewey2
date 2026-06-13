@@ -750,6 +750,30 @@ export function ThreadPane({
     [dialog, threadId, fetchThread]
   );
 
+  const unlockPlan = useCallback(
+    async (messageId: number) => {
+      if (
+        !(await dialog.confirm(
+          "Unlock this plan? You'll be able to edit or replace it again, but accepting restarts the plan from the beginning.",
+          { title: "Unlock plan", confirmText: "Unlock" }
+        ))
+      )
+        return;
+      try {
+        const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/unlock-plan`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageId }),
+        });
+        if (!res.ok) throw new Error();
+        fetchThread(false);
+      } catch {
+        dialog.alert("Couldn't unlock the plan.");
+      }
+    },
+    [dialog, threadId, fetchThread]
+  );
+
   const copyPlan = useCallback(
     async (planId: number) => {
       try {
@@ -884,6 +908,7 @@ export function ThreadPane({
                 onPreview={onPreview}
                 onViewPlan={(planId) => setViewPlanId(planId)}
                 onAcceptPlan={acceptPlan}
+                onUnlockPlan={unlockPlan}
                 onEditPlan={(planId) => setEditPlanId(planId)}
                 onCopyPlan={copyPlan}
                 onDismissPlan={dismissPlan}
@@ -975,6 +1000,7 @@ function MessageBubble({
   onPreview,
   onViewPlan,
   onAcceptPlan,
+  onUnlockPlan,
   onEditPlan,
   onCopyPlan,
   onDismissPlan,
@@ -986,6 +1012,7 @@ function MessageBubble({
   onPreview: (a: AttachmentMeta) => void;
   onViewPlan: (planId: number) => void;
   onAcceptPlan: (messageId: number) => void;
+  onUnlockPlan: (messageId: number) => void;
   onEditPlan: (planId: number) => void;
   onCopyPlan: (planId: number) => void;
   onDismissPlan: (messageId: number) => void;
@@ -1090,9 +1117,18 @@ function MessageBubble({
                       Copy to my plans
                     </button>
                   )}
-                  {/* An accepted plan is locked in: no edit/dismiss/replace. */}
+                  {/* An accepted plan is locked in: unlock to edit/replace (restarts it). */}
                   {m.plan_accepted ? (
-                    <span className="text-[11px] text-dewey-mute">🔒 Locked in</span>
+                    <span className="flex items-center gap-2 text-[11px] text-dewey-mute">
+                      🔒 Locked in
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-accent hover:underline"
+                        onClick={() => onUnlockPlan(m.id)}
+                      >
+                        Unlock
+                      </button>
+                    </span>
                   ) : (
                     <button
                       type="button"

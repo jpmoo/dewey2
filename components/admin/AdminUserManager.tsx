@@ -104,6 +104,8 @@ const ACTION_LABELS: Record<string, string> = {
   message_sent: "Sent a message",
   plan_added: "Added a plan to a partnership",
   plan_dismissed: "Dismissed a plan",
+  plan_accepted: "Accepted a plan",
+  plan_unlocked: "Unlocked a plan",
   dewey_replied: "@dewey replied",
   participant_added: "Added someone to a conversation",
   invitation_accepted: "Accepted a partnership",
