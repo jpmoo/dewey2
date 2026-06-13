@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { getThreadMeta, logThreadEvent } from "@/lib/messages";
+import { canAccessThread, logThreadEvent } from "@/lib/messages";
 import { getPool } from "@/lib/pg";
 import { unlockPartnershipPlan } from "@/lib/db";
 
 /**
- * Unlock an accepted partnership plan so it can be edited/replaced again. This
- * restarts the plan (clears acceptance + progress). Coach (creator) only.
+ * Unlock an accepted plan so it can be edited/replaced again. This restarts the
+ * plan (clears all acceptances + progress). The plan's owner (the coach who
+ * added it) only — enforced by unlockPartnershipPlan.
  */
 export async function POST(
   request: NextRequest,
@@ -19,10 +20,10 @@ export async function POST(
   const id = parseInt(threadId, 10);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
-  const meta = await getThreadMeta(id);
   const me = Number(session.user.id);
-  if (!meta || meta.created_by !== me) {
-    return NextResponse.json({ error: "Only the coach can unlock a plan" }, { status: 403 });
+  const isAdmin = session.user.system_role === "admin";
+  if (!(await canAccessThread(id, me, isAdmin))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const body = await request.json().catch(() => ({}));

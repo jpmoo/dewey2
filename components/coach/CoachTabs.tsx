@@ -3,15 +3,13 @@
 import { useState } from "react";
 import { CoachDirectory } from "./CoachDirectory";
 import { CoachTemplates } from "./CoachTemplates";
-import { CoachPartnerships } from "./CoachPartnerships";
 import { MessageCenter } from "@/components/messages/MessageCenter";
 import { useUnreadCount } from "@/components/messages/useUnreadCount";
 
-type Tab = "messages" | "partnerships" | "directory" | "canvas";
+type Tab = "messages" | "directory" | "canvas";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "messages", label: "Message Center" },
-  { id: "partnerships", label: "Partnerships" },
   { id: "directory", label: "Partner Directory" },
   { id: "canvas", label: "Coaching Canvas" },
 ];
@@ -52,7 +50,6 @@ export function CoachTabs() {
       </nav>
 
       {tab === "messages" && <MessageCenter />}
-      {tab === "partnerships" && <CoachPartnerships />}
       {tab === "directory" && <CoachDirectory />}
       {tab === "canvas" && <CoachTemplates />}
     </div>

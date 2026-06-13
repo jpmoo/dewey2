@@ -5,6 +5,7 @@ import {
   ensureSchema,
   getAdminIds,
   getMessageRecipients,
+  getPlanAcceptances,
   logUserEvent,
   threadHasAcceptedPlan,
 } from "@/lib/db";
@@ -53,10 +54,16 @@ export interface MessageView {
   plan_id: number | null;
   plan_name: string | null;
   plan_phase: string | null;
-  /** Whether the coach has accepted the embedded plan (partnership plans only). */
+  /** Whether the embedded plan is fully accepted (locked in by everyone). */
   plan_accepted: boolean;
-  /** Whether a newer plan has superseded this embedded plan (partnership plans only). */
+  /** Whether a newer plan has superseded this embedded plan. */
   plan_deactivated: boolean;
+  /** The coach who added the embedded plan (manages accept/edit/dismiss/unlock). */
+  plan_owner_id: number | null;
+  /** Thread participants who have accepted this plan (multi-party acceptance). */
+  plan_accepted_by: number[];
+  /** Total thread participants — the plan locks once all have accepted. */
+  plan_participant_count: number;
   is_ai: boolean;
   reply_to: number | null;
   reply_excerpt: string | null;
@@ -545,9 +552,6 @@ export async function listThreadsForUser(
   let join = "LEFT JOIN coaching_templates ct ON ct.id = t.template_id";
   if (!isAdmin) {
     join = "JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1 " + join;
-    // Hide partnership threads the user hasn't accepted (they appear as
-    // invitations instead); the creating coach always sees their own.
-    where.push("(t.kind <> 'partnership' OR p.accepted = TRUE OR t.created_by = $1)");
   }
   // Per-user archive state (admins archive their own oversight view too). A
   // partnership that has been marked done or abandoned counts as archived for
@@ -689,7 +693,6 @@ export async function getUnreadThreadCount(userId: number): Promise<number> {
        FROM message_threads t
        JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
       WHERE t.deleted_at IS NULL
-        AND (t.kind <> 'partnership' OR p.accepted = TRUE OR t.created_by = $1)
         AND NOT (t.kind = 'partnership' AND COALESCE(t.status, 'open') IN ('done', 'abandoned'))
         AND NOT EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)
         AND EXISTS (
@@ -760,6 +763,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
             ct.graph -> 'phases' -> 0 ->> 'name' AS plan_phase,
             (ct.accepted_at IS NOT NULL) AS plan_accepted,
             (ct.deactivated_at IS NOT NULL) AS plan_deactivated,
+            ct.owner_id AS plan_owner_id,
             m.sources,
             m.reply_to,
             LEFT(rm.body, 120) AS reply_excerpt,
@@ -777,6 +781,18 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
   );
   const messages = res.rows;
   if (messages.length === 0) return [];
+
+  // Multi-party acceptance: who has accepted each embedded plan, and how many
+  // participants there are (a plan locks once everyone has accepted).
+  const planIds = Array.from(
+    new Set(messages.map((m) => m.plan_id as number | null).filter((x): x is number => x != null))
+  );
+  const acceptances = await getPlanAcceptances(planIds);
+  const partCountRes = await pool.query(
+    "SELECT COUNT(*)::int AS n FROM thread_participants WHERE thread_id = $1",
+    [threadId]
+  );
+  const participantCount = Number(partCountRes.rows[0]?.n ?? 0);
 
   const attRes = await pool.query(
     `SELECT id, message_id, filename, mime_type, size_bytes
@@ -807,6 +823,9 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
     plan_phase: (m.plan_phase as string | null) ?? null,
     plan_accepted: m.plan_accepted === true,
     plan_deactivated: m.plan_deactivated === true,
+    plan_owner_id: (m.plan_owner_id as number | null) ?? null,
+    plan_accepted_by: m.plan_id != null ? acceptances.get(Number(m.plan_id)) ?? [] : [],
+    plan_participant_count: participantCount,
     is_ai: m.is_ai === true,
     reply_to: m.reply_to != null ? Number(m.reply_to) : null,
     reply_excerpt: (m.reply_excerpt as string | null) ?? null,
@@ -869,8 +888,9 @@ export async function deleteMessage(messageId: number): Promise<void> {
 }
 
 /**
- * Embed a plan in a partnership thread: duplicate the source into a partnership-
- * scoped copy and post a plan message. Coach (thread creator) only.
+ * Embed a plan in a thread: duplicate the source into an embedded (thread-scoped)
+ * copy and post a plan message. The actor must be a coach who participates in the
+ * thread. Any thread can carry a plan — there is no separate "partnership" kind.
  */
 export async function addPlanToPartnership(
   threadId: number,
@@ -880,14 +900,16 @@ export async function addPlanToPartnership(
   const pool = getPool();
   await ensureSchema();
   const meta = await pool.query(
-    "SELECT kind, created_by FROM message_threads WHERE id = $1 AND deleted_at IS NULL",
-    [threadId]
+    `SELECT t.id,
+            EXISTS (SELECT 1 FROM thread_participants p WHERE p.thread_id = t.id AND p.user_id = $2) AS member
+       FROM message_threads t WHERE t.id = $1 AND t.deleted_at IS NULL`,
+    [threadId, coachId]
   );
   const t = meta.rows[0];
-  if (!t || t.kind !== "partnership") return { ok: false, error: "Not a partnership" };
-  if (t.created_by !== coachId) return { ok: false, error: "Only the coach can add a plan" };
+  if (!t) return { ok: false, error: "Conversation not found" };
+  if (!t.member) return { ok: false, error: "You're not in this conversation" };
   if (await threadHasAcceptedPlan(threadId)) {
-    return { ok: false, error: "A plan has already been accepted for this partnership and is locked." };
+    return { ok: false, error: "A plan has already been accepted for this conversation and is locked." };
   }
 
   const copy = await duplicatePlanForPartnership(sourcePlanId, coachId, threadId);

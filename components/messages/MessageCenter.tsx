@@ -33,6 +33,9 @@ type MessageView = {
   plan_phase: string | null;
   plan_accepted: boolean;
   plan_deactivated: boolean;
+  plan_owner_id: number | null;
+  plan_accepted_by: number[];
+  plan_participant_count: number;
   is_ai: boolean;
   reply_to: number | null;
   reply_excerpt: string | null;
@@ -55,13 +58,6 @@ type ThreadSummary = {
   unread: boolean;
   accepted_plan_id: number | null;
   accepted_plan_name: string | null;
-};
-
-type Invitation = {
-  thread_id: number;
-  coach_name: string | null;
-  member_names: string[];
-  created_at: string;
 };
 
 type ReplyTarget = { id: number; sender: string; excerpt: string; isAi: boolean };
@@ -101,7 +97,6 @@ export function MessageCenter() {
   const [composing, setComposing] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
-  const [invitations, setInvitations] = useState<Invitation[]>([]);
   // Plan preview opened from the thread-list "View plan" pill.
   const [listPlanId, setListPlanId] = useState<number | null>(null);
 
@@ -111,15 +106,9 @@ export function MessageCenter() {
       if (search.trim()) params.set("q", search.trim());
       if (showArchived) params.set("archived", "1");
       const qs = params.toString();
-      const [d, inv] = await Promise.all([
-        apiFetch<{ threads: ThreadSummary[]; isAdmin: boolean }>(
-          `/api/messages/threads${qs ? `?${qs}` : ""}`
-        ),
-        apiFetch<{ invitations: Invitation[] }>("/api/messages/invitations").catch(() => ({
-          invitations: [] as Invitation[],
-        })),
-      ]);
-      setInvitations(inv.invitations ?? []);
+      const d = await apiFetch<{ threads: ThreadSummary[]; isAdmin: boolean }>(
+        `/api/messages/threads${qs ? `?${qs}` : ""}`
+      );
       setThreads(d.threads);
       setIsAdmin(d.isAdmin);
       setError(null);
@@ -159,22 +148,6 @@ export function MessageCenter() {
     [loadThreads]
   );
 
-  const respondInvite = useCallback(
-    async (threadId: number, accept: boolean) => {
-      try {
-        await fetch(pathWithBase(`/api/messages/threads/${threadId}/respond`), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ accept }),
-        });
-      } catch {
-        /* ignore */
-      }
-      await loadThreads();
-      if (accept) setActiveId(threadId);
-    },
-    [loadThreads]
-  );
 
   return (
     // Full-bleed: break out of the centered max-w container so the messenger is
@@ -197,42 +170,6 @@ export function MessageCenter() {
           + New message
         </button>
       </div>
-
-      {invitations.length > 0 && (
-        <div className="mb-3 space-y-2">
-          {invitations.map((inv) => (
-            <div
-              key={inv.thread_id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"
-            >
-              <div className="min-w-0 text-sm text-amber-900">
-                <span className="font-medium">{inv.coach_name ?? "A coach"}</span> invited you to a
-                partnership
-                {inv.member_names.length > 1 && (
-                  <span className="text-amber-800"> with {inv.member_names.join(", ")}</span>
-                )}
-                .
-              </div>
-              <div className="flex shrink-0 gap-2">
-                <button
-                  type="button"
-                  className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700"
-                  onClick={() => respondInvite(inv.thread_id, true)}
-                >
-                  Accept
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-amber-300 px-3 py-1 text-xs text-amber-900 hover:bg-amber-100"
-                  onClick={() => respondInvite(inv.thread_id, false)}
-                >
-                  Decline
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {error ? (
         <p className="text-red-600">{error}</p>
@@ -310,6 +247,7 @@ export function MessageCenter() {
                 meId={meId}
                 archived={showArchived}
                 isAdmin={isAdmin}
+                iAmCoach={session?.user?.system_role === "coach"}
                 onPreview={setPreview}
                 onPosted={loadThreads}
                 onArchived={() => {
@@ -614,6 +552,7 @@ export function ThreadPane({
   meId,
   archived,
   isAdmin = false,
+  iAmCoach = false,
   onPreview,
   onPosted,
   onArchived,
@@ -622,6 +561,7 @@ export function ThreadPane({
   meId: number | null;
   archived: boolean;
   isAdmin?: boolean;
+  iAmCoach?: boolean;
   onPreview: (a: AttachmentMeta) => void;
   onPosted: () => void;
   onArchived: () => void;
@@ -637,19 +577,16 @@ export function ThreadPane({
   const [deweyThinking, setDeweyThinking] = useState(false);
   // iMessage-style reply target.
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
-  // Partnership-plan UI.
+  // Embedded-plan UI.
   const [picking, setPicking] = useState(false);
   const [viewPlanId, setViewPlanId] = useState<number | null>(null);
   const [editPlanId, setEditPlanId] = useState<number | null>(null);
-  const isPartnership = thread?.kind === "partnership";
-  const amCoach = isPartnership && thread?.created_by === meId;
-  // Coach or admin may manage a partnership's lifecycle (done/abandon/archive).
-  const canManage = isPartnership && (amCoach || isAdmin);
-  const ended = thread?.status === "done" || thread?.status === "abandoned";
+  // A coach can add/manage plans in any thread they're in; coach or admin can rename.
+  const canManage = iAmCoach || isAdmin;
   // A plan submission awaiting an admin decision.
   const submissionPending =
     thread?.kind === "template_submission" && (thread?.status == null || thread?.status === "open");
-  // The active (accepted) plan in this thread, surfaced as a header link once accepted.
+  // The active (fully-accepted) plan in this thread, surfaced as a header link.
   const acceptedPlan = [...messages].reverse().find((m) => m.plan_id != null && m.plan_accepted);
 
   const toggleArchive = async () => {
@@ -732,29 +669,6 @@ export function ThreadPane({
     }
   };
 
-  const setPartnershipStatus = async (status: "done" | "abandoned" | "active") => {
-    const labels: Record<string, string> = {
-      done: "Mark this partnership as done?",
-      abandoned: "Mark this partnership as abandoned?",
-      active: "Reopen this partnership?",
-    };
-    if (!(await dialog.confirm(labels[status], { title: "Partnership status" }))) return;
-    try {
-      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/partnership-status`), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error((d as { error?: string }).error || "Couldn't update status");
-      }
-      fetchThread(false);
-    } catch (e) {
-      dialog.alert(e instanceof Error ? e.message : "Couldn't update the partnership.");
-    }
-  };
-
   const fetchThread = useCallback(
     async (showSpinner: boolean) => {
       if (showSpinner) setLoading(true);
@@ -809,7 +723,7 @@ export function ThreadPane({
     async (messageId: number) => {
       if (
         !(await dialog.confirm(
-          "Accept this plan? It becomes the active plan for the partner and locks in — you can't edit or replace it without unlocking, which restarts the plan from the beginning.",
+          "Accept this plan? Once every participant has accepted, it locks in as the active plan — it can't be edited or replaced without unlocking, which restarts it from the beginning.",
           { title: "Accept plan", confirmText: "Accept" }
         ))
       )
@@ -960,7 +874,7 @@ export function ThreadPane({
                 Rename
               </button>
             )}
-            {amCoach && !ended && !acceptedPlan && (
+            {iAmCoach && !acceptedPlan && (
               <button
                 type="button"
                 className="text-xs text-dewey-accent hover:underline"
@@ -969,45 +883,13 @@ export function ThreadPane({
                 + Add plan
               </button>
             )}
-            {/* Partnership lifecycle (coach or admin). */}
-            {canManage && !ended && (
-              <>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline"
-                  onClick={() => setPartnershipStatus("done")}
-                >
-                  Mark done
-                </button>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-mute hover:text-dewey-ink"
-                  onClick={() => setPartnershipStatus("abandoned")}
-                >
-                  Abandon
-                </button>
-              </>
-            )}
-            {canManage && ended && !archived && (
-              <button
-                type="button"
-                className="text-xs text-dewey-accent hover:underline"
-                onClick={() => setPartnershipStatus("active")}
-              >
-                Reopen
-              </button>
-            )}
-            {/* Archive: non-partnership = anyone; partnership = coach/admin, only
-                once it's ended (or to unarchive). */}
-            {(!isPartnership || (canManage && (ended || archived))) && (
-              <button
-                type="button"
-                className="text-xs text-dewey-accent hover:underline"
-                onClick={toggleArchive}
-              >
-                {archived ? "Unarchive" : "Archive"}
-              </button>
-            )}
+            <button
+              type="button"
+              className="text-xs text-dewey-accent hover:underline"
+              onClick={toggleArchive}
+            >
+              {archived ? "Unarchive" : "Archive"}
+            </button>
           </div>
         </div>
         {thread && thread.participants.length > 0 && (
@@ -1031,7 +913,7 @@ export function ThreadPane({
                 key={m.id}
                 message={m}
                 mine={m.sender_id === meId}
-                amCoach={!!amCoach}
+                meId={meId}
                 onPreview={onPreview}
                 onViewPlan={(planId) => setViewPlanId(planId)}
                 onAcceptPlan={acceptPlan}
@@ -1123,7 +1005,7 @@ export function ThreadPane({
 function MessageBubble({
   message: m,
   mine,
-  amCoach,
+  meId,
   onPreview,
   onViewPlan,
   onAcceptPlan,
@@ -1135,7 +1017,7 @@ function MessageBubble({
 }: {
   message: MessageView;
   mine: boolean;
-  amCoach: boolean;
+  meId: number | null;
   onPreview: (a: AttachmentMeta) => void;
   onViewPlan: (planId: number) => void;
   onAcceptPlan: (messageId: number) => void;
@@ -1146,6 +1028,11 @@ function MessageBubble({
   onReply: (t: ReplyTarget) => void;
 }) {
   const senderLabel = m.is_ai ? "@dewey" : m.sender_name ?? "Unknown";
+  // Per-plan acceptance state (multi-party): the owner manages it; any
+  // participant accepts; it locks once everyone has.
+  const amPlanOwner = m.plan_owner_id != null && m.plan_owner_id === meId;
+  const iAccepted = meId != null && m.plan_accepted_by.includes(meId);
+  const acceptedCount = m.plan_accepted_by.length;
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`flex max-w-[min(75%,620px)] flex-col ${mine ? "items-end" : "items-start"}`}>
@@ -1188,10 +1075,14 @@ function MessageBubble({
                     <span className="rounded bg-dewey-surface px-1.5 py-0.5 text-[9px] font-medium text-dewey-mute">
                       Superseded
                     </span>
+                  ) : m.plan_accepted ? (
+                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
+                      Accepted
+                    </span>
                   ) : (
-                    m.plan_accepted && (
-                      <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
-                        Accepted
+                    acceptedCount > 0 && (
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-800">
+                        {acceptedCount}/{m.plan_participant_count} accepted
                       </span>
                     )
                   )}
@@ -1213,10 +1104,37 @@ function MessageBubble({
               >
                 View plan ↗
               </button>
-              {amCoach && (
+              {/* Superseded: owner can clear it away. */}
+              {m.plan_deactivated ? (
+                amPlanOwner && (
+                  <button
+                    type="button"
+                    className="text-xs text-red-700 hover:underline"
+                    onClick={() => onDismissPlan(m.id)}
+                  >
+                    Dismiss
+                  </button>
+                )
+              ) : m.plan_accepted ? (
+                // Fully accepted = locked in. Owner can unlock (restarts it).
+                <span className="flex items-center gap-2 text-[11px] text-dewey-mute">
+                  🔒 Locked in
+                  {amPlanOwner && (
+                    <button
+                      type="button"
+                      className="text-xs text-dewey-accent hover:underline"
+                      onClick={() => onUnlockPlan(m.id)}
+                    >
+                      Unlock
+                    </button>
+                  )}
+                </span>
+              ) : (
+                // Proposed / awaiting: every participant accepts; owner manages it.
                 <>
-                  {/* Pending (not accepted, not superseded): full controls. */}
-                  {!m.plan_deactivated && !m.plan_accepted && (
+                  {iAccepted ? (
+                    <span className="text-xs text-green-700">✓ You accepted</span>
+                  ) : (
                     <button
                       type="button"
                       className="text-xs font-medium text-green-700 hover:underline"
@@ -1225,45 +1143,30 @@ function MessageBubble({
                       Accept
                     </button>
                   )}
-                  {!m.plan_deactivated && !m.plan_accepted && (
-                    <button
-                      type="button"
-                      className="text-xs text-dewey-accent hover:underline"
-                      onClick={() => onEditPlan(m.plan_id as number)}
-                    >
-                      Edit
-                    </button>
-                  )}
-                  {/* Copy is a harmless export — allowed unless superseded. */}
-                  {!m.plan_deactivated && (
-                    <button
-                      type="button"
-                      className="text-xs text-dewey-mute hover:text-dewey-ink"
-                      onClick={() => onCopyPlan(m.plan_id as number)}
-                    >
-                      Copy to my plans
-                    </button>
-                  )}
-                  {/* An accepted plan is locked in: unlock to edit/replace (restarts it). */}
-                  {m.plan_accepted ? (
-                    <span className="flex items-center gap-2 text-[11px] text-dewey-mute">
-                      🔒 Locked in
+                  {amPlanOwner && (
+                    <>
                       <button
                         type="button"
                         className="text-xs text-dewey-accent hover:underline"
-                        onClick={() => onUnlockPlan(m.id)}
+                        onClick={() => onEditPlan(m.plan_id as number)}
                       >
-                        Unlock
+                        Edit
                       </button>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="text-xs text-red-700 hover:underline"
-                      onClick={() => onDismissPlan(m.id)}
-                    >
-                      Dismiss
-                    </button>
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-mute hover:text-dewey-ink"
+                        onClick={() => onCopyPlan(m.plan_id as number)}
+                      >
+                        Copy to my plans
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-red-700 hover:underline"
+                        onClick={() => onDismissPlan(m.id)}
+                      >
+                        Dismiss
+                      </button>
+                    </>
                   )}
                 </>
               )}

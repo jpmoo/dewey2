@@ -25,19 +25,20 @@ export async function POST(
 
   const me = Number(session.user.id);
   const isAdmin = session.user.system_role === "admin";
+  const isCoach = session.user.system_role === "coach";
   const thread = await getThreadMeta(id);
-  if (!thread || thread.kind !== "partnership") {
-    return NextResponse.json({ error: "Not a partnership" }, { status: 404 });
+  if (!thread || thread.kind === "compliance") {
+    return NextResponse.json({ error: "Can't rename this conversation" }, { status: 404 });
   }
-  if (thread.created_by !== me && !isAdmin) {
-    return NextResponse.json({ error: "Only the coach or an admin can rename this." }, { status: 403 });
+  if (!isAdmin && !isCoach) {
+    return NextResponse.json({ error: "Only a coach or an admin can rename this." }, { status: 403 });
   }
 
   await setThreadSubject(id, subject);
   await logThreadEvent({
     userId: me,
     actorId: me,
-    action: "partnership_renamed",
+    action: "thread_renamed",
     threadId: id,
     detail: subject,
   });

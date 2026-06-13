@@ -58,13 +58,14 @@ export async function runDeweyForThread(params: {
   threadId: number;
   invokerId: number;
   invokerName: string;
+  invokerIsCoach: boolean;
   invokingMessage: string;
 }): Promise<void> {
-  const { threadId, invokerId, invokerName, invokingMessage } = params;
+  const { threadId, invokerId, invokerName, invokerIsCoach, invokingMessage } = params;
   const meta = await getThreadMeta(threadId);
   if (!meta) return;
-  const isPartnership = meta.kind === "partnership";
-  const coachId = meta.created_by; // plan owner, when present
+  // The invoking coach owns any plan @dewey attaches or builds.
+  const coachId = invokerId;
 
   // Inbound compliance on the message that invoked @dewey.
   const inbound = await complianceCheck(invokingMessage);
@@ -95,11 +96,10 @@ export async function runDeweyForThread(params: {
     })
     .join("\n");
 
-  // Only the coach (thread creator) may have @dewey suggest or build a plan —
-  // and only while no plan is locked in (an accepted plan is final).
-  const planLocked = isPartnership && (await threadHasAcceptedPlan(threadId));
-  const canSuggestPlans =
-    isPartnership && coachId != null && coachId === invokerId && !planLocked;
+  // Only a coach may have @dewey suggest or build a plan — and only while no plan
+  // is locked in (a fully-accepted plan is final).
+  const planLocked = await threadHasAcceptedPlan(threadId);
+  const canSuggestPlans = invokerIsCoach && !planLocked;
 
   // The most-recently attached plan. When it's a coach-owned partnership copy we
   // pass the FULL graph JSON (like the canvas) so @dewey can faithfully revise it

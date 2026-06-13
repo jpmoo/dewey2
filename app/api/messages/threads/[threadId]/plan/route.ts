@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
 import { addPlanToPartnership, logThreadEvent } from "@/lib/messages";
 
-/** Embed a plan in a partnership thread (coach only). Body: { sourcePlanId }. */
+/** Embed a plan in a thread (coach only). Body: { sourcePlanId }. */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
@@ -10,6 +10,9 @@ export async function POST(
   const guard = await requireUser();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
+  if (session.user.system_role !== "coach") {
+    return NextResponse.json({ error: "Only a coach can add a plan" }, { status: 403 });
+  }
   const { threadId } = await params;
   const id = parseInt(threadId, 10);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });

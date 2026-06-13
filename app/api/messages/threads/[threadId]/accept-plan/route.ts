@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { getThreadMeta, logThreadEvent } from "@/lib/messages";
+import { canAccessThread, logThreadEvent } from "@/lib/messages";
 import { getPool } from "@/lib/pg";
-import { acceptPartnershipPlan } from "@/lib/db";
+import { recordPlanAcceptance } from "@/lib/db";
 
-/** Accept an embedded partnership plan (makes it the active plan). Coach (creator) only. */
+/**
+ * Accept an embedded plan. Any thread participant accepts; once everyone has
+ * accepted, the plan locks in as the active plan.
+ */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
@@ -16,10 +19,10 @@ export async function POST(
   const id = parseInt(threadId, 10);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
-  const meta = await getThreadMeta(id);
   const me = Number(session.user.id);
-  if (!meta || meta.created_by !== me) {
-    return NextResponse.json({ error: "Only the coach can accept a plan" }, { status: 403 });
+  const isAdmin = session.user.system_role === "admin";
+  if (!(await canAccessThread(id, me, isAdmin))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const body = await request.json().catch(() => ({}));
@@ -37,9 +40,9 @@ export async function POST(
   const planId = res.rows[0]?.plan_id as number | null | undefined;
   if (planId == null) return NextResponse.json({ error: "Not a plan message" }, { status: 404 });
 
-  const accepted = await acceptPartnershipPlan(planId, me);
-  if (!accepted) return NextResponse.json({ error: "Couldn't accept that plan" }, { status: 400 });
+  const result = await recordPlanAcceptance(planId, me);
+  if (!result) return NextResponse.json({ error: "Couldn't accept that plan" }, { status: 400 });
 
   await logThreadEvent({ userId: me, actorId: me, action: "plan_accepted", threadId: id });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, locked: result.locked });
 }

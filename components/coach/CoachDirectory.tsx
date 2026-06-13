@@ -182,25 +182,25 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
   const [sending, setSending] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const startPartnership = async () => {
-    if (desc.trim().length < 10) {
-      setErr("Add a description (at least a sentence) so the partnership can be named.");
+  const startConversation = async () => {
+    if (desc.trim().length < 1) {
+      setErr("Write a first message.");
       return;
     }
     setSending(true);
     setErr(null);
     try {
-      await apiFetch("/api/coach/partnerships", {
+      await apiFetch("/api/messages/threads", {
         method: "POST",
-        body: { partnerIds: [partner.id], message: desc.trim() },
+        body: { recipientIds: [partner.id], message: desc.trim() },
       });
       onClose();
       await dialog.alert(
-        `Invitation sent to ${partner.full_name}. The partnership appears in your Partnerships tab once they accept.`,
-        { title: "Partnership started" }
+        `Message sent to ${partner.full_name}. Open it in your Message Center to chat and add a plan.`,
+        { title: "Conversation started" }
       );
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to start partnership");
+      setErr(e instanceof Error ? e.message : "Failed to start the conversation");
       setSending(false);
     }
   };
@@ -237,27 +237,19 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
           )}
         </dl>
 
-        <div className="mt-5">
-          <h4 className="text-sm font-medium text-dewey-ink">Your history with this partner</h4>
-          <p className="mt-1 text-xs text-dewey-mute">
-            No coaching history yet. Once partnerships are live, the arcs and activities you&apos;ve
-            run with this partner will appear here.
-          </p>
-        </div>
-
         <div className="mt-5 border-t border-dewey-border pt-4">
           {starting ? (
             <div className="space-y-2">
-              <label className="dewey-label">Partnership description</label>
+              <label className="dewey-label">Message</label>
               <textarea
                 className="dewey-input min-h-[80px]"
                 value={desc}
                 onChange={(e) => setDesc(e.target.value)}
-                placeholder="What this partnership is about — the focus, goal, or problem of practice…"
+                placeholder={`Start a conversation with ${partner.full_name.split(" ")[0]}…`}
                 autoFocus
               />
               <p className="text-xs text-dewey-mute">
-                Required. This becomes the first message and is used to name the partnership.
+                Opens a conversation in your Message Center, where you can chat and add a plan.
               </p>
               {err && <p className="text-sm text-red-600">{err}</p>}
               <div className="flex justify-end gap-2">
@@ -274,10 +266,10 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
                 <button
                   type="button"
                   className="dewey-btn-primary w-auto"
-                  onClick={startPartnership}
-                  disabled={sending || desc.trim().length < 10}
+                  onClick={startConversation}
+                  disabled={sending || desc.trim().length < 1}
                 >
-                  {sending ? "Sending…" : "Send invitation"}
+                  {sending ? "Sending…" : "Send message"}
                 </button>
               </div>
             </div>
@@ -288,7 +280,7 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
                 className="dewey-btn-primary w-auto"
                 onClick={() => setStarting(true)}
               >
-                Start a partnership
+                Message {partner.full_name.split(" ")[0]}
               </button>
               <button type="button" className="dewey-btn-secondary" onClick={onClose}>
                 Close

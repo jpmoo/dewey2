@@ -97,6 +97,7 @@ export async function POST(
       threadId: id,
       invokerId: me,
       invokerName: session.user.nickname || session.user.name || session.user.username || "A user",
+      invokerIsCoach: session.user.system_role === "coach",
       invokingMessage: body,
     }).catch((e) => console.warn("[dewey] failed", e instanceof Error ? e.message : e));
   }
