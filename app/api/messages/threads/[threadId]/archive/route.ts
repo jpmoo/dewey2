@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
 import { canAccessThread, logThreadEvent, setThreadArchived } from "@/lib/messages";
+import { threadHasLivePlan } from "@/lib/db";
 
 /** Archive or unarchive a thread for the signed-in user (their view only). */
 export async function POST(
@@ -23,7 +24,15 @@ export async function POST(
   const body = await request.json().catch(() => ({}));
   const archived = body.archived !== false;
 
-  // Archiving is per-user (their own view); anyone in the thread may do it.
+  // A partner can't archive away a conversation that still has an active plan.
+  if (archived && session.user.system_role === "partner" && (await threadHasLivePlan(id))) {
+    return NextResponse.json(
+      { error: "This conversation has an active plan — your coach can archive it." },
+      { status: 403 }
+    );
+  }
+
+  // Archiving is per-user (their own view); anyone else in the thread may do it.
   await setThreadArchived(id, userId, archived);
   await logThreadEvent({
     userId,

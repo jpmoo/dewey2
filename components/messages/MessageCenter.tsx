@@ -671,6 +671,12 @@ export function ThreadPane({
   // An accepted plan that's still in progress (not finished/abandoned) blocks
   // adding a new one. A terminal plan frees the coach to add the next.
   const hasActivePlan = messages.some((m) => m.plan_accepted && !m.plan_outcome && !m.plan_deactivated);
+  // A live plan = the current (non-superseded, non-terminal) one, pending or
+  // accepted. A partner can't archive a conversation while one exists.
+  const hasLivePlan = messages.some(
+    (m) => m.plan_id != null && !m.plan_deactivated && m.plan_outcome == null
+  );
+  const iAmPartner = !iAmCoach && !isAdmin;
 
   const toggleArchive = async () => {
     if (
@@ -987,11 +993,13 @@ export function ThreadPane({
             {iAmCoach && !hasActivePlan && (
               <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
             )}
-            <PlanPill
-              icon="🗄️"
-              label={archived ? "Unarchive" : "Archive"}
-              onClick={toggleArchive}
-            />
+            {!(iAmPartner && hasLivePlan && !archived) && (
+              <PlanPill
+                icon="🗄️"
+                label={archived ? "Unarchive" : "Archive"}
+                onClick={toggleArchive}
+              />
+            )}
           </div>
         </div>
         {thread && thread.participants.length > 0 && (

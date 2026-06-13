@@ -1267,6 +1267,24 @@ export async function threadHasAcceptedPlan(threadId: number): Promise<boolean> 
 }
 
 /**
+ * Whether a thread has a LIVE plan — the current (non-superseded, non-terminal)
+ * one, whether pending or accepted. Used to stop a partner from archiving a
+ * conversation that still has an active plan.
+ */
+export async function threadHasLivePlan(threadId: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT 1 FROM coaching_templates
+      WHERE thread_id = $1 AND scope = 'partnership'
+        AND deleted_at IS NULL AND deactivated_at IS NULL AND outcome IS NULL
+      LIMIT 1`,
+    [threadId]
+  );
+  return res.rows.length > 0;
+}
+
+/**
  * Mark an accepted plan finished or abandoned (or back to in-progress with null).
  * The plan's owner (the coach who added it) only; the plan must be accepted.
  */
