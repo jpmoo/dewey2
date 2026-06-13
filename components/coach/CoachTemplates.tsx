@@ -476,23 +476,22 @@ function Group({
                       {badge}
                     </span>
                   )}
-                  {t.submission_status && (
+                  {/* Pending/rejected submissions are useful to the coach; an
+                      approved plan instead shows credit (see below) — no badge. */}
+                  {(t.submission_status === "open" || t.submission_status === "rejected") && (
                     <span
                       className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
-                        t.submission_status === "approved"
-                          ? "bg-green-100 text-green-800"
-                          : t.submission_status === "rejected"
+                        t.submission_status === "rejected"
                           ? "bg-red-100 text-red-700"
                           : "bg-amber-100 text-amber-800"
                       }`}
                       title="District-submission status"
                     >
-                      {t.submission_status === "approved"
-                        ? "Approved"
-                        : t.submission_status === "rejected"
-                        ? "Rejected"
-                        : "Pending review"}
+                      {t.submission_status === "rejected" ? "Rejected" : "Pending review"}
                     </span>
+                  )}
+                  {t.scope === "global" && t.owner_name && (
+                    <span className="text-[11px] text-dewey-mute">Submitted by {t.owner_name}</span>
                   )}
                 </div>
                 {t.description && (

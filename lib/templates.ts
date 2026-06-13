@@ -68,6 +68,8 @@ export interface CoachingTemplate {
   scope: TemplateScope;
   /** The coach who owns a personal template; null for global/admin templates. */
   owner_id: number | null;
+  /** Full name of the owner (provenance / credit), when joined. */
+  owner_name?: string | null;
   created_by: number | null;
   created_at: string;
   updated_at: string;

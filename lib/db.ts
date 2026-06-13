@@ -1130,6 +1130,7 @@ function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
       ? row.scope
       : "global") as TemplateScope),
     owner_id: (row.owner_id as number | null) ?? null,
+    owner_name: (row.owner_name as string | null) ?? null,
     created_by: (row.created_by as number | null) ?? null,
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
@@ -1162,12 +1163,13 @@ export async function getTemplatesForCoach(coachId: number): Promise<CoachingTem
   // district-submission thread for the plan (so approve/reject in the message
   // center shows up here too).
   const res = await pool.query(
-    `SELECT ct.*,
+    `SELECT ct.*, ou.full_name AS owner_name,
             (SELECT st.status FROM message_threads st
               WHERE st.kind = 'template_submission' AND st.template_id = ct.id
                 AND st.deleted_at IS NULL
               ORDER BY st.created_at DESC LIMIT 1) AS submission_status
        FROM coaching_templates ct
+       LEFT JOIN users ou ON ou.id = ct.owner_id
       WHERE ct.deleted_at IS NULL
         AND (ct.scope = 'global' OR (ct.scope = 'personal' AND ct.owner_id = $1))
       ORDER BY ct.scope = 'global' DESC, ct.name`,

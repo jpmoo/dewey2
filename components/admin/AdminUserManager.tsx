@@ -90,6 +90,7 @@ const ACTION_LABELS: Record<string, string> = {
   settings_updated: "Updated system settings",
   template_created: "Created a plan",
   template_updated: "Edited a plan",
+  template_published: "Published a plan to global",
   template_deleted: "Deleted a plan",
   template_duplicated: "Duplicated a plan",
   template_shared: "Shared a plan",

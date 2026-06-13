@@ -6,6 +6,35 @@ import { apiFetch } from "@/lib/api-client";
 import { useDialog } from "@/components/DialogProvider";
 import type { CoachingTemplate } from "@/lib/templates";
 
+const ADMIN_BASE = "/api/admin/templates";
+
+/** Accent pill action used on plan cards — matches the coach canvas pills. */
+function CardPill({
+  icon,
+  label,
+  onClick,
+  disabled,
+  title,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10 disabled:opacity-50"
+    >
+      <span aria-hidden>{icon}</span> {label}
+    </button>
+  );
+}
+
 // The canvas pulls in React Flow (browser-only), so load it client-side only.
 const TemplateCanvas = dynamic(
   () => import("./TemplateCanvas").then((m) => m.TemplateCanvas),
@@ -20,20 +49,22 @@ function CanvasLoading() {
   );
 }
 
+/**
+ * Admin Coaching Canvas. The admin builds plans as drafts, then publishes them to
+ * the global library (no approval needed). Global plans are editable here too.
+ * Coach submissions still flow through the approval panel.
+ */
 export function AdminTemplates() {
   const dialog = useDialog();
   const [templates, setTemplates] = useState<CoachingTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // number = edit existing; "new" = unsaved draft; null = list view.
   const [editing, setEditing] = useState<number | "new" | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const { templates } = await apiFetch<{ templates: CoachingTemplate[] }>(
-        "/api/admin/templates"
-      );
+      const { templates } = await apiFetch<{ templates: CoachingTemplate[] }>(ADMIN_BASE);
       setTemplates(templates);
       setError(null);
     } catch (e) {
@@ -47,24 +78,43 @@ export function AdminTemplates() {
     load();
   }, [load]);
 
-  // Open a blank canvas; nothing is persisted until the user hits Save.
-  const createNew = useCallback(() => setEditing("new"), []);
-
   const remove = useCallback(
     async (t: CoachingTemplate) => {
       if (
         !(await dialog.confirm(
-          `Delete "${t.name}"? It will be hidden from coaches but recoverable from the audit log.`,
+          `Delete "${t.name}"? It will be hidden but recoverable from the audit log.`,
           { title: "Delete plan", confirmText: "Delete", danger: true }
         ))
       )
         return;
       setBusy(true);
       try {
-        await apiFetch(`/api/admin/templates/${t.id}`, { method: "DELETE" });
+        await apiFetch(`${ADMIN_BASE}/${t.id}`, { method: "DELETE" });
         await load();
       } catch (e) {
         dialog.alert(e instanceof Error ? e.message : "Failed to delete plan");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, dialog]
+  );
+
+  const publish = useCallback(
+    async (t: CoachingTemplate) => {
+      if (
+        !(await dialog.confirm(
+          `Publish "${t.name}" to the global library? It becomes available to every coach district-wide.`,
+          { title: "Publish plan", confirmText: "Publish" }
+        ))
+      )
+        return;
+      setBusy(true);
+      try {
+        await apiFetch(`${ADMIN_BASE}/${t.id}/publish`, { method: "POST" });
+        await load();
+      } catch (e) {
+        dialog.alert(e instanceof Error ? e.message : "Failed to publish plan");
       } finally {
         setBusy(false);
       }
@@ -84,18 +134,26 @@ export function AdminTemplates() {
     );
   }
 
+  const drafts = templates.filter((t) => t.scope === "personal");
+  const global = templates.filter((t) => t.scope === "global");
+
   return (
     <section>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Coaching plans</h2>
-          <p className="text-sm text-dewey-mute">
-            Reusable arcs of activities and phases, available to all coaches.
-          </p>
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">Coaching Canvas</h2>
+        <p className="text-sm text-dewey-mute">
+          Build plans as drafts, then publish them to the global library for all coaches.
+        </p>
+        <div className="mt-3 flex justify-center">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10 disabled:opacity-50"
+            onClick={() => setEditing("new")}
+            disabled={busy}
+          >
+            <span aria-hidden>🗂️</span> New plan
+          </button>
         </div>
-        <button type="button" className="dewey-btn-secondary" onClick={createNew} disabled={busy}>
-          + New plan
-        </button>
       </div>
 
       <SubmissionsPanel onDecided={load} />
@@ -104,53 +162,99 @@ export function AdminTemplates() {
         <p className="text-dewey-mute">Loading plans…</p>
       ) : error ? (
         <p className="text-red-600">{error}</p>
-      ) : templates.length === 0 ? (
-        <p className="text-sm text-dewey-mute py-4">
-          No plans yet. Create one to start building on the canvas.
-        </p>
+      ) : (
+        <div className="space-y-6">
+          <Group
+            title="Draft Plans"
+            empty="No drafts yet. Start a new plan, then publish it when it's ready."
+            items={drafts}
+            onOpen={(t) => setEditing(t.id)}
+            renderActions={(t) => (
+              <>
+                <CardPill icon="✏️" label="Edit" onClick={() => setEditing(t.id)} />
+                <CardPill
+                  icon="🌐"
+                  label="Publish to global"
+                  onClick={() => publish(t)}
+                  disabled={busy}
+                />
+                <CardPill icon="🗑️" label="Delete" onClick={() => remove(t)} disabled={busy} />
+              </>
+            )}
+          />
+
+          <Group
+            title="Global plans"
+            empty="No global plans yet."
+            items={global}
+            onOpen={(t) => setEditing(t.id)}
+            renderActions={(t) => (
+              <>
+                <CardPill icon="✏️" label="Edit" onClick={() => setEditing(t.id)} />
+                <CardPill icon="🗑️" label="Delete" onClick={() => remove(t)} disabled={busy} />
+              </>
+            )}
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Group({
+  title,
+  empty,
+  items,
+  renderActions,
+  onOpen,
+}: {
+  title: string;
+  empty: string;
+  items: CoachingTemplate[];
+  renderActions: (t: CoachingTemplate) => React.ReactNode;
+  onOpen: (t: CoachingTemplate) => void;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 text-sm font-semibold text-dewey-ink">{title}</h3>
+      {items.length === 0 ? (
+        <p className="py-2 text-sm text-dewey-mute">{empty}</p>
       ) : (
         <ul className="space-y-2">
-          {templates.map((t) => (
+          {items.map((t) => (
             <li
               key={t.id}
-              className="flex items-center justify-between gap-3 p-3 rounded-lg border border-dewey-border bg-dewey-surface"
+              className="flex items-center justify-between gap-3 rounded-lg border border-dewey-border bg-dewey-surface p-3"
             >
               <button
                 type="button"
-                className="min-w-0 text-left flex-1 cursor-pointer"
-                onClick={() => setEditing(t.id)}
+                className="min-w-0 flex-1 cursor-pointer text-left"
+                onClick={() => onOpen(t)}
               >
-                <div className="font-medium">{t.name}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{t.name}</span>
+                  {t.scope === "global" && t.owner_name && (
+                    <span className="text-[11px] text-dewey-mute">
+                      Submitted by {t.owner_name}
+                    </span>
+                  )}
+                </div>
                 {t.description && (
-                  <div className="text-xs text-dewey-mute truncate">{t.description}</div>
+                  <div className="whitespace-pre-wrap text-xs text-dewey-mute">{t.description}</div>
                 )}
                 <div className="text-xs text-dewey-mute">
                   {t.graph.nodes.length} activit{t.graph.nodes.length === 1 ? "y" : "ies"} ·{" "}
                   {t.graph.phases.length} phase{t.graph.phases.length === 1 ? "" : "s"}
                 </div>
               </button>
-              <div className="flex items-center gap-3 shrink-0">
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline"
-                  onClick={() => setEditing(t.id)}
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  className="text-xs text-red-700 hover:underline disabled:opacity-50"
-                  onClick={() => remove(t)}
-                  disabled={busy}
-                >
-                  Delete
-                </button>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                {renderActions(t)}
               </div>
             </li>
           ))}
         </ul>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -187,15 +291,12 @@ function SubmissionsPanel({ onDecided }: { onDecided: () => void }) {
   const decide = useCallback(
     async (s: Submission, decision: "approve" | "reject") => {
       const verb = decision === "approve" ? "Approve" : "Reject";
-      const message = await dialog.prompt(
-        `Optional reply to ${s.coach_name ?? "the coach"}:`,
-        {
-          title: `${verb} "${s.template_name ?? "plan"}"`,
-          multiline: true,
-          confirmText: verb,
-          placeholder: "Add a note (optional)…",
-        }
-      );
+      const message = await dialog.prompt(`Optional reply to ${s.coach_name ?? "the coach"}:`, {
+        title: `${verb} "${s.template_name ?? "plan"}"`,
+        multiline: true,
+        confirmText: verb,
+        placeholder: "Add a note (optional)…",
+      });
       // Cancel on the prompt aborts the decision.
       if (message === null) return;
       setBusyId(s.thread_id);
@@ -233,8 +334,7 @@ function SubmissionsPanel({ onDecided }: { onDecided: () => void }) {
                 {s.template_name ?? "Untitled template"}
               </div>
               <div className="text-xs text-dewey-mute">
-                from {s.coach_name ?? "a coach"} ·{" "}
-                {new Date(s.created_at).toLocaleDateString()}
+                from {s.coach_name ?? "a coach"} · {new Date(s.created_at).toLocaleDateString()}
               </div>
               {s.message && (
                 <div className="mt-1 text-xs text-dewey-ink line-clamp-2">{s.message}</div>
