@@ -6,6 +6,7 @@ import {
   logUserEvent,
   updateCoachTemplate,
 } from "@/lib/db";
+import { logThreadEvent } from "@/lib/messages";
 import type { TemplateGraph } from "@/lib/templates";
 
 function parseId(templateId: string): number | null {
@@ -77,6 +78,16 @@ export async function PATCH(
     entityId: template.id,
     entityLabel: template.name,
   });
+  // Partnership-plan edits also surface in the partnership thread's log.
+  if (template.thread_id != null) {
+    await logThreadEvent({
+      userId: coachId,
+      actorId: coachId,
+      action: "plan_edited",
+      threadId: template.thread_id,
+      detail: template.name,
+    });
+  }
   return NextResponse.json({ template });
 }
 

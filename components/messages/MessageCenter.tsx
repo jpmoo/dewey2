@@ -774,8 +774,29 @@ export function ThreadPane({
     [dialog, threadId, fetchThread]
   );
 
+  const editPlan = useCallback(
+    async (planId: number) => {
+      if (
+        !(await dialog.confirm("Edit this plan? Your changes update the partnership's copy.", {
+          title: "Edit plan",
+          confirmText: "Edit",
+        }))
+      )
+        return;
+      setEditPlanId(planId);
+    },
+    [dialog]
+  );
+
   const copyPlan = useCallback(
     async (planId: number) => {
+      if (
+        !(await dialog.confirm("Copy this plan into your personal plan library?", {
+          title: "Copy plan",
+          confirmText: "Copy",
+        }))
+      )
+        return;
       try {
         await apiFetch(`/api/coach/templates/${planId}/duplicate`, { method: "POST" });
         await dialog.alert("Copied to your plans — find it under the Coaching Canvas.", {
@@ -909,7 +930,7 @@ export function ThreadPane({
                 onViewPlan={(planId) => setViewPlanId(planId)}
                 onAcceptPlan={acceptPlan}
                 onUnlockPlan={unlockPlan}
-                onEditPlan={(planId) => setEditPlanId(planId)}
+                onEditPlan={editPlan}
                 onCopyPlan={copyPlan}
                 onDismissPlan={dismissPlan}
                 onReply={(t) => setReplyTarget(t)}
