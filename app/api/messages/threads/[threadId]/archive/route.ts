@@ -24,10 +24,11 @@ export async function POST(
   const body = await request.json().catch(() => ({}));
   const archived = body.archived !== false;
 
-  // A partner can't archive away a conversation that still has an active plan.
-  if (archived && session.user.system_role === "partner" && (await threadHasLivePlan(id))) {
+  // No one but an admin can archive a conversation that still has an active plan
+  // — finish or abandon the plan first.
+  if (archived && session.user.system_role !== "admin" && (await threadHasLivePlan(id))) {
     return NextResponse.json(
-      { error: "This conversation has an active plan — your coach can archive it." },
+      { error: "This conversation has an active plan — finish or abandon it before archiving." },
       { status: 403 }
     );
   }

@@ -16,6 +16,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid source path" }, { status: 400 });
   }
 
+  // Some RAG sources are indexed web pages: the fetch path embeds the original
+  // URL (e.g. /fetch/group/https%3A/example.com/...). Send the user straight to
+  // the real page rather than proxying it (the proxy mangles the embedded URL).
+  const embedded = path.match(/^\/fetch\/[^/]+\/(https?(?::|%3A).+)$/i);
+  if (embedded) {
+    let raw = embedded[1];
+    try {
+      raw = decodeURIComponent(raw);
+    } catch {
+      /* use as-is */
+    }
+    const u = raw.match(/^(https?):\/{1,2}(.+)$/i);
+    if (u) return NextResponse.redirect(`${u[1].toLowerCase()}://${u[2]}`);
+  }
+
   const url = (await getSystemSettings()).rag_url?.trim() ?? "";
   if (!url) return NextResponse.json({ error: "RAGDoll is not configured" }, { status: 400 });
 
