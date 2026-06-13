@@ -971,9 +971,20 @@ export function ThreadPane({
           </div>
         </div>
         {thread && thread.participants.length > 0 && (
-          <div className="mt-2">
-            <ParticipantAvatars participants={thread.participants} size={30} />
-          </div>
+          <p className="mt-1 truncate text-xs text-dewey-mute">
+            {thread.participants.map((p, i) => {
+              const isCoach = p.system_role === "coach";
+              return (
+                <span key={p.id}>
+                  {i > 0 && ", "}
+                  <span className={isCoach ? "font-semibold text-dewey-accent" : ""}>
+                    {p.nickname || p.full_name}
+                    {isCoach && " (coach)"}
+                  </span>
+                </span>
+              );
+            })}
+          </p>
         )}
       </div>
 
