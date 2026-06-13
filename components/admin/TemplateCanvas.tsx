@@ -56,6 +56,48 @@ const ARROW = { type: MarkerType.ArrowClosed, width: 22, height: 22 } as const;
 const NODE_W = 170;
 const NODE_H = 64;
 
+/**
+ * Choose sensible source/target handles for an edge from the two nodes' relative
+ * positions: flow out the side that faces the target and in the opposite side
+ * (e.g. a node directly below connects bottom→top). Every node exposes top/left/
+ * right/bottom handles, so this keeps edges from wrapping around. Explicit
+ * handles saved by a user override this.
+ */
+function pickHandles(
+  sp: { x: number; y: number } | undefined,
+  tp: { x: number; y: number } | undefined
+): { sourceHandle: string; targetHandle: string } {
+  if (!sp || !tp) return { sourceHandle: "bottom", targetHandle: "top" };
+  const dx = tp.x - sp.x;
+  const dy = tp.y - sp.y;
+  if (Math.abs(dy) >= Math.abs(dx)) {
+    return dy >= 0
+      ? { sourceHandle: "bottom", targetHandle: "top" }
+      : { sourceHandle: "top", targetHandle: "bottom" };
+  }
+  return dx >= 0
+    ? { sourceHandle: "right", targetHandle: "left" }
+    : { sourceHandle: "left", targetHandle: "right" };
+}
+
+/** Map graph edges to React Flow edges, filling in geometry-based handles when absent. */
+function toFlowEdges(
+  edges: { id: string; source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null }[],
+  posById: Map<string, { x: number; y: number }>
+): Edge[] {
+  return edges.map((e) => {
+    const auto = pickHandles(posById.get(e.source), posById.get(e.target));
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      sourceHandle: e.sourceHandle ?? auto.sourceHandle,
+      targetHandle: e.targetHandle ?? auto.targetHandle,
+      markerEnd: ARROW,
+    };
+  });
+}
+
 function rgba(hex: string, a: number): string {
   const m = hex.replace("#", "");
   const r = parseInt(m.slice(0, 2), 16);
@@ -293,18 +335,10 @@ function CanvasInner({
       }),
     [template]
   );
-  const initialEdges: Edge[] = useMemo(
-    () =>
-      (template.graph.edges ?? []).map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle ?? undefined,
-        targetHandle: e.targetHandle ?? undefined,
-        markerEnd: ARROW,
-      })),
-    [template]
-  );
+  const initialEdges: Edge[] = useMemo(() => {
+    const posById = new Map((template.graph.nodes ?? []).map((n) => [n.id, n.position]));
+    return toFlowEdges(template.graph.edges ?? [], posById);
+  }, [template]);
 
   const [nodes, setNodes] = useNodesState<Node<ActivityNodeData>>(initialNodes);
 
@@ -606,16 +640,7 @@ function CanvasInner({
           };
         })
       );
-      setEdges(
-        (g.edges ?? []).map((e) => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          sourceHandle: e.sourceHandle ?? undefined,
-          targetHandle: e.targetHandle ?? undefined,
-          markerEnd: ARROW,
-        }))
-      );
+      setEdges(toFlowEdges(g.edges ?? [], new Map((g.nodes ?? []).map((n) => [n.id, n.position]))));
     },
     [setNodes, setEdges]
   );
@@ -664,17 +689,19 @@ function CanvasInner({
         };
       });
 
+      const addedPos = new Map(addedNodes.map((n) => [n.id, n.position]));
       const addedEdges: Edge[] = (g.edges ?? [])
         .map((e): Edge | null => {
           const source = idMap.get(e.source);
           const target = idMap.get(e.target);
           if (!source || !target) return null;
+          const auto = pickHandles(addedPos.get(source), addedPos.get(target));
           return {
             id: newId("e"),
             source,
             target,
-            sourceHandle: e.sourceHandle ?? undefined,
-            targetHandle: e.targetHandle ?? undefined,
+            sourceHandle: e.sourceHandle ?? auto.sourceHandle,
+            targetHandle: e.targetHandle ?? auto.targetHandle,
             markerEnd: ARROW,
           };
         })
@@ -1627,18 +1654,10 @@ function PreviewModal({
       }),
     [graph]
   );
-  const edges: Edge[] = useMemo(
-    () =>
-      (graph.edges ?? []).map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle ?? undefined,
-        targetHandle: e.targetHandle ?? undefined,
-        markerEnd: ARROW,
-      })),
-    [graph]
-  );
+  const edges: Edge[] = useMemo(() => {
+    const posById = new Map((graph.nodes ?? []).map((n) => [n.id, n.position]));
+    return toFlowEdges(graph.edges ?? [], posById);
+  }, [graph]);
 
   return (
     <div
@@ -1663,6 +1682,7 @@ function PreviewModal({
               edges={edges}
               nodeTypes={nodeTypes}
               colorMode={colorMode}
+              connectionMode={ConnectionMode.Loose}
               nodesDraggable={false}
               nodesConnectable={false}
               elementsSelectable={false}
@@ -1868,18 +1888,10 @@ export function TemplateReadOnly({
       }),
     [graph, progressByNode]
   );
-  const edges: Edge[] = useMemo(
-    () =>
-      (graph.edges ?? []).map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle ?? undefined,
-        targetHandle: e.targetHandle ?? undefined,
-        markerEnd: ARROW,
-      })),
-    [graph]
-  );
+  const edges: Edge[] = useMemo(() => {
+    const posById = new Map((graph.nodes ?? []).map((n) => [n.id, n.position]));
+    return toFlowEdges(graph.edges ?? [], posById);
+  }, [graph]);
 
   if (error) {
     return (
@@ -1939,6 +1951,7 @@ export function TemplateReadOnly({
             edges={edges}
             nodeTypes={nodeTypes}
             colorMode={colorMode}
+            connectionMode={ConnectionMode.Loose}
             nodesDraggable={false}
             nodesConnectable={false}
             elementsSelectable={false}
