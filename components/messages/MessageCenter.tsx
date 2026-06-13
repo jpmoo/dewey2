@@ -1312,11 +1312,7 @@ function MessageBubble({
         ) : (
           <div
             className={`rounded-lg px-3 py-2 text-sm ${
-              m.is_ai
-                ? "bg-dewey-accent/10 text-dewey-ink"
-                : mine
-                ? "bg-dewey-accent/15 text-dewey-ink"
-                : "bg-dewey-surface text-dewey-ink"
+              mine ? "bg-dewey-accent/15 text-dewey-ink" : "bg-dewey-surface text-dewey-ink"
             } border border-dewey-border`}
           >
             {m.body &&
