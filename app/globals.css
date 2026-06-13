@@ -194,3 +194,18 @@ code {
 .dewey-canvas.connecting .react-flow__handle {
   opacity: 1 !important;
 }
+
+/* Canvas control panel (zoom / fit / lock / clear): force readable contrast in
+   dark mode using the theme palette. (Inline fill:none on the custom buttons
+   still wins, so outlined icons stay outlined.) */
+.dark .react-flow__controls-button {
+  background: rgb(var(--dewey-surface));
+  border-bottom: 1px solid rgb(var(--dewey-border));
+  color: rgb(var(--dewey-ink));
+}
+.dark .react-flow__controls-button:hover {
+  background: rgb(var(--dewey-surface-2));
+}
+.dark .react-flow__controls-button svg {
+  fill: rgb(var(--dewey-ink));
+}

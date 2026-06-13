@@ -969,12 +969,13 @@ function CanvasInner({
             panOnScroll
             selectionMode={SelectionMode.Partial}
             fitView
+            fitViewOptions={{ padding: 0.2, maxZoom: 0.85 }}
             proOptions={{ hideAttribution: true }}
           >
             <PhaseClouds phases={phases} onEditPhase={setEditingPhaseId} />
             <Background />
             <HelperLines horizontal={helperLineH} vertical={helperLineV} />
-            <Controls>
+            <Controls fitViewOptions={{ padding: 0.2, maxZoom: 0.85 }}>
               <ControlButton onClick={clearCanvas} title="Clear canvas">
                 {/* Inline fill:none overrides React Flow's default
                     `.react-flow__controls-button svg { fill: currentColor }`,
@@ -1727,6 +1728,7 @@ function PreviewModal({
               nodesConnectable={false}
               elementsSelectable={false}
               fitView
+              fitViewOptions={{ padding: 0.2, maxZoom: 0.85 }}
               proOptions={{ hideAttribution: true }}
             >
               <PhaseClouds phases={graph.phases ?? []} />
@@ -2030,7 +2032,7 @@ export function TemplateReadOnly({
               }}
             />
             <Background />
-            <Controls showInteractive={false} />
+            <Controls showInteractive={false} fitViewOptions={{ padding: 0.28, maxZoom: 0.85 }} />
           </ReactFlow>
         </ReactFlowProvider>
       </div>
