@@ -1960,11 +1960,6 @@ export function TemplateReadOnly({
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {onDuplicate && (
-            <span className="hidden sm:inline text-xs text-dewey-mute">
-              Locked — duplicate to make changes
-            </span>
-          )}
-          {onDuplicate && (
             <button
               type="button"
               className="dewey-btn-primary w-auto"

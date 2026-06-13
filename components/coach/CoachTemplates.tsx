@@ -8,6 +8,33 @@ import type { CoachingTemplate } from "@/lib/templates";
 
 const COACH_BASE = "/api/coach/templates";
 
+/** Accent pill action used on plan cards — matches the message-center plan pills. */
+function CardPill({
+  icon,
+  label,
+  onClick,
+  disabled,
+  title,
+}: {
+  icon: string;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10 disabled:opacity-50"
+    >
+      <span aria-hidden>{icon}</span> {label}
+    </button>
+  );
+}
+
 // React Flow is browser-only, so load the canvas components client-side.
 const TemplateCanvas = dynamic(
   () => import("@/components/admin/TemplateCanvas").then((m) => m.TemplateCanvas),
@@ -165,44 +192,16 @@ export function CoachTemplates() {
             items={mine}
             renderActions={(t) => (
               <>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline"
-                  onClick={() => setEditing(t.id)}
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline"
-                  onClick={() => setSharing(t)}
-                >
-                  Share
-                </button>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline"
+                <CardPill icon="✏️" label="Edit" onClick={() => setEditing(t.id)} />
+                <CardPill icon="🔗" label="Share" onClick={() => setSharing(t)} />
+                <CardPill
+                  icon="📤"
+                  label="Submit"
                   onClick={() => setSubmitting(t)}
                   title="Submit for district-wide consideration"
-                >
-                  Submit
-                </button>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline disabled:opacity-50"
-                  onClick={() => duplicate(t.id)}
-                  disabled={busy}
-                >
-                  Duplicate
-                </button>
-                <button
-                  type="button"
-                  className="text-xs text-red-700 hover:underline disabled:opacity-50"
-                  onClick={() => remove(t)}
-                  disabled={busy}
-                >
-                  Delete
-                </button>
+                />
+                <CardPill icon="📋" label="Duplicate" onClick={() => duplicate(t.id)} disabled={busy} />
+                <CardPill icon="🗑️" label="Delete" onClick={() => remove(t)} disabled={busy} />
               </>
             )}
             onOpen={(t) => setEditing(t.id)}
@@ -215,28 +214,9 @@ export function CoachTemplates() {
             badge="Read-only"
             renderActions={(t) => (
               <>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline"
-                  onClick={() => setViewing(t.id)}
-                >
-                  View
-                </button>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline"
-                  onClick={() => setSharing(t)}
-                >
-                  Share
-                </button>
-                <button
-                  type="button"
-                  className="text-xs text-dewey-accent hover:underline disabled:opacity-50"
-                  onClick={() => duplicate(t.id)}
-                  disabled={busy}
-                >
-                  Duplicate
-                </button>
+                <CardPill icon="🗂️" label="View" onClick={() => setViewing(t.id)} />
+                <CardPill icon="🔗" label="Share" onClick={() => setSharing(t)} />
+                <CardPill icon="📋" label="Duplicate" onClick={() => duplicate(t.id)} disabled={busy} />
               </>
             )}
             onOpen={(t) => setViewing(t.id)}
@@ -523,7 +503,9 @@ function Group({
                   {t.graph.phases.length} phase{t.graph.phases.length === 1 ? "" : "s"}
                 </div>
               </button>
-              <div className="flex shrink-0 items-center gap-3">{renderActions(t)}</div>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+                {renderActions(t)}
+              </div>
             </li>
           ))}
         </ul>
