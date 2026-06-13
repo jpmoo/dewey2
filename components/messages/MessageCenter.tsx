@@ -32,6 +32,9 @@ type MessageView = {
   plan_name: string | null;
   plan_phase: string | null;
   is_ai: boolean;
+  reply_to: number | null;
+  reply_excerpt: string | null;
+  reply_sender: string | null;
 };
 type ThreadSummary = {
   id: number;
@@ -55,6 +58,8 @@ type Invitation = {
   member_names: string[];
   created_at: string;
 };
+
+type ReplyTarget = { id: number; sender: string; excerpt: string; isAi: boolean };
 
 const STATUS_BADGE: Record<string, string> = {
   open: "bg-amber-100 text-amber-800",
@@ -602,6 +607,8 @@ export function ThreadPane({
   const stick = useRef(true);
   // Show a typing indicator while an @dewey reply is being generated.
   const [deweyThinking, setDeweyThinking] = useState(false);
+  // iMessage-style reply target.
+  const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   // Partnership-plan UI.
   const [picking, setPicking] = useState(false);
   const [openPlan, setOpenPlan] = useState<{ id: number; name: string; phase: string | null } | null>(
@@ -813,6 +820,7 @@ export function ThreadPane({
                 onPreview={onPreview}
                 onOpenPlan={(p) => setOpenPlan(p)}
                 onDismissPlan={dismissPlan}
+                onReply={(t) => setReplyTarget(t)}
               />
             ))
           )}
@@ -845,7 +853,12 @@ export function ThreadPane({
       ) : (
         <Composer
           threadId={threadId}
-          onSent={onSent}
+          replyTarget={replyTarget}
+          onClearReply={() => setReplyTarget(null)}
+          onSent={() => {
+            setReplyTarget(null);
+            onSent();
+          }}
           onRefresh={() => fetchThread(false)}
           onDeweyPending={(pending) => {
             setDeweyThinking(pending);
@@ -883,6 +896,7 @@ function MessageBubble({
   onPreview,
   onOpenPlan,
   onDismissPlan,
+  onReply,
 }: {
   message: MessageView;
   mine: boolean;
@@ -890,10 +904,12 @@ function MessageBubble({
   onPreview: (a: AttachmentMeta) => void;
   onOpenPlan: (p: { id: number; name: string; phase: string | null }) => void;
   onDismissPlan: (messageId: number) => void;
+  onReply: (t: ReplyTarget) => void;
 }) {
+  const senderLabel = m.is_ai ? "@dewey" : m.sender_name ?? "Unknown";
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[min(75%,620px)] ${mine ? "items-end" : "items-start"}`}>
+      <div className={`flex max-w-[min(75%,620px)] flex-col ${mine ? "items-end" : "items-start"}`}>
         <div className="mb-0.5 flex items-center gap-1.5 text-[11px] text-dewey-mute">
           {m.is_ai ? (
             <span className="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-dewey-accent/20 text-[11px]">
@@ -902,11 +918,16 @@ function MessageBubble({
           ) : (
             <Avatar userId={m.sender_id} name={m.sender_name} size={18} />
           )}
-          <span className="font-medium text-dewey-ink">
-            {m.is_ai ? "@dewey" : m.sender_name ?? "Unknown"}
-          </span>
+          <span className="font-medium text-dewey-ink">{senderLabel}</span>
           <span>{new Date(m.created_at).toLocaleString()}</span>
         </div>
+        {/* Quoted reply target (iMessage-style). */}
+        {m.reply_to != null && m.reply_excerpt != null && (
+          <div className="mb-1 max-w-full truncate rounded-md border-l-2 border-dewey-accent/50 bg-dewey-surface-2 px-2 py-1 text-[11px] text-dewey-mute">
+            <span className="font-medium text-dewey-ink">↩ {m.reply_sender}: </span>
+            {m.reply_excerpt}
+          </div>
+        )}
         {m.plan_id != null ? (
           // Specialized plan bubble.
           <div className="rounded-lg border border-dewey-accent/40 bg-dewey-accent/5 p-3">
@@ -973,6 +994,23 @@ function MessageBubble({
             )}
           </div>
         )}
+        {/* Reply link beneath messages from others (incl. @dewey). */}
+        {!mine && (
+          <button
+            type="button"
+            className="mt-0.5 text-[11px] text-dewey-mute hover:text-dewey-accent"
+            onClick={() =>
+              onReply({
+                id: m.id,
+                sender: senderLabel,
+                excerpt: (m.body || (m.plan_id ? `Plan: ${m.plan_name ?? ""}` : "")).slice(0, 120),
+                isAi: m.is_ai,
+              })
+            }
+          >
+            {m.is_ai ? "Reply to @dewey" : "Reply"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1027,11 +1065,15 @@ type AddableUser = { id: number; full_name: string; username: string; system_rol
 
 function Composer({
   threadId,
+  replyTarget,
+  onClearReply,
   onSent,
   onRefresh,
   onDeweyPending,
 }: {
   threadId: number;
+  replyTarget: ReplyTarget | null;
+  onClearReply: () => void;
   onSent: () => void;
   onRefresh: () => void;
   onDeweyPending: (pending: boolean) => void;
@@ -1111,13 +1153,15 @@ function Composer({
     if (sending) return;
     if (!body.trim() && files.length === 0) return;
     // @dewey generates within the request, so show the typing indicator until
-    // the response (which includes the AI reply) returns.
-    const willDewey = /(^|\s)@dewey\b/i.test(body);
+    // the response (which includes the AI reply) returns — also when replying
+    // to an @dewey message (that's a prompt back to the AI).
+    const willDewey = /(^|\s)@dewey\b/i.test(body) || replyTarget?.isAi === true;
     setSending(true);
     if (willDewey) onDeweyPending(true);
     try {
       const form = new FormData();
       form.append("body", body);
+      if (replyTarget) form.append("replyTo", String(replyTarget.id));
       files.forEach((f) => form.append("files", f));
       const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/messages`), {
         method: "POST",
@@ -1140,6 +1184,24 @@ function Composer({
 
   return (
     <div className="relative border-t border-dewey-border bg-dewey-surface px-3 py-2">
+      {replyTarget && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-md border-l-2 border-dewey-accent/50 bg-dewey-surface-2 px-2 py-1 text-xs">
+          <span className="min-w-0 truncate text-dewey-mute">
+            <span className="font-medium text-dewey-ink">
+              Replying to {replyTarget.sender}:{" "}
+            </span>
+            {replyTarget.excerpt}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 text-dewey-mute hover:text-dewey-ink"
+            onClick={onClearReply}
+            aria-label="Cancel reply"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {mention !== null && matches.length > 0 && (
         <ul className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-md border border-dewey-border bg-dewey-surface shadow-lg">
           {matches.map((u) => (
@@ -1371,8 +1433,19 @@ function PlanModal({
             Reporting and review for this plan will live here. For now you can edit this
             partnership&apos;s copy, or copy it back into your plan library.
           </p>
+          <div className="rounded-md border border-dewey-border bg-dewey-surface-2 p-3 text-sm">
+            <span className="text-dewey-mute">Current phase: </span>
+            <span className="font-medium text-dewey-ink">{plan.phase ?? "Not set"}</span>
+          </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className="dewey-btn-primary w-auto" onClick={() => setEditing(true)}>
+            <button
+              type="button"
+              className="dewey-btn-primary w-auto"
+              onClick={() => setViewing(true)}
+            >
+              View plan
+            </button>
+            <button type="button" className="dewey-btn-secondary" onClick={() => setEditing(true)}>
               Edit plan
             </button>
             <button

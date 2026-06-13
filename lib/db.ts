@@ -267,6 +267,9 @@ export function ensureSchema(): Promise<void> {
           ADD COLUMN IF NOT EXISTS plan_id INTEGER REFERENCES coaching_templates (id) ON DELETE SET NULL;
         -- Messages authored by the @dewey assistant (sender_id is null).
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_ai BOOLEAN NOT NULL DEFAULT FALSE;
+        -- iMessage-style reply: the message this one is a reply to.
+        ALTER TABLE messages
+          ADD COLUMN IF NOT EXISTS reply_to BIGINT REFERENCES messages (id) ON DELETE SET NULL;
 
         -- File attachments live in the DB (BYTEA) so they're covered by the same
         -- backups and need no separate storage volume. Previews are by mime type.

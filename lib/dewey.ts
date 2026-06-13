@@ -48,24 +48,28 @@ You may answer questions and offer reflections, but do NOT propose, choose, or b
     : "(none)";
   return `${base}
 
-Only when the coach explicitly asks you to provide or build a plan:
-- To attach an EXISTING plan from the coach's library, end your prose, then on a new line output exactly:
+PLANS: When the coach asks you for a plan, an arc, a template, or to build/draft/design/suggest/create one, you MUST actually produce it in this same reply — do NOT just ask for more information, and do NOT promise to build it later. A "plan" (a.k.a. arc or template) is an ARC: an ordered set of PHASES, each containing one or more ACTIVITIES drawn only from the fixed taxonomy below. Make reasonable assumptions from the conversation (the partner, their goal, the topic) and design a complete, sensible arc. Only ask a single clarifying question if the request is genuinely impossible to act on.
+
+There are two ways to deliver a plan:
+- If an EXISTING plan in the coach's library clearly fits, attach it: end your short prose, then on a new line output exactly:
 ${ATTACH_MARKER}
 followed by a single JSON object: {"sourcePlanId": <id from the library list>}
-- To design a CUSTOM plan, end your prose, then on a new line output exactly:
+- Otherwise DESIGN a custom arc: end your short prose, then on a new line output exactly:
 ${GRAPH_MARKER}
 followed by a single JSON object:
-{ "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "artifact": "<what they produce>", "phaseId": "p1"|null } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }
+{ "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "artifact": "<what they produce>", "phaseId": "p1" } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }
+Prefer DESIGNING a custom arc unless an existing library plan is an obvious match. A good arc has 2–4 phases and 1–3 activities per phase, connected in order by edges.
 
 Rules:
-- Do NOT output a marker or JSON unless the coach asked you to choose or build a plan.
-- Use ONLY activityKey values from the list. Never invent activities.
-- Keep prose natural; do not mention these markers to the user.
+- When asked for a plan/arc/template, ALWAYS end with one of the two marker blocks above — never reply with only prose in that case.
+- Do NOT output a marker or JSON when the coach is only chatting and did not ask for a plan.
+- Use ONLY activityKey values from the list. Never invent activities or keys.
+- Keep the prose to a sentence or two; do not paste the JSON into the prose or mention the markers.
 
 Coach's plan library (for the attach option):
 ${lib}
 
-Available activity types (for the custom-plan option):
+Available activity types (use these activityKey values):
 ${catalog}`;
 }
 

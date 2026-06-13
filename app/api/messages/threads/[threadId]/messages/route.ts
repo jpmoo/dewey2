@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { addAttachment, canAccessThread, logThreadEvent, postMessage } from "@/lib/messages";
+import {
+  addAttachment,
+  canAccessThread,
+  getMessageBrief,
+  logThreadEvent,
+  postMessage,
+} from "@/lib/messages";
 import { mentionsDewey, runDeweyForThread } from "@/lib/dewey";
 
 // Per-file cap. Attachments are stored in the DB, so keep them modest.
@@ -48,7 +54,24 @@ export async function POST(
     }
   }
 
-  const messageId = await postMessage({ threadId: id, senderId: Number(session.user.id), body });
+  // Validate the reply target belongs to this thread (and learn if it's @dewey).
+  const replyToRaw = Number(form.get("replyTo"));
+  let replyTo: number | null = null;
+  let replyToAi = false;
+  if (Number.isFinite(replyToRaw)) {
+    const brief = await getMessageBrief(replyToRaw);
+    if (brief && brief.thread_id === id) {
+      replyTo = replyToRaw;
+      replyToAi = brief.is_ai;
+    }
+  }
+
+  const messageId = await postMessage({
+    threadId: id,
+    senderId: Number(session.user.id),
+    body,
+    replyTo,
+  });
   for (const f of files) {
     const data = Buffer.from(await f.arrayBuffer());
     await addAttachment({
@@ -67,9 +90,9 @@ export async function POST(
     detail: files.length ? `${files.length} attachment(s)` : null,
   });
 
-  // @dewey invokes the AI participant. Run it before responding so the reply is
-  // there when the client refetches; the client also polls for it.
-  if (mentionsDewey(body)) {
+  // @dewey runs when mentioned OR when replying to one of its messages.
+  // Run it before responding so the reply is there when the client refetches.
+  if (mentionsDewey(body) || replyToAi) {
     await runDeweyForThread({
       threadId: id,
       invokerId: me,
