@@ -8,6 +8,7 @@ import {
   getTemplate,
   getTemplatesForCoach,
   revisePartnershipPlan,
+  threadHasAcceptedPlan,
 } from "@/lib/db";
 import {
   getThreadMessages,
@@ -94,8 +95,11 @@ export async function runDeweyForThread(params: {
     })
     .join("\n");
 
-  // Only the coach (thread creator) may have @dewey suggest or build a plan.
-  const canSuggestPlans = isPartnership && coachId != null && coachId === invokerId;
+  // Only the coach (thread creator) may have @dewey suggest or build a plan —
+  // and only while no plan is locked in (an accepted plan is final).
+  const planLocked = isPartnership && (await threadHasAcceptedPlan(threadId));
+  const canSuggestPlans =
+    isPartnership && coachId != null && coachId === invokerId && !planLocked;
 
   // The most-recently attached plan. When it's a coach-owned partnership copy we
   // pass the FULL graph JSON (like the canvas) so @dewey can faithfully revise it

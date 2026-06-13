@@ -1196,11 +1196,26 @@ export async function deactivatePriorThreadPlans(
   );
 }
 
+/** Whether a thread already has an accepted (locked-in) partnership plan. */
+export async function threadHasAcceptedPlan(threadId: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT 1 FROM coaching_templates
+      WHERE thread_id = $1 AND scope = 'partnership'
+        AND deleted_at IS NULL AND accepted_at IS NOT NULL
+      LIMIT 1`,
+    [threadId]
+  );
+  return res.rows.length > 0;
+}
+
 /**
  * Coach accepts an embedded partnership plan: mark it accepted and point the
- * current activity at the entry node. Any previously-accepted plan in the same
- * thread is un-accepted, so a thread has at most one active plan. Returns the
- * updated plan, or null if it isn't a partnership plan owned by this coach.
+ * current activity at the entry node. This LOCKS the plan in — every other plan
+ * in the thread is superseded so the accepted plan is final (can't be replaced
+ * or edited). Returns the updated plan, or null if it isn't a partnership plan
+ * owned by this coach.
  */
 export async function acceptPartnershipPlan(
   planId: number,
@@ -1213,17 +1228,11 @@ export async function acceptPartnershipPlan(
     return null;
   }
   const current = entryNodeId(plan.graph);
-  // Un-accept any sibling plan in the same thread first.
+  // Supersede every other plan in the thread, then lock this one in.
+  if (plan.thread_id != null) await deactivatePriorThreadPlans(plan.thread_id, planId);
   await pool.query(
     `UPDATE coaching_templates
-        SET accepted_at = NULL
-      WHERE thread_id = (SELECT thread_id FROM coaching_templates WHERE id = $1)
-        AND id <> $1 AND scope = 'partnership'`,
-    [planId]
-  );
-  await pool.query(
-    `UPDATE coaching_templates
-        SET accepted_at = NOW(), current_node_id = $2, updated_at = NOW()
+        SET accepted_at = NOW(), current_node_id = $2, deactivated_at = NULL, updated_at = NOW()
       WHERE id = $1`,
     [planId, current]
   );
@@ -1234,7 +1243,7 @@ export async function acceptPartnershipPlan(
  * Revise an embedded partnership plan in place (e.g. @dewey adjusting it on
  * request). Replaces the graph and resets acceptance so the coach re-accepts the
  * revised plan. Returns the updated plan, or null if not a coach-owned
- * partnership plan.
+ * partnership plan — or if it's already accepted (an accepted plan is locked).
  */
 export async function revisePartnershipPlan(
   planId: number,
@@ -1244,7 +1253,13 @@ export async function revisePartnershipPlan(
   const pool = getPool();
   await ensureSchema();
   const plan = await getTemplate(planId);
-  if (!plan || plan.deleted_at || plan.scope !== "partnership" || plan.owner_id !== coachId) {
+  if (
+    !plan ||
+    plan.deleted_at ||
+    plan.scope !== "partnership" ||
+    plan.owner_id !== coachId ||
+    plan.accepted_at // accepted plans are locked
+  ) {
     return null;
   }
   await pool.query(
@@ -1266,9 +1281,11 @@ export async function updateCoachTemplate(
   params: { name?: string; description?: string | null; graph?: TemplateGraph }
 ): Promise<CoachingTemplate | null> {
   const owned = await getTemplate(id);
-  // The coach owns personal plans and partnership-copy plans; both are editable.
+  // The coach owns personal plans and partnership-copy plans; both are editable —
+  // except an accepted partnership plan, which is locked in.
   if (!owned || owned.deleted_at || owned.scope === "global" || owned.owner_id !== coachId)
     return null;
+  if (owned.scope === "partnership" && owned.accepted_at) return null;
   return updateTemplate(id, params);
 }
 

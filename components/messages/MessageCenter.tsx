@@ -730,7 +730,7 @@ export function ThreadPane({
     async (messageId: number) => {
       if (
         !(await dialog.confirm(
-          "Accept this plan? It becomes the active plan and the partner sees the current activity.",
+          "Accept this plan? It becomes the active plan for the partner and is locked in — you won't be able to edit or replace it afterward.",
           { title: "Accept plan", confirmText: "Accept" }
         ))
       )
@@ -809,7 +809,7 @@ export function ThreadPane({
             </button>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-3">
-            {amCoach && !ended && (
+            {amCoach && !ended && !acceptedPlan && (
               <button
                 type="button"
                 className="text-xs text-dewey-accent hover:underline"
@@ -1061,40 +1061,47 @@ function MessageBubble({
               </button>
               {amCoach && (
                 <>
-                  {!m.plan_deactivated && (
-                    <>
-                      {!m.plan_accepted && (
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-green-700 hover:underline"
-                          onClick={() => onAcceptPlan(m.id)}
-                        >
-                          Accept
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        className="text-xs text-dewey-accent hover:underline"
-                        onClick={() => onEditPlan(m.plan_id as number)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="text-xs text-dewey-mute hover:text-dewey-ink"
-                        onClick={() => onCopyPlan(m.plan_id as number)}
-                      >
-                        Copy to my plans
-                      </button>
-                    </>
+                  {/* Pending (not accepted, not superseded): full controls. */}
+                  {!m.plan_deactivated && !m.plan_accepted && (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-green-700 hover:underline"
+                      onClick={() => onAcceptPlan(m.id)}
+                    >
+                      Accept
+                    </button>
                   )}
-                  <button
-                    type="button"
-                    className="text-xs text-red-700 hover:underline"
-                    onClick={() => onDismissPlan(m.id)}
-                  >
-                    Dismiss
-                  </button>
+                  {!m.plan_deactivated && !m.plan_accepted && (
+                    <button
+                      type="button"
+                      className="text-xs text-dewey-accent hover:underline"
+                      onClick={() => onEditPlan(m.plan_id as number)}
+                    >
+                      Edit
+                    </button>
+                  )}
+                  {/* Copy is a harmless export — allowed unless superseded. */}
+                  {!m.plan_deactivated && (
+                    <button
+                      type="button"
+                      className="text-xs text-dewey-mute hover:text-dewey-ink"
+                      onClick={() => onCopyPlan(m.plan_id as number)}
+                    >
+                      Copy to my plans
+                    </button>
+                  )}
+                  {/* An accepted plan is locked in: no edit/dismiss/replace. */}
+                  {m.plan_accepted ? (
+                    <span className="text-[11px] text-dewey-mute">🔒 Locked in</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-xs text-red-700 hover:underline"
+                      onClick={() => onDismissPlan(m.id)}
+                    >
+                      Dismiss
+                    </button>
+                  )}
                 </>
               )}
             </div>

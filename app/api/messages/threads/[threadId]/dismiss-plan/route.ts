@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
 import { getThreadMeta, deleteMessage, logThreadEvent } from "@/lib/messages";
 import { getPool } from "@/lib/pg";
-import { deleteTemplate } from "@/lib/db";
+import { deleteTemplate, getTemplate } from "@/lib/db";
 
 /** Dismiss an embedded plan (remove the plan message). Coach (creator) only. */
 export async function POST(
@@ -36,6 +36,12 @@ export async function POST(
   );
   const planId = res.rows[0]?.plan_id as number | null | undefined;
   if (planId == null) return NextResponse.json({ error: "Not a plan message" }, { status: 404 });
+
+  // An accepted plan is locked in — it can't be dismissed/replaced.
+  const plan = await getTemplate(planId);
+  if (plan?.accepted_at) {
+    return NextResponse.json({ error: "An accepted plan is locked and can't be dismissed." }, { status: 403 });
+  }
 
   await deleteMessage(messageId);
   await deleteTemplate(planId); // soft-delete the partnership copy

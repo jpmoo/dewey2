@@ -6,6 +6,7 @@ import {
   getAdminIds,
   getMessageRecipients,
   logUserEvent,
+  threadHasAcceptedPlan,
 } from "@/lib/db";
 import { getSystemSettings } from "@/lib/settings";
 import { summarizeWithComplianceModel } from "@/lib/ai";
@@ -848,6 +849,9 @@ export async function addPlanToPartnership(
   const t = meta.rows[0];
   if (!t || t.kind !== "partnership") return { ok: false, error: "Not a partnership" };
   if (t.created_by !== coachId) return { ok: false, error: "Only the coach can add a plan" };
+  if (await threadHasAcceptedPlan(threadId)) {
+    return { ok: false, error: "A plan has already been accepted for this partnership and is locked." };
+  }
 
   const copy = await duplicatePlanForPartnership(sourcePlanId, coachId, threadId);
   if (!copy) return { ok: false, error: "Plan not available" };
