@@ -1276,14 +1276,16 @@ function Composer({
     // is in flight. Restore it if the send fails.
     const sentBody = body;
     const sentFiles = files;
+    const sentReply = replyTarget;
     setBody("");
     setFiles([]);
+    onClearReply(); // drop the reply strip immediately, like the text box
     setSending(true);
     if (willDewey) onDeweyPending(true);
     try {
       const form = new FormData();
       form.append("body", sentBody);
-      if (replyTarget) form.append("replyTo", String(replyTarget.id));
+      if (sentReply) form.append("replyTo", String(sentReply.id));
       sentFiles.forEach((f) => form.append("files", f));
       const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/messages`), {
         method: "POST",

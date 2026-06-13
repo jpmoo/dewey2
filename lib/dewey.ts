@@ -144,20 +144,53 @@ export async function runDeweyForThread(params: {
     return;
   }
 
-  // Split prose from any plan directive.
-  const ai = reply.indexOf(ATTACH_MARKER);
-  const gi = reply.indexOf(GRAPH_MARKER);
+  // Split prose from any plan directive. Markers are matched case-insensitively
+  // and tolerant of stray spaces (===GRAPH=== / === graph ===).
+  const attachRe = /={2,}\s*attach\s*={2,}/i;
+  const graphRe = /={2,}\s*graph\s*={2,}/i;
+  const am = reply.match(attachRe);
+  const gm = reply.match(graphRe);
+  const ai = am?.index ?? -1;
+  const gi = gm?.index ?? -1;
   let prose = reply;
   let attach: unknown = null;
   let graph: TemplateGraph | null = null;
   if (ai !== -1) {
     prose = reply.slice(0, ai).trim();
-    attach = extractJsonObject(reply.slice(ai + ATTACH_MARKER.length));
+    attach = extractJsonObject(reply.slice(ai + (am?.[0].length ?? 0)));
   } else if (gi !== -1) {
     prose = reply.slice(0, gi).trim();
-    graph = sanitizeProposedGraph(extractJsonObject(reply.slice(gi + GRAPH_MARKER.length)));
+    graph = sanitizeProposedGraph(extractJsonObject(reply.slice(gi + (gm?.[0].length ?? 0))));
+  } else if (canSuggestPlans) {
+    // The model sometimes forgets the marker but still includes the JSON. If a
+    // plan-shaped object is present, treat it as the directive so the coach's
+    // request isn't silently dropped (the "Here's a plan" with nothing bug).
+    const obj = extractJsonObject(reply);
+    const jsonStart = reply.indexOf("{");
+    if (obj && (Array.isArray((obj as { nodes?: unknown }).nodes) || Array.isArray((obj as { phases?: unknown }).phases))) {
+      graph = sanitizeProposedGraph(obj);
+      if (graph && jsonStart > 0) prose = reply.slice(0, jsonStart).trim();
+    } else if (obj && (obj as { sourcePlanId?: unknown }).sourcePlanId != null) {
+      attach = obj;
+      if (jsonStart > 0) prose = reply.slice(0, jsonStart).trim();
+    }
   }
   prose = prose.replace(/[:：]\s*$/, "").trim() || "Here you go.";
+
+  // If the model emitted a plan directive but we couldn't build a plan from it,
+  // tell the coach instead of leaving a bare "Here's a plan" with nothing.
+  const planFailed = canSuggestPlans && !graph && !attach && (gi !== -1 || ai !== -1);
+  if (planFailed) {
+    prose +=
+      "\n\n_(I couldn't format that as a plan just now. Ask me to \"build the plan\" and I'll attach it to the conversation.)_";
+  }
+  if (canSuggestPlans) {
+    console.info(
+      `[dewey] plan parse: attachMarker=${ai !== -1} graphMarker=${gi !== -1} graph=${
+        graph ? graph.nodes.length + "n/" + graph.phases.length + "p" : "null"
+      } attach=${attach ? "yes" : "no"} failed=${planFailed}`
+    );
+  }
 
   // Outbound compliance on Dewey's prose.
   const outbound = await complianceCheck(prose);
