@@ -29,8 +29,14 @@ export async function GET(
   const att = await getAttachmentForDownload(id);
   if (!att) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const me = Number(session.user.id);
   const isAdmin = session.user.system_role === "admin";
-  if (!(await canAccessThread(att.threadId, Number(session.user.id), isAdmin))) {
+  if (!(await canAccessThread(att.threadId, me, isAdmin))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // Respect a restricted message's audience: only listed users (plus admins) may
+  // fetch its attachment, mirroring the message-body visibility rules.
+  if (att.audience && !isAdmin && !att.audience.includes(me)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

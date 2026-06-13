@@ -1262,14 +1262,24 @@ export async function getUserAttachmentBytes(userId: number): Promise<number> {
   return Number(res.rows[0]?.n ?? 0);
 }
 
-/** Fetch attachment bytes plus the thread it belongs to (for an access check). */
+/**
+ * Fetch attachment bytes plus the thread it belongs to and the parent message's
+ * audience (for access checks). `audience` is null when the message is visible to
+ * everyone, or the list of user ids it's restricted to.
+ */
 export async function getAttachmentForDownload(
   attachmentId: number
-): Promise<{ filename: string; mimeType: string; data: Buffer; threadId: number } | null> {
+): Promise<{
+  filename: string;
+  mimeType: string;
+  data: Buffer;
+  threadId: number;
+  audience: number[] | null;
+} | null> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `SELECT a.filename, a.mime_type, a.data, m.thread_id
+    `SELECT a.filename, a.mime_type, a.data, m.thread_id, m.audience
        FROM message_attachments a
        JOIN messages m ON m.id = a.message_id
       WHERE a.id = $1 LIMIT 1`,
@@ -1282,6 +1292,7 @@ export async function getAttachmentForDownload(
     mimeType: r.mime_type,
     data: r.data as Buffer,
     threadId: r.thread_id as number,
+    audience: Array.isArray(r.audience) ? (r.audience as number[]) : null,
   };
 }
 
