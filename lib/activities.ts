@@ -8,6 +8,12 @@ export type ActivityCategory = "reflecting" | "inquiry" | "observation" | "imple
 
 export type Gating = "OPEN" | "REVIEWED";
 
+/** Partner-/coach-facing labels for each gating mode. */
+export const GATING_LABEL: Record<Gating, string> = {
+  OPEN: "Partner Attests",
+  REVIEWED: "Coach Approves",
+};
+
 export interface ActivityType {
   key: string;
   label: string;

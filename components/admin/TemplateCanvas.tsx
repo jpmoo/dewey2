@@ -40,6 +40,7 @@ import {
   ACTIVITY_TYPES,
   ACTIVITY_BY_KEY,
   CATEGORY_META,
+  GATING_LABEL,
   type ActivityCategory,
   type Gating,
 } from "@/lib/activities";
@@ -273,7 +274,7 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
       <div className="px-2 py-1.5">
         <div className="break-words font-medium leading-tight">{data.label}</div>
         <div className="mt-0.5 flex items-center gap-1">
-          <span className="text-[10px] text-dewey-mute">{data.gating}</span>
+          <span className="text-[10px] text-dewey-mute">{GATING_LABEL[data.gating]}</span>
           {isCurrent && (
             <span className="rounded bg-green-600 px-1 text-[9px] font-medium uppercase text-white">
               Current
@@ -1246,17 +1247,17 @@ function NodeEditModal({
         </div>
 
         <div>
-          <label className="dewey-label">Completion gating</label>
+          <label className="dewey-label">Completion type</label>
           <select
             className="dewey-input"
             value={gating}
             onChange={(e) => setGating(e.target.value as Gating)}
           >
-            <option value="OPEN">OPEN — partner self-attests</option>
-            <option value="REVIEWED">REVIEWED — coach approves</option>
+            <option value="OPEN">{GATING_LABEL.OPEN}</option>
+            <option value="REVIEWED">{GATING_LABEL.REVIEWED}</option>
           </select>
           <p className="text-xs text-dewey-mute mt-1">
-            Default for this type: {def?.defaultGating ?? "REVIEWED"}.
+            Default for this type: {GATING_LABEL[def?.defaultGating ?? "REVIEWED"]}.
           </p>
         </div>
 
@@ -2051,9 +2052,7 @@ function PlanDetailModal({
         {isActivity ? (
           <dl className="space-y-3 text-sm">
             <DetailRow label="Category">{CATEGORY_META[d!.category]?.label ?? d!.category}</DetailRow>
-            <DetailRow label="Completion">
-              {d!.gating === "OPEN" ? "Partner self-attests (OPEN)" : "Coach reviews (REVIEWED)"}
-            </DetailRow>
+            <DetailRow label="Completion">{GATING_LABEL[d!.gating]}</DetailRow>
             {d!.phaseName && <DetailRow label="Phase">{d!.phaseName}</DetailRow>}
             <DetailBlock label="Instructions">
               {d!.instructions || ACTIVITY_BY_KEY[d!.activityKey]?.defaultInstructions || "—"}
