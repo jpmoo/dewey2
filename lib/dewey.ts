@@ -10,6 +10,7 @@ import {
   threadHasAcceptedPlan,
 } from "@/lib/db";
 import {
+  getActiveActivity,
   getThreadMessages,
   getThreadMeta,
   logThreadEvent,
@@ -135,9 +136,33 @@ export async function runDeweyForThread(params: {
     canSuggestPlans
   );
 
-  // Ground in the org's documents via RAGDoll, like the canvas assistant does,
-  // so message-built plans are as well-grounded as canvas-built ones.
-  const chunks = await queryRagDefault(invokingMessage).catch(() => []);
+  // The activity the partner is currently working on (its prompt + expected
+  // output). This frames feedback when a participant asks "what do you think of
+  // my answer?" — Dewey can assess it against the activity's actual goal.
+  const active = await getActiveActivity(threadId).catch(() => null);
+  let activityContext = "";
+  if (active) {
+    const parts = [
+      `\n\nThe partner is currently working on the activity "${active.nodeLabel}"${
+        active.phaseName ? ` (phase "${active.phaseName}")` : ""
+      }.`,
+    ];
+    if (active.instructions) parts.push(`Activity prompt: ${active.instructions}`);
+    if (active.artifact) parts.push(`Expected output: ${active.artifact}`);
+    if (active.exitConditions) parts.push(`Phase exit conditions: ${active.exitConditions}`);
+    activityContext = parts.join("\n");
+    system +=
+      `\n\nA coaching activity is in progress (its prompt and expected output are in the conversation context). If a participant shares their work for it or asks what you think of their answer, give specific, constructive formative feedback: weigh it against the activity's goal AND the organization's strategic plans, goals, and priorities (use the document excerpts below), name what's strong and where to push further, and point them to the relevant strategic resource. Do NOT tell the partner whether the activity is complete or that they're ready to advance — that judgment is the coach's alone.`;
+  }
+
+  // Ground in the org's documents via RAGDoll, like the canvas assistant does.
+  // Retrieve against the activity's prompt/goal too (not just the latest message,
+  // which is often terse like "what do you think?"), so the right strategic plans
+  // and goals surface to guide feedback.
+  const ragQuery = [active?.nodeLabel, active?.instructions, invokingMessage]
+    .filter(Boolean)
+    .join("\n");
+  const chunks = await queryRagDefault(ragQuery).catch(() => []);
   const sources = uniqueSources(chunks);
   if (chunks.length > 0) {
     system +=
@@ -152,7 +177,7 @@ export async function runDeweyForThread(params: {
       messages: [
         {
           role: "user",
-          content: `Conversation so far:\n${transcript}${planContext}\n\nRespond to the most recent message.`,
+          content: `Conversation so far:\n${transcript}${planContext}${activityContext}\n\nRespond to the most recent message.`,
         },
       ],
       maxTokens: 4096,
