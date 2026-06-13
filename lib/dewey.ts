@@ -55,6 +55,8 @@ function buildSystemPrompt(
 
 Respond to the most recent message: answer the question or respond to the comment, concisely and helpfully, grounded in the conversation and the attached plan when relevant.
 
+Whenever it is relevant, steer participants toward the organization's own resources — especially its strategic plan, goals, priorities, initiatives, and other documents surfaced below. Connect their problem of practice to those strategic priorities and goals, point them to the specific document or section that speaks to it, and ground what you say in it (quote or paraphrase, and name the source). When the conversation drifts from what the organization has actually committed to, gently bring it back to those plans and goals.
+
 You may answer questions and offer reflections, but do NOT propose, choose, or build a coaching plan in this conversation — only the coach can ask you to do that. If asked for a plan, suggest they ask their coach.`;
   }
   return buildMessagePlanPrompt(library, ATTACH_MARKER);
@@ -139,7 +141,7 @@ export async function runDeweyForThread(params: {
   const sources = uniqueSources(chunks);
   if (chunks.length > 0) {
     system +=
-      "\n\nRelevant excerpts from the organization's documents — ground your suggestions in these where applicable:\n" +
+      "\n\nRelevant excerpts from the organization's documents (strategic plans, goals, priorities, frameworks, etc.). Actively steer the conversation toward these: ground your response in them, reference the specific document/section by name, and help participants connect their work to the organization's stated strategic plans and goals. Prefer these official sources over generic advice.\n" +
       formatRagContext(chunks);
   }
 
