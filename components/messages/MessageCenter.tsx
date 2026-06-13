@@ -898,7 +898,7 @@ export function ThreadPane({
                   <img
                     src={pathWithBase("/logo.png")}
                     alt="@dewey"
-                    className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-0.5 ring-1 ring-dewey-border"
+                    className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-1.5 ring-1 ring-dewey-border"
                   />
                   <span className="font-medium text-dewey-ink">@dewey</span>
                 </div>
@@ -1000,7 +1000,7 @@ function MessageBubble({
             <img
               src={pathWithBase("/logo.png")}
               alt="@dewey"
-              className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-0.5 ring-1 ring-dewey-border"
+              className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-1.5 ring-1 ring-dewey-border"
             />
           ) : (
             <Avatar userId={m.sender_id} name={m.sender_name} size={36} />
