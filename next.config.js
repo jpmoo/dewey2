@@ -10,6 +10,17 @@ const nextConfig = {
         source: "/",
         headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
       },
+      {
+        // Baseline hardening on every response. (A full Content-Security-Policy
+        // is a separate change.) nosniff stops MIME-sniffing of uploads; the
+        // frame/referrer headers are safe, low-risk defaults.
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
     ];
   },
 };
