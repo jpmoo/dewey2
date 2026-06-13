@@ -490,7 +490,7 @@ function Group({
                       {t.submission_status === "rejected" ? "Rejected" : "Pending review"}
                     </span>
                   )}
-                  {t.scope === "global" && t.owner_name && (
+                  {t.scope === "global" && t.owner_role === "coach" && t.owner_name && (
                     <span className="text-[11px] text-dewey-mute">Submitted by {t.owner_name}</span>
                   )}
                 </div>

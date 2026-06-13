@@ -70,6 +70,8 @@ export interface CoachingTemplate {
   owner_id: number | null;
   /** Full name of the owner (provenance / credit), when joined. */
   owner_name?: string | null;
+  /** system_role of the owner — credit is shown only for coach contributions. */
+  owner_role?: string | null;
   created_by: number | null;
   created_at: string;
   updated_at: string;

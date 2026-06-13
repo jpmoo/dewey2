@@ -233,7 +233,7 @@ function Group({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{t.name}</span>
-                  {t.scope === "global" && t.owner_name && (
+                  {t.scope === "global" && t.owner_role === "coach" && t.owner_name && (
                     <span className="text-[11px] text-dewey-mute">
                       Submitted by {t.owner_name}
                     </span>
