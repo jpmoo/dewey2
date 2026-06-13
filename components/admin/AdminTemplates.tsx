@@ -233,11 +233,14 @@ function Group({
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{t.name}</span>
-                  {t.scope === "global" && t.owner_role === "coach" && t.owner_name && (
-                    <span className="text-[11px] text-dewey-mute">
-                      Submitted by {t.owner_name}
-                    </span>
-                  )}
+                  {t.scope === "global" &&
+                    t.owner_role === "coach" &&
+                    t.owner_name &&
+                    t.owner_name.trim() !== "John Coach" && (
+                      <span className="text-[11px] text-dewey-mute">
+                        Submitted by {t.owner_name}
+                      </span>
+                    )}
                 </div>
                 {t.description && (
                   <div className="whitespace-pre-wrap text-xs text-dewey-mute">{t.description}</div>
