@@ -13,6 +13,12 @@ export interface ChatMessage {
   content: string;
 }
 
+// Ollama defaults its context window (num_ctx) to just 2048 tokens, which would
+// silently truncate a long chat transcript. Send a generous window so the model
+// gets the FULL conversation. Tune down with OLLAMA_NUM_CTX if VRAM-constrained.
+// (Claude isn't capped here — its full context window applies automatically.)
+const OLLAMA_NUM_CTX = Number(process.env.OLLAMA_NUM_CTX) || 32768;
+
 export interface ChatResult {
   text: string;
   model: string;
@@ -94,6 +100,7 @@ async function callOllama(p: {
       stream: false,
       think: false, // don't let reasoning models burn time emitting <think> tokens
       keep_alive: "30m", // keep the model warm between calls
+      options: { num_ctx: OLLAMA_NUM_CTX },
       messages: [{ role: "system", content: p.system }, ...p.messages],
     }),
     signal: AbortSignal.timeout(120000),
@@ -142,6 +149,7 @@ export async function complianceCheck(text: string): Promise<{ allowed: boolean;
         think: false,
         keep_alive: "30m",
         format: "json",
+        options: { num_ctx: OLLAMA_NUM_CTX },
         messages: [
           { role: "system", content: COMPLIANCE_SYSTEM },
           { role: "user", content: text },
@@ -199,6 +207,7 @@ export async function summarizeWithComplianceModel(prompt: string): Promise<stri
       stream: false,
       think: false,
       keep_alive: "30m",
+      options: { num_ctx: OLLAMA_NUM_CTX },
       messages: [
         { role: "system", content: SUMMARY_SYSTEM },
         { role: "user", content: prompt },
@@ -394,6 +403,7 @@ async function* streamOllama(p: {
       stream: true,
       think: false,
       keep_alive: "30m",
+      options: { num_ctx: OLLAMA_NUM_CTX },
       messages: [{ role: "system", content: p.system }, ...p.messages],
     }),
   });

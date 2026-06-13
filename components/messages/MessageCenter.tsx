@@ -180,7 +180,7 @@ export function MessageCenter() {
       {error ? (
         <p className="text-red-600">{error}</p>
       ) : (
-        <div className="flex h-[78vh] overflow-hidden rounded-lg border border-dewey-border">
+        <div className="flex h-[calc(100dvh-180px)] min-h-[420px] overflow-hidden rounded-lg border border-dewey-border">
           <div className="flex w-72 shrink-0 flex-col border-r border-dewey-border bg-dewey-surface">
             {/* List controls: search + inbox/archived toggle */}
             <div className="space-y-2 border-b border-dewey-border p-2">
@@ -753,7 +753,7 @@ export function ThreadPane({
 
   // Poll for new messages in the open thread (silent — no spinner).
   useEffect(() => {
-    const t = setInterval(() => fetchThread(false), 4000);
+    const t = setInterval(() => fetchThread(false), 2500);
     return () => clearInterval(t);
   }, [fetchThread]);
 
@@ -932,7 +932,7 @@ export function ThreadPane({
                 <PlanPill icon="🚫" label="Reject" onClick={() => decideSubmission("reject")} />
               </>
             )}
-            {canManage && <PlanPill icon="🏷️" label="Rename" onClick={renameThread} />}
+            {canManage && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
             {iAmCoach && !hasActivePlan && (
               <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
             )}
