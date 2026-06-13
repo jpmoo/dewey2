@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
+import { useDialog } from "@/components/DialogProvider";
 
 type Partner = {
   id: number;
@@ -175,6 +176,35 @@ export function CoachDirectory() {
 }
 
 function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => void }) {
+  const dialog = useDialog();
+  const [starting, setStarting] = useState(false);
+  const [desc, setDesc] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const startPartnership = async () => {
+    if (desc.trim().length < 10) {
+      setErr("Add a description (at least a sentence) so the partnership can be named.");
+      return;
+    }
+    setSending(true);
+    setErr(null);
+    try {
+      await apiFetch("/api/coach/partnerships", {
+        method: "POST",
+        body: { partnerIds: [partner.id], message: desc.trim() },
+      });
+      onClose();
+      await dialog.alert(
+        `Invitation sent to ${partner.full_name}. The partnership appears in your Partnerships tab once they accept.`,
+        { title: "Partnership started" }
+      );
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Failed to start partnership");
+      setSending(false);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -215,10 +245,56 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
           </p>
         </div>
 
-        <div className="mt-6 flex justify-end">
-          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-            Close
-          </button>
+        <div className="mt-5 border-t border-dewey-border pt-4">
+          {starting ? (
+            <div className="space-y-2">
+              <label className="dewey-label">Partnership description</label>
+              <textarea
+                className="dewey-input min-h-[80px]"
+                value={desc}
+                onChange={(e) => setDesc(e.target.value)}
+                placeholder="What this partnership is about — the focus, goal, or problem of practice…"
+                autoFocus
+              />
+              <p className="text-xs text-dewey-mute">
+                Required. This becomes the first message and is used to name the partnership.
+              </p>
+              {err && <p className="text-sm text-red-600">{err}</p>}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="dewey-btn-secondary"
+                  onClick={() => {
+                    setStarting(false);
+                    setErr(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="dewey-btn-primary w-auto"
+                  onClick={startPartnership}
+                  disabled={sending || desc.trim().length < 10}
+                >
+                  {sending ? "Sending…" : "Send invitation"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className="dewey-btn-primary w-auto"
+                onClick={() => setStarting(true)}
+              >
+                Start a partnership
+              </button>
+              <button type="button" className="dewey-btn-secondary" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

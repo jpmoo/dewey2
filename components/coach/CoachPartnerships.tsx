@@ -10,6 +10,7 @@ type Member = { id: number; full_name: string; accepted: boolean | null };
 type Partnership = {
   thread_id: number;
   created_at: string;
+  subject: string;
   status: "done" | "abandoned" | null;
   members: Member[];
 };
@@ -43,6 +44,9 @@ export function CoachPartnerships() {
     load();
   }, [load]);
 
+  const active = items.filter((p) => p.status !== "done" && p.status !== "abandoned");
+  const ended = items.filter((p) => p.status === "done" || p.status === "abandoned");
+
   return (
     <section>
       <div className="mb-4">
@@ -65,46 +69,24 @@ export function CoachPartnerships() {
           No partnerships yet. Create one to invite partners.
         </p>
       ) : (
-        <div className="space-y-3">
-          {items.map((p) => (
-            <button
-              key={p.thread_id}
-              type="button"
-              onClick={() => setOpen(p.thread_id)}
-              className="block w-full rounded-lg border border-dewey-border bg-dewey-surface p-4 text-left hover:bg-dewey-surface-2"
-            >
-              <div className="flex items-center gap-2 text-xs text-dewey-mute">
-                <span>Started {new Date(p.created_at).toLocaleDateString()}</span>
-                {p.status && (
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${
-                      p.status === "done"
-                        ? "bg-green-100 text-green-800"
-                        : "bg-dewey-surface-2 text-dewey-mute"
-                    }`}
-                  >
-                    {p.status}
-                  </span>
-                )}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-4">
-                {p.members.map((m) => (
-                  <div key={m.id} className="flex w-16 flex-col items-center gap-1 text-center">
-                    <Avatar userId={m.id} name={m.full_name} size={40} />
-                    <span className="truncate text-[11px] text-dewey-ink" title={m.full_name}>
-                      {m.full_name.split(" ")[0]}
-                    </span>
-                    {m.accepted === null && (
-                      <span className="text-[9px] uppercase text-amber-700">pending</span>
-                    )}
-                    {m.accepted === false && (
-                      <span className="text-[9px] uppercase text-red-600">declined</span>
-                    )}
-                  </div>
+        <div className="space-y-6">
+          {active.length > 0 && (
+            <div className="space-y-3">
+              {active.map((p) => (
+                <PartnershipCard key={p.thread_id} p={p} onClick={() => setOpen(p.thread_id)} />
+              ))}
+            </div>
+          )}
+          {ended.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-dewey-mute">Finished &amp; abandoned</h3>
+              <div className="space-y-3">
+                {ended.map((p) => (
+                  <PartnershipCard key={p.thread_id} p={p} onClick={() => setOpen(p.thread_id)} />
                 ))}
               </div>
-            </button>
-          ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -121,6 +103,50 @@ export function CoachPartnerships() {
         <PartnershipModal threadId={open} meId={meId} onClose={() => setOpen(null)} />
       )}
     </section>
+  );
+}
+
+function PartnershipCard({ p, onClick }: { p: Partnership; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="block w-full rounded-lg border border-dewey-border bg-dewey-surface p-4 text-left hover:bg-dewey-surface-2"
+    >
+      <div className="flex items-center gap-2">
+        <span className="font-medium text-dewey-ink">{p.subject}</span>
+        {p.status && (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${
+              p.status === "done"
+                ? "bg-green-100 text-green-800"
+                : "bg-dewey-surface-2 text-dewey-mute"
+            }`}
+          >
+            {p.status === "done" ? "finished" : "abandoned"}
+          </span>
+        )}
+      </div>
+      <div className="mt-0.5 text-xs text-dewey-mute">
+        Started {new Date(p.created_at).toLocaleDateString()}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-4">
+        {p.members.map((m) => (
+          <div key={m.id} className="flex w-16 flex-col items-center gap-1 text-center">
+            <Avatar userId={m.id} name={m.full_name} size={40} />
+            <span className="truncate text-[11px] text-dewey-ink" title={m.full_name}>
+              {m.full_name.split(" ")[0]}
+            </span>
+            {m.accepted === null && (
+              <span className="text-[9px] uppercase text-amber-700">pending</span>
+            )}
+            {m.accepted === false && (
+              <span className="text-[9px] uppercase text-red-600">declined</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </button>
   );
 }
 
@@ -156,6 +182,10 @@ function NewPartnershipModal({
   const send = async () => {
     if (selected.length === 0) {
       setErr("Add at least one partner.");
+      return;
+    }
+    if (message.trim().length < 10) {
+      setErr("Add a description (at least a sentence) so the partnership can be named.");
       return;
     }
     setSending(true);
@@ -237,13 +267,16 @@ function NewPartnershipModal({
           )}
         </div>
         <div>
-          <label className="dewey-label">Invitation message (optional)</label>
+          <label className="dewey-label">Description</label>
           <textarea
             className="dewey-input min-h-[80px]"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            placeholder="What this partnership is about…"
+            placeholder="What this partnership is about — the focus, goal, or problem of practice…"
           />
+          <p className="mt-1 text-xs text-dewey-mute">
+            Required. This becomes the first message and is used to name the partnership.
+          </p>
         </div>
         <div className="flex justify-end gap-2">
           <button type="button" className="dewey-btn-secondary" onClick={onClose}>
@@ -253,7 +286,7 @@ function NewPartnershipModal({
             type="button"
             className="dewey-btn-primary w-auto"
             onClick={send}
-            disabled={sending || selected.length === 0}
+            disabled={sending || selected.length === 0 || message.trim().length < 10}
           >
             {sending ? "Sending…" : "Send invitations"}
           </button>

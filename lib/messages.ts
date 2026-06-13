@@ -7,6 +7,7 @@ import {
   logUserEvent,
 } from "@/lib/db";
 import { getSystemSettings } from "@/lib/settings";
+import { summarizeWithComplianceModel } from "@/lib/ai";
 
 /**
  * Messaging data layer: threads, messages, and DB-stored file attachments.
@@ -398,6 +399,7 @@ export interface PartnershipMember {
 export interface PartnershipCard {
   thread_id: number;
   created_at: string;
+  subject: string;
   status: ThreadStatus;
   members: PartnershipMember[];
 }
@@ -407,7 +409,7 @@ export async function getPartnershipsForUser(userId: number): Promise<Partnershi
   const pool = getPool();
   await ensureSchema();
   const threads = await pool.query(
-    `SELECT DISTINCT t.id, t.created_at, t.status
+    `SELECT DISTINCT t.id, t.created_at, t.subject, t.status
        FROM message_threads t
        JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
       WHERE t.kind = 'partnership' AND t.deleted_at IS NULL
@@ -426,6 +428,7 @@ export async function getPartnershipsForUser(userId: number): Promise<Partnershi
     out.push({
       thread_id: t.id as number,
       created_at: toIso(t.created_at),
+      subject: (t.subject as string) || "Partnership",
       status: (t.status ?? null) as ThreadStatus,
       members: members.rows.map((m) => ({
         id: m.id as number,
@@ -437,6 +440,25 @@ export async function getPartnershipsForUser(userId: number): Promise<Partnershi
   return out;
 }
 
+/**
+ * Derive a short partnership name from its description using the summarization
+ * model. Falls back to "Partnership" if no model is configured or it fails.
+ */
+async function namePartnership(description: string): Promise<string> {
+  const text = description.trim();
+  if (!text) return "Partnership";
+  try {
+    const raw = await summarizeWithComplianceModel(
+      `Give a short, specific title (3-6 words, no quotes, no trailing punctuation) for a coaching partnership described as:\n\n${text}`
+    );
+    const name = raw.split("\n")[0].replace(/^["']|["']$/g, "").replace(/[.]+$/, "").trim();
+    if (name) return name.length > 80 ? name.slice(0, 80).trim() : name;
+  } catch {
+    // fall through to default
+  }
+  return "Partnership";
+}
+
 /** Create a partnership thread: coach is auto-accepted, partners are invited. */
 export async function createPartnership(
   coachId: number,
@@ -445,9 +467,10 @@ export async function createPartnership(
 ): Promise<number> {
   const pool = getPool();
   await ensureSchema();
+  const subject = await namePartnership(message);
   const threadId = await createThread({
     kind: "partnership",
-    subject: "Partnership",
+    subject,
     createdBy: coachId,
     participantIds: partnerIds,
   });
@@ -505,12 +528,13 @@ export async function listThreadsForUser(
     // invitations instead); the creating coach always sees their own.
     where.push("(t.kind <> 'partnership' OR p.accepted = TRUE OR t.created_by = $1)");
   }
-  // Per-user archive state (admins archive their own oversight view too).
-  where.push(
-    opts.archived
-      ? "EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)"
-      : "NOT EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)"
-  );
+  // Per-user archive state (admins archive their own oversight view too). A
+  // partnership that has been marked done or abandoned counts as archived for
+  // everyone, so it leaves the active list and joins the archived area.
+  const isArchived =
+    "(EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)" +
+    " OR (t.kind = 'partnership' AND t.status IN ('done', 'abandoned')))";
+  where.push(opts.archived ? isArchived : `NOT ${isArchived}`);
   const q = opts.q?.trim();
   if (q) {
     params.push(`%${q}%`);
@@ -634,6 +658,7 @@ export async function getUnreadThreadCount(userId: number): Promise<number> {
        JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
       WHERE t.deleted_at IS NULL
         AND (t.kind <> 'partnership' OR p.accepted = TRUE OR t.created_by = $1)
+        AND NOT (t.kind = 'partnership' AND t.status IN ('done', 'abandoned'))
         AND NOT EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)
         AND EXISTS (
           SELECT 1 FROM messages m

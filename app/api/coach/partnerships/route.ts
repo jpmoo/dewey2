@@ -23,6 +23,12 @@ export async function POST(request: NextRequest) {
   if (partnerIds.length === 0) {
     return NextResponse.json({ error: "Choose at least one partner" }, { status: 400 });
   }
+  if (message.length < 10) {
+    return NextResponse.json(
+      { error: "Add a description (at least a sentence) so the partnership can be named." },
+      { status: 400 }
+    );
+  }
 
   // Every invitee must be someone the coach is allowed to message.
   const settings = await getSystemSettings();
@@ -31,12 +37,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "You can't invite one of those people" }, { status: 403 });
   }
 
-  const coachName = session.user.nickname || session.user.name || "Your coach";
-  const threadId = await createPartnership(
-    coachId,
-    partnerIds,
-    message || `${coachName} invited you to a coaching partnership.`
-  );
+  const threadId = await createPartnership(coachId, partnerIds, message);
   await logThreadEvent({
     userId: coachId,
     actorId: coachId,
