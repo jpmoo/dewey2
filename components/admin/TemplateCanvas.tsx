@@ -52,8 +52,10 @@ const PHASE_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#d
 // The arrowhead sits on the target end (the activity an edge flows into).
 const ARROW = { type: MarkerType.ArrowClosed, width: 22, height: 22 } as const;
 
-// Fallback node dimensions before React Flow has measured them.
-const NODE_W = 170;
+// Activity nodes use this fixed width so labels wrap predictably and the phase
+// cloud (which sizes to node widths) is always wide enough. NODE_H is the
+// pre-measurement height fallback for the cloud.
+const NODE_W = 184;
 const NODE_H = 64;
 
 /**
@@ -252,7 +254,7 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
       style={{
         borderColor,
         borderWidth,
-        minWidth: 150,
+        width: NODE_W,
         opacity: isCompleted ? 0.55 : 1,
         filter: isCompleted ? "grayscale(1)" : undefined,
       }}
@@ -264,7 +266,7 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
       <Handle type="source" position={Position.Right} id="right" />
       <div className="h-1 rounded-t" style={{ background: catColor }} />
       <div className="px-2 py-1.5">
-        <div className="font-medium leading-tight">{data.label}</div>
+        <div className="break-words font-medium leading-tight">{data.label}</div>
         <div className="mt-0.5 flex items-center gap-1">
           <span className="text-[10px] text-dewey-mute">{data.gating}</span>
           {isCurrent && (
