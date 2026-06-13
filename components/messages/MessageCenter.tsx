@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
 import { useSession } from "next-auth/react";
@@ -134,6 +134,33 @@ export function MessageCenter() {
   const [listPlanId, setListPlanId] = useState<number | null>(null);
   const [listPlanFocus, setListPlanFocus] = useState(false);
 
+  // True vertical flex: measure the pane's top against the viewport and let it
+  // fill the rest of the screen. This adapts to whatever sits above it (header,
+  // tab bar, the impersonation band) instead of guessing a fixed offset.
+  const paneRef = useRef<HTMLDivElement>(null);
+  const [paneHeight, setPaneHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = paneRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      // Leave room for the host's bottom padding (px-6 py-6 wrappers) so the page
+      // itself never gains a sliver of scroll beneath the pane.
+      setPaneHeight(Math.max(340, Math.floor(vh - top - 24)));
+    };
+    measure();
+    // Re-measure after layout settles (async content above can shift the top).
+    const t = setTimeout(measure, 120);
+    window.addEventListener("resize", measure);
+    window.visualViewport?.addEventListener("resize", measure);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", measure);
+      window.visualViewport?.removeEventListener("resize", measure);
+    };
+  }, []);
+
   const loadThreads = useCallback(async () => {
     try {
       const params = new URLSearchParams();
@@ -208,7 +235,11 @@ export function MessageCenter() {
       {error ? (
         <p className="text-red-600">{error}</p>
       ) : (
-        <div className="flex h-[calc(100dvh-240px)] min-h-[340px] overflow-hidden rounded-lg border border-dewey-border">
+        <div
+          ref={paneRef}
+          style={paneHeight ? { height: paneHeight } : undefined}
+          className="flex h-[calc(100dvh-240px)] min-h-[340px] overflow-hidden rounded-lg border border-dewey-border"
+        >
           {listCollapsed ? (
             <div className="flex w-10 shrink-0 flex-col items-center border-r border-dewey-border bg-dewey-surface py-2">
               <button
@@ -222,7 +253,7 @@ export function MessageCenter() {
               </button>
             </div>
           ) : (
-          <div className="flex w-72 shrink-0 flex-col border-r border-dewey-border bg-dewey-surface">
+          <div className="flex w-72 min-h-0 shrink-0 flex-col border-r border-dewey-border bg-dewey-surface">
             {/* List controls: search + inbox/archived toggle */}
             <div className="space-y-2 border-b border-dewey-border p-2">
               <div className="flex items-center gap-2">
@@ -301,7 +332,7 @@ export function MessageCenter() {
             </ul>
           </div>
           )}
-          <div className="flex min-w-0 flex-1 flex-col bg-dewey-cream">
+          <div className="flex min-w-0 min-h-0 flex-1 flex-col bg-dewey-cream">
             {activeId == null ? (
               <div className="flex flex-1 items-center justify-center text-sm text-dewey-mute">
                 Select a conversation.
@@ -1112,7 +1143,7 @@ export function ThreadPane({
 
   return (
     <>
-      <div className="border-b border-dewey-border bg-dewey-surface px-4 py-2">
+      <div className="shrink-0 border-b border-dewey-border bg-dewey-surface px-4 py-2">
         <div className="flex items-center gap-2">
           <h3 className="truncate text-sm font-semibold text-dewey-ink">
             {thread ? threadTitle(thread, meId) : "…"}
@@ -1202,7 +1233,7 @@ export function ThreadPane({
         )}
       </div>
 
-      <div className="relative flex-1 overflow-hidden">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         {celebration && (
           <Fireworks
             key={celebration.key}
@@ -1273,11 +1304,11 @@ export function ThreadPane({
       </div>
 
       {thread?.kind === "compliance" ? (
-        <div className="border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
+        <div className="shrink-0 border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
           System notice — replies are disabled.
         </div>
       ) : partnerFrozen ? (
-        <div className="flex flex-col items-center gap-1.5 border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
+        <div className="flex shrink-0 flex-col items-center gap-1.5 border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
           <span>
             ⏳ Your submission for{" "}
             <span className="font-medium text-dewey-ink">{activeActivity?.nodeLabel}</span> is awaiting
@@ -1862,7 +1893,7 @@ function Composer({
   };
 
   return (
-    <div className="relative border-t border-dewey-border bg-dewey-surface px-3 py-2">
+    <div className="relative shrink-0 border-t border-dewey-border bg-dewey-surface px-3 py-2">
       {replyTarget && (
         <div className="mb-2 flex items-center justify-between gap-2 rounded-md border-l-2 border-dewey-accent/50 bg-dewey-surface-2 px-2 py-1 text-xs">
           <span className="min-w-0 truncate text-dewey-mute">
