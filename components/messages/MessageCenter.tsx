@@ -1289,12 +1289,10 @@ export function ThreadPane({
             <div className="flex justify-start">
               <div className="max-w-[min(75%,620px)]">
                 <div className="mb-0.5 flex items-center gap-2 text-[11px] text-dewey-mute">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={pathWithBase("/logo.png")}
-                    alt="@dewey"
-                    className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-2 ring-1 ring-dewey-border"
-                  />
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-dewey-border">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={pathWithBase("/logo.png")} alt="@dewey" className="h-5 w-5 object-contain" />
+                  </span>
                   <span className="font-medium text-dewey-ink">Dewey</span>
                 </div>
                 <div className="inline-flex h-7 w-fit items-center justify-center rounded-full border border-dewey-border bg-dewey-accent/10 px-3">
@@ -1468,12 +1466,10 @@ function MessageBubble({
       <div className={`flex max-w-[min(75%,620px)] flex-col ${mine ? "items-end" : "items-start"}`}>
         <div className="mb-0.5 flex items-center gap-2 text-[11px] text-dewey-mute">
           {m.is_ai ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={pathWithBase("/logo.png")}
-              alt="@dewey"
-              className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-2 ring-1 ring-dewey-border"
-            />
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-dewey-border">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={pathWithBase("/logo.png")} alt="@dewey" className="h-5 w-5 object-contain" />
+            </span>
           ) : (
             <div className={`inline-flex shrink-0 rounded-full ${senderIsCoach ? "ring-1 ring-dewey-accent" : ""}`}>
               <Avatar userId={m.sender_id} name={m.sender_name} size={36} />
