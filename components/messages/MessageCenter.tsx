@@ -103,6 +103,8 @@ export function MessageCenter() {
   const [composing, setComposing] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  // Collapse the left conversation list to give the chat more room.
+  const [listCollapsed, setListCollapsed] = useState(false);
   // Plan preview opened from the thread-list "View plan" pill.
   const [listPlanId, setListPlanId] = useState<number | null>(null);
 
@@ -181,16 +183,40 @@ export function MessageCenter() {
         <p className="text-red-600">{error}</p>
       ) : (
         <div className="flex h-[calc(100dvh-180px)] min-h-[420px] overflow-hidden rounded-lg border border-dewey-border">
+          {listCollapsed ? (
+            <div className="flex w-10 shrink-0 flex-col items-center border-r border-dewey-border bg-dewey-surface py-2">
+              <button
+                type="button"
+                onClick={() => setListCollapsed(false)}
+                title="Show conversations"
+                aria-label="Show conversations"
+                className="rounded p-1 text-dewey-mute hover:bg-dewey-surface-2 hover:text-dewey-ink"
+              >
+                »
+              </button>
+            </div>
+          ) : (
           <div className="flex w-72 shrink-0 flex-col border-r border-dewey-border bg-dewey-surface">
             {/* List controls: search + inbox/archived toggle */}
             <div className="space-y-2 border-b border-dewey-border p-2">
-              <input
-                type="search"
-                className="dewey-input"
-                placeholder="Search people or messages…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="search"
+                  className="dewey-input"
+                  placeholder="Search people or messages…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setListCollapsed(true)}
+                  title="Hide conversations"
+                  aria-label="Hide conversations"
+                  className="shrink-0 rounded p-1 text-dewey-mute hover:bg-dewey-surface-2 hover:text-dewey-ink"
+                >
+                  «
+                </button>
+              </div>
               <div className="flex gap-1 text-xs">
                 <button
                   type="button"
@@ -241,6 +267,7 @@ export function MessageCenter() {
               )}
             </ul>
           </div>
+          )}
           <div className="flex min-w-0 flex-1 flex-col bg-dewey-cream">
             {activeId == null ? (
               <div className="flex flex-1 items-center justify-center text-sm text-dewey-mute">

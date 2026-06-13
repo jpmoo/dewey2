@@ -13,11 +13,43 @@ export interface ChatMessage {
   content: string;
 }
 
-// Ollama defaults its context window (num_ctx) to just 2048 tokens, which would
-// silently truncate a long chat transcript. Send a generous window so the model
-// gets the FULL conversation. Tune down with OLLAMA_NUM_CTX if VRAM-constrained.
-// (Claude isn't capped here — its full context window applies automatically.)
-const OLLAMA_NUM_CTX = Number(process.env.OLLAMA_NUM_CTX) || 32768;
+/**
+ * Ollama defaults its context window (num_ctx) to just 2048 tokens, which would
+ * silently truncate a long chat transcript. We instead adopt the MODEL's own
+ * maximum context length (read from /api/show) so the model gets its full
+ * window. Set OLLAMA_NUM_CTX to impose a lower ceiling if VRAM-constrained.
+ * (Claude isn't capped here — its full context window applies automatically.)
+ */
+const ollamaCtxCache = new Map<string, number>();
+async function resolveOllamaNumCtx(url: string, model: string): Promise<number> {
+  const key = `${url}::${model}`;
+  const cached = ollamaCtxCache.get(key);
+  if (cached) return cached;
+  const cap = Number(process.env.OLLAMA_NUM_CTX) || 0; // optional ceiling
+  let ctx = cap || 8192; // fallback if the model's context length is unreadable
+  try {
+    const res = await fetch(`${url.replace(/\/$/, "")}/api/show`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { model_info?: Record<string, unknown> };
+      const info = data.model_info ?? {};
+      const arch =
+        typeof info["general.architecture"] === "string"
+          ? (info["general.architecture"] as string)
+          : "";
+      const max = arch ? Number(info[`${arch}.context_length`]) : 0;
+      if (max > 0) ctx = cap ? Math.min(max, cap) : max;
+    }
+  } catch {
+    /* keep fallback */
+  }
+  ollamaCtxCache.set(key, ctx);
+  return ctx;
+}
 
 export interface ChatResult {
   text: string;
@@ -92,6 +124,7 @@ async function callOllama(p: {
   system: string;
   messages: ChatMessage[];
 }): Promise<ChatResult> {
+  const num_ctx = await resolveOllamaNumCtx(p.url, p.model);
   const res = await fetch(`${p.url.replace(/\/$/, "")}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -100,7 +133,7 @@ async function callOllama(p: {
       stream: false,
       think: false, // don't let reasoning models burn time emitting <think> tokens
       keep_alive: "30m", // keep the model warm between calls
-      options: { num_ctx: OLLAMA_NUM_CTX },
+      options: { num_ctx },
       messages: [{ role: "system", content: p.system }, ...p.messages],
     }),
     signal: AbortSignal.timeout(120000),
@@ -140,6 +173,7 @@ export async function complianceCheck(text: string): Promise<{ allowed: boolean;
   if (!model || !url || !text.trim()) return { allowed: true };
 
   try {
+    const num_ctx = await resolveOllamaNumCtx(url, model);
     const res = await fetch(`${url.replace(/\/$/, "")}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -149,7 +183,7 @@ export async function complianceCheck(text: string): Promise<{ allowed: boolean;
         think: false,
         keep_alive: "30m",
         format: "json",
-        options: { num_ctx: OLLAMA_NUM_CTX },
+        options: { num_ctx },
         messages: [
           { role: "system", content: COMPLIANCE_SYSTEM },
           { role: "user", content: text },
@@ -199,6 +233,7 @@ export async function summarizeWithComplianceModel(prompt: string): Promise<stri
   if (!model || !url) {
     throw new Error("No compliance/summarization model is configured in System settings.");
   }
+  const num_ctx = await resolveOllamaNumCtx(url, model);
   const res = await fetch(`${url.replace(/\/$/, "")}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -207,7 +242,7 @@ export async function summarizeWithComplianceModel(prompt: string): Promise<stri
       stream: false,
       think: false,
       keep_alive: "30m",
-      options: { num_ctx: OLLAMA_NUM_CTX },
+      options: { num_ctx },
       messages: [
         { role: "system", content: SUMMARY_SYSTEM },
         { role: "user", content: prompt },
@@ -395,6 +430,7 @@ async function* streamOllama(p: {
   system: string;
   messages: ChatMessage[];
 }): AsyncGenerator<string> {
+  const num_ctx = await resolveOllamaNumCtx(p.url, p.model);
   const res = await fetch(`${p.url.replace(/\/$/, "")}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -403,7 +439,7 @@ async function* streamOllama(p: {
       stream: true,
       think: false,
       keep_alive: "30m",
-      options: { num_ctx: OLLAMA_NUM_CTX },
+      options: { num_ctx },
       messages: [{ role: "system", content: p.system }, ...p.messages],
     }),
   });
