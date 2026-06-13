@@ -251,7 +251,7 @@ export function MessageCenter() {
                       : "text-dewey-mute hover:text-dewey-ink"
                   }`}
                 >
-                  Inbox
+                  Active
                 </button>
                 <button
                   type="button"
