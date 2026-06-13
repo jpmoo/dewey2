@@ -353,7 +353,7 @@ function ComposeModal({
     r.school_names.length > 0
       ? `${r.district_name} · ${r.school_names.join(", ")}`
       : r.district_name
-      ? `${r.district_name} · District-wide`
+      ? r.district_name
       : "";
 
   // Live search by name or username, excluding already-selected people.
@@ -621,6 +621,14 @@ export function ThreadPane({
   const ended = thread?.status === "done" || thread?.status === "abandoned";
 
   const toggleArchive = async () => {
+    if (
+      !archived &&
+      !(await dialog.confirm("Archive this conversation?", {
+        title: "Archive",
+        confirmText: "Archive",
+      }))
+    )
+      return;
     try {
       const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/archive`), {
         method: "POST",

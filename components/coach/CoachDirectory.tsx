@@ -23,7 +23,7 @@ type School = { id: number; district_id: number; name: string };
 type Directory = {
   partners: Partner[];
   schools: School[];
-  scope: "school" | "district" | "none";
+  scope: "school" | "none";
 };
 
 /**
@@ -38,8 +38,8 @@ export function CoachDirectory() {
   const [selected, setSelected] = useState<Partner | null>(null);
 
   const [query, setQuery] = useState("");
-  // "all" = any; "districtwide" = assigned to district, no school.
-  const [filterSchool, setFilterSchool] = useState<"all" | "districtwide" | number>("all");
+  // "all" = any building; a number filters to that building.
+  const [filterSchool, setFilterSchool] = useState<"all" | number>("all");
 
   const load = useCallback(async () => {
     try {
@@ -58,16 +58,12 @@ export function CoachDirectory() {
   }, [load]);
 
   const partners = data?.partners ?? [];
-  const districtWide = data?.scope === "district";
+  const hasSchoolFilter = (data?.schools.length ?? 0) > 0;
 
   const q = query.trim().toLowerCase();
   const filtered = partners.filter((p) => {
-    if (districtWide) {
-      if (filterSchool === "districtwide") {
-        if (p.school_ids.length > 0) return false;
-      } else if (typeof filterSchool === "number" && !p.school_ids.includes(filterSchool)) {
-        return false;
-      }
+    if (typeof filterSchool === "number" && !p.school_ids.includes(filterSchool)) {
+      return false;
     }
     if (q) {
       const hay = [p.full_name, p.username, p.email, p.nickname, p.role]
@@ -86,11 +82,9 @@ export function CoachDirectory() {
       <div className="mb-4">
         <h2 className="text-lg font-semibold">Partner Directory</h2>
         <p className="text-sm text-dewey-mute">
-          {data?.scope === "district"
-            ? "Partners across your district."
-            : data?.scope === "school"
-            ? "Partners in your school."
-            : "Your account isn't assigned to a district yet."}
+          {data?.scope === "school"
+            ? "Partners in your buildings."
+            : "Your account isn't assigned to a building yet."}
         </p>
       </div>
 
@@ -108,17 +102,16 @@ export function CoachDirectory() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
-            {districtWide && (data?.schools.length ?? 0) > 0 && (
+            {hasSchoolFilter && (
               <select
                 className="dewey-input"
                 value={typeof filterSchool === "number" ? String(filterSchool) : filterSchool}
                 onChange={(e) => {
                   const v = e.target.value;
-                  setFilterSchool(v === "all" || v === "districtwide" ? v : Number(v));
+                  setFilterSchool(v === "all" ? v : Number(v));
                 }}
               >
-                <option value="all">All schools</option>
-                <option value="districtwide">District-wide (no school)</option>
+                <option value="all">All buildings</option>
                 {data?.schools.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -166,7 +159,7 @@ export function CoachDirectory() {
                     <div className="truncate text-xs text-dewey-mute">
                       {p.school_names.length > 0
                         ? `${p.district_name} · ${p.school_names.join(", ")}`
-                        : `${p.district_name ?? "Unassigned"} · District-wide`}
+                        : p.district_name ?? "Unassigned"}
                     </div>
                   </div>
                 </li>
@@ -204,7 +197,7 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
           <Row label="Nickname">{partner.nickname || "—"}</Row>
           <Row label="District">{partner.district_name || "—"}</Row>
           <Row label="Buildings">
-            {partner.school_names.length > 0 ? partner.school_names.join(", ") : "District-wide"}
+            {partner.school_names.length > 0 ? partner.school_names.join(", ") : "—"}
           </Row>
           {partner.about && (
             <div>

@@ -138,8 +138,8 @@ export function AdminUserManager() {
   // Filters.
   const [query, setQuery] = useState("");
   const [filterDistrict, setFilterDistrict] = useState<number | null>(null);
-  // "all" = any school; "districtwide" = assigned to the district but no school.
-  const [filterSchool, setFilterSchool] = useState<"all" | "districtwide" | number>("all");
+  // "all" = any building; a number filters to users assigned to that building.
+  const [filterSchool, setFilterSchool] = useState<"all" | number>("all");
   const [filterRole, setFilterRole] = useState<SystemRole | "all">("all");
 
   const load = useCallback(async () => {
@@ -194,9 +194,7 @@ export function AdminUserManager() {
   const filtered = users.filter((u) => {
     if (filterRole !== "all" && u.system_role !== filterRole) return false;
     if (filterDistrict !== null && u.district_id !== filterDistrict) return false;
-    if (filterSchool === "districtwide") {
-      if (u.school_ids.length > 0) return false;
-    } else if (typeof filterSchool === "number" && !u.school_ids.includes(filterSchool)) {
+    if (typeof filterSchool === "number" && !u.school_ids.includes(filterSchool)) {
       return false;
     }
     if (q) {
@@ -216,7 +214,9 @@ export function AdminUserManager() {
   const orgLabel = (u: User): string => {
     const d = districts.find((x) => x.id === u.district_id);
     if (!d) return "Unassigned";
-    if (u.school_ids.length === 0) return `${d.name} · District-wide`;
+    if (u.school_ids.length === 0) return `${d.name} · No building`;
+    if (d.schools.length > 0 && u.school_ids.length === d.schools.length)
+      return `${d.name} · All buildings`;
     const names = u.school_ids
       .map((sid) => d.schools.find((x) => x.id === sid)?.name)
       .filter(Boolean);
@@ -272,11 +272,10 @@ export function AdminUserManager() {
                 title={filterDistrict === null ? "Select a district first" : undefined}
                 onChange={(e) => {
                   const v = e.target.value;
-                  setFilterSchool(v === "all" || v === "districtwide" ? v : Number(v));
+                  setFilterSchool(v === "all" ? v : Number(v));
                 }}
               >
-                <option value="all">All schools</option>
-                <option value="districtwide">District-wide (no school)</option>
+                <option value="all">All buildings</option>
                 {schoolOptions.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
@@ -413,7 +412,7 @@ function OrgPickers({
   onChange: (next: { district_id: number | null; school_ids: number[] }) => void;
 }) {
   const schools = districts.find((d) => d.id === districtId)?.schools ?? [];
-  const districtWide = schoolIds.length === 0;
+  const allSelected = schools.length > 0 && schools.every((s) => schoolIds.includes(s.id));
 
   const toggle = (sid: number) =>
     onChange({
@@ -443,35 +442,43 @@ function OrgPickers({
         </select>
       </div>
       <div>
-        <label className="dewey-label">Buildings</label>
+        <div className="flex items-center justify-between">
+          <label className="dewey-label mb-0">Buildings</label>
+          {districtId !== null && schools.length > 0 && (
+            <button
+              type="button"
+              className="text-xs text-dewey-accent hover:underline"
+              onClick={() =>
+                onChange({
+                  district_id: districtId,
+                  school_ids: allSelected ? [] : schools.map((s) => s.id),
+                })
+              }
+            >
+              {allSelected ? "Clear all" : "Select all"}
+            </button>
+          )}
+        </div>
         {districtId === null ? (
           <p className="text-xs text-dewey-mute">Select a district first.</p>
+        ) : schools.length === 0 ? (
+          <p className="text-xs text-dewey-mute">No buildings in this district yet.</p>
         ) : (
           <>
-            <label className="flex items-center gap-2 text-sm text-dewey-ink">
-              <input
-                type="checkbox"
-                checked={districtWide}
-                onChange={() => onChange({ district_id: districtId, school_ids: [] })}
-              />
-              District-wide (all buildings)
-            </label>
-            {schools.length > 0 && (
-              <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-dewey-border p-2">
-                {schools.map((s) => (
-                  <label key={s.id} className="flex items-center gap-2 text-sm text-dewey-ink">
-                    <input
-                      type="checkbox"
-                      checked={schoolIds.includes(s.id)}
-                      onChange={() => toggle(s.id)}
-                    />
-                    {s.name}
-                  </label>
-                ))}
-              </div>
-            )}
+            <div className="mt-1 max-h-40 space-y-1 overflow-y-auto rounded-md border border-dewey-border p-2">
+              {schools.map((s) => (
+                <label key={s.id} className="flex items-center gap-2 text-sm text-dewey-ink">
+                  <input
+                    type="checkbox"
+                    checked={schoolIds.includes(s.id)}
+                    onChange={() => toggle(s.id)}
+                  />
+                  {s.name}
+                </label>
+              ))}
+            </div>
             <p className="mt-1 text-xs text-dewey-mute">
-              Check one or more buildings, or leave all unchecked for district-wide.
+              Assign one or more buildings (use Select all for everyone in the district).
             </p>
           </>
         )}

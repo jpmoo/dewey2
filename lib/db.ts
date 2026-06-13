@@ -776,10 +776,9 @@ async function getDistrictUsersWithBuildings(
 }
 
 /**
- * Partners visible to a coach. A building-assigned coach sees partners who share
- * at least one of their buildings (plus any district-wide partners); a
- * district-wide coach sees every partner in the district. Returns the partners
- * (with building names), the district's schools for filtering, and the scope.
+ * Partners visible to a coach: those who share at least one building with the
+ * coach. (To reach everyone in a district, assign all buildings.) Returns the
+ * partners with building names, the coach's buildings for filtering, and scope.
  */
 export async function getCoachDirectory(coach: {
   id: number;
@@ -787,7 +786,7 @@ export async function getCoachDirectory(coach: {
 }): Promise<{
   partners: DirectoryPartner[];
   schools: School[];
-  scope: "school" | "district" | "none";
+  scope: "school" | "none";
 }> {
   await ensureSchema();
   if (coach.district_id == null) {
@@ -795,16 +794,10 @@ export async function getCoachDirectory(coach: {
   }
 
   const coachBuildings = await getUserSchoolIds(coach.id);
-  const districtWide = coachBuildings.length === 0;
   const rows = await getDistrictUsersWithBuildings(coach.district_id, coach.id, ["partner"]);
 
   const coachSet = new Set(coachBuildings);
-  const visible = rows.filter((r) => {
-    if (districtWide) return true;
-    // A partner with no building is district-wide → visible to everyone.
-    if (r.school_ids.length === 0) return true;
-    return r.school_ids.some((sid) => coachSet.has(sid));
-  });
+  const visible = rows.filter((r) => r.school_ids.some((sid) => coachSet.has(sid)));
 
   const partners: DirectoryPartner[] = visible.map((r) => ({
     id: r.id,
@@ -825,8 +818,10 @@ export async function getCoachDirectory(coach: {
     school_names: r.school_names,
   }));
 
-  const schools = await getSchools(coach.district_id);
-  return { partners, schools, scope: districtWide ? "district" : "school" };
+  // The coach's own buildings, for narrowing the directory.
+  const allSchools = await getSchools(coach.district_id);
+  const schools = allSchools.filter((s) => coachSet.has(s.id));
+  return { partners, schools, scope: "school" };
 }
 
 /** Other coaches in the same district (for the "share a template" picker). */
@@ -933,14 +928,14 @@ export async function getMessageRecipients(
       : undefined;
   if (perms && me.district_id != null) {
     const myBuildings = new Set(me.school_ids);
-    const iAmDistrictWide = me.school_ids.length === 0;
     const rows = await getDistrictUsersWithBuildings(me.district_id, meId, ["coach", "partner"]);
     for (const r of rows) {
       const role = r.system_role === "coach" ? "coach" : "partner";
       const districtAllowed = perms[`${role}_district`];
       const sameSchoolAllowed = perms[`${role}_same_school`];
-      const sharesBuilding =
-        iAmDistrictWide || r.school_ids.length === 0 || r.school_ids.some((s) => myBuildings.has(s));
+      // "Same school" = genuinely shares a building (assign all buildings to
+      // reach everyone in the district).
+      const sharesBuilding = r.school_ids.some((s) => myBuildings.has(s));
       if (districtAllowed || (sameSchoolAllowed && sharesBuilding)) {
         out.set(r.id, {
           id: r.id,

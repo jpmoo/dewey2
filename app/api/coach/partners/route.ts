@@ -3,9 +3,9 @@ import { requireCoach } from "@/lib/guard";
 import { getCoachDirectory } from "@/lib/db";
 
 /**
- * Partner directory for the signed-in coach: partners in their school, or — for
- * a district-wide coach (no school) — across their district. Scope is derived
- * from the coach's own org assignment, never from the client.
+ * Partner directory for the signed-in coach: partners who share at least one of
+ * the coach's buildings. Scope is derived from the coach's own org assignment,
+ * never from the client.
  */
 export async function GET() {
   const guard = await requireCoach();
