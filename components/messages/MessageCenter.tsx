@@ -1176,6 +1176,9 @@ function MessageBubble({
   const canManagePlan = iAmCoach;
   const iAccepted = meId != null && m.plan_accepted_by.includes(meId);
   const acceptedCount = m.plan_accepted_by.length;
+  // Any non-active plan (superseded by a newer one, or finished/abandoned) is
+  // grayed out and offers a Revive button. Only the active plan is highlighted.
+  const planInactive = m.plan_deactivated || m.plan_outcome != null;
   // Quoted reply: collapsed (one line) by default, click to expand.
   const [replyExpanded, setReplyExpanded] = useState(false);
   return (
@@ -1214,7 +1217,7 @@ function MessageBubble({
           // Specialized plan bubble. "View plan" opens the plan preview directly.
           <div
             className={`rounded-lg border p-3 ${
-              m.plan_deactivated
+              planInactive
                 ? "border-dewey-border bg-dewey-surface-2 opacity-75"
                 : "border-dewey-accent/40 bg-dewey-accent/5"
             }`}
@@ -1259,18 +1262,14 @@ function MessageBubble({
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <PlanPill icon="🗂️" label="View plan" onClick={() => onViewPlan(m.plan_id as number)} />
-              {/* Superseded: owner can revive (make it active again) or clear it. */}
-              {m.plan_deactivated ? (
+              {/* Inactive (superseded, finished, or abandoned): owner can revive it
+                  (re-posts as the active plan) or clear it away. */}
+              {planInactive ? (
                 canManagePlan && (
                   <>
                     <PlanPill icon="♻️" label="Revive" onClick={() => onRevivePlan(m.id)} />
                     <PlanPill icon="🗑️" label="Dismiss" onClick={() => onDismissPlan(m.id)} />
                   </>
-                )
-              ) : m.plan_accepted && m.plan_outcome ? (
-                // Terminal (finished/abandoned). Owner can reopen it.
-                canManagePlan && (
-                  <PlanPill icon="🔄" label="Reopen" onClick={() => onSetOutcome(m.id, "active")} />
                 )
               ) : m.plan_accepted ? (
                 // Active + locked. Owner: unlock to edit, complete, or abandon.
