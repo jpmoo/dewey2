@@ -1063,6 +1063,9 @@ function MessageBubble({
   const amPlanOwner = m.plan_owner_id != null && m.plan_owner_id === meId;
   const iAccepted = meId != null && m.plan_accepted_by.includes(meId);
   const acceptedCount = m.plan_accepted_by.length;
+  // Uniform pill style for every plan-bubble action.
+  const pill =
+    "rounded-full border border-dewey-border bg-dewey-surface px-2.5 py-0.5 text-xs text-dewey-ink hover:bg-dewey-surface-2";
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`flex max-w-[min(75%,620px)] flex-col ${mine ? "items-end" : "items-start"}`}>
@@ -1115,7 +1118,7 @@ function MessageBubble({
                     </span>
                   ) : m.plan_accepted ? (
                     <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
-                      Active
+                      Active and Locked
                     </span>
                   ) : (
                     acceptedCount > 0 && (
@@ -1134,101 +1137,58 @@ function MessageBubble({
                 </button>
               </div>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                className="text-xs font-medium text-dewey-accent hover:underline"
-                onClick={() => onViewPlan(m.plan_id as number)}
-              >
-                View plan ↗
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button type="button" className={pill} onClick={() => onViewPlan(m.plan_id as number)}>
+                View plan
               </button>
               {/* Superseded: owner can clear it away. */}
               {m.plan_deactivated ? (
                 amPlanOwner && (
-                  <button
-                    type="button"
-                    className="text-xs text-red-700 hover:underline"
-                    onClick={() => onDismissPlan(m.id)}
-                  >
+                  <button type="button" className={pill} onClick={() => onDismissPlan(m.id)}>
                     Dismiss
                   </button>
                 )
               ) : m.plan_accepted && m.plan_outcome ? (
                 // Terminal (finished/abandoned). Owner can reopen it.
                 amPlanOwner && (
-                  <button
-                    type="button"
-                    className="text-xs text-dewey-accent hover:underline"
-                    onClick={() => onSetOutcome(m.id, "active")}
-                  >
+                  <button type="button" className={pill} onClick={() => onSetOutcome(m.id, "active")}>
                     Reopen
                   </button>
                 )
               ) : m.plan_accepted ? (
-                // Active (locked in). Owner: mark finished/abandoned, or unlock to edit.
-                <span className="flex flex-wrap items-center gap-3 text-[11px] text-dewey-mute">
-                  🔒 Locked in
-                  {amPlanOwner && (
-                    <>
-                      <button
-                        type="button"
-                        className="text-xs text-green-700 hover:underline"
-                        onClick={() => onSetOutcome(m.id, "finished")}
-                      >
-                        Mark finished
-                      </button>
-                      <button
-                        type="button"
-                        className="text-xs text-dewey-mute hover:text-dewey-ink"
-                        onClick={() => onSetOutcome(m.id, "abandoned")}
-                      >
-                        Abandon
-                      </button>
-                      <button
-                        type="button"
-                        className="text-xs text-dewey-accent hover:underline"
-                        onClick={() => onUnlockPlan(m.id)}
-                      >
-                        Unlock
-                      </button>
-                    </>
-                  )}
-                </span>
+                // Active + locked. Owner: unlock to edit, complete, or abandon.
+                amPlanOwner && (
+                  <>
+                    <button type="button" className={pill} onClick={() => onUnlockPlan(m.id)}>
+                      Unlock
+                    </button>
+                    <button type="button" className={pill} onClick={() => onSetOutcome(m.id, "finished")}>
+                      Complete
+                    </button>
+                    <button type="button" className={pill} onClick={() => onSetOutcome(m.id, "abandoned")}>
+                      Abandon
+                    </button>
+                  </>
+                )
               ) : (
                 // Proposed / awaiting: every participant accepts; owner manages it.
                 <>
                   {iAccepted ? (
-                    <span className="text-xs text-green-700">✓ You accepted</span>
+                    <span className="px-1 text-xs text-green-700">✓ You accepted</span>
                   ) : (
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-green-700 hover:underline"
-                      onClick={() => onAcceptPlan(m.id)}
-                    >
+                    <button type="button" className={pill} onClick={() => onAcceptPlan(m.id)}>
                       Accept
                     </button>
                   )}
                   {amPlanOwner && (
                     <>
-                      <button
-                        type="button"
-                        className="text-xs text-dewey-accent hover:underline"
-                        onClick={() => onEditPlan(m.plan_id as number)}
-                      >
+                      <button type="button" className={pill} onClick={() => onEditPlan(m.plan_id as number)}>
                         Edit
                       </button>
-                      <button
-                        type="button"
-                        className="text-xs text-dewey-mute hover:text-dewey-ink"
-                        onClick={() => onCopyPlan(m.plan_id as number)}
-                      >
+                      <button type="button" className={pill} onClick={() => onCopyPlan(m.plan_id as number)}>
                         Copy to my plans
                       </button>
-                      <button
-                        type="button"
-                        className="text-xs text-red-700 hover:underline"
-                        onClick={() => onDismissPlan(m.id)}
-                      >
+                      <button type="button" className={pill} onClick={() => onDismissPlan(m.id)}>
                         Dismiss
                       </button>
                     </>
