@@ -253,8 +253,12 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
   const borderWidth = isCurrent ? 3 : selected ? 2 : 1;
   return (
     <div
-      className={`rounded-md border text-dewey-ink shadow-sm text-xs ${
-        isCurrent ? "bg-green-50" : isCompleted ? "bg-dewey-surface-2" : "bg-dewey-surface"
+      className={`rounded-md border shadow-sm text-xs ${
+        isCurrent
+          ? "bg-green-50 text-green-900"
+          : isCompleted
+          ? "bg-dewey-surface-2 text-dewey-ink"
+          : "bg-dewey-surface text-dewey-ink"
       } ${data.clickable ? "cursor-pointer" : ""}`}
       title={tip || undefined}
       style={{
@@ -274,7 +278,9 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
       <div className="px-2 py-1.5">
         <div className="break-words font-medium leading-tight">{data.label}</div>
         <div className="mt-0.5 flex items-center gap-1">
-          <span className="text-[10px] text-dewey-mute">{GATING_LABEL[data.gating]}</span>
+          <span className={`text-[10px] ${isCurrent ? "text-green-800" : "text-dewey-mute"}`}>
+            {GATING_LABEL[data.gating]}
+          </span>
           {isCurrent && (
             <span className="rounded bg-green-600 px-1 text-[9px] font-medium uppercase text-white">
               Current
