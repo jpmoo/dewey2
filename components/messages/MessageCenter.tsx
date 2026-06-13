@@ -1268,6 +1268,7 @@ function MessageBubble({
                 canManagePlan && (
                   <>
                     <PlanPill icon="♻️" label="Revive" onClick={() => onRevivePlan(m.id)} />
+                    <PlanPill icon="📋" label="Copy to my plans" onClick={() => onCopyPlan(m.plan_id as number)} />
                     <PlanPill icon="🗑️" label="Dismiss" onClick={() => onDismissPlan(m.id)} />
                   </>
                 )

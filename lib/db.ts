@@ -387,6 +387,24 @@ export function ensureSchema(): Promise<void> {
           ADD COLUMN IF NOT EXISTS message_permissions JSONB NOT NULL DEFAULT
             '{"coach":{"partner_same_school":true,"partner_district":false,"coach_same_school":true,"coach_district":true},"partner":{"partner_same_school":false,"partner_district":false,"coach_same_school":true,"coach_district":false}}';
       `);
+
+      // Backfill: the "only the most recent plan per thread is active" rule should
+      // apply to threads that predate it. Mark every embedded plan that has a newer
+      // sibling in the same thread as superseded. Idempotent (only touches rows not
+      // already deactivated), and runs once per process via schemaPromise.
+      await pool.query(`
+        UPDATE coaching_templates ct
+           SET deactivated_at = NOW()
+         WHERE ct.scope = 'partnership' AND ct.deleted_at IS NULL
+           AND ct.thread_id IS NOT NULL AND ct.deactivated_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM coaching_templates newer
+              WHERE newer.thread_id = ct.thread_id AND newer.scope = 'partnership'
+                AND newer.deleted_at IS NULL
+                AND (newer.created_at > ct.created_at
+                     OR (newer.created_at = ct.created_at AND newer.id > ct.id))
+           );
+      `);
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
       schemaPromise = null;
@@ -1515,7 +1533,15 @@ export async function duplicateTemplateForCoach(
   sourceId: number,
   coachId: number
 ): Promise<CoachingTemplate | null> {
-  const source = await getTemplateForCoach(sourceId, coachId);
+  let source = await getTemplateForCoach(sourceId, coachId);
+  // Also allow copying an embedded thread plan the coach co-manages (any state:
+  // active, superseded, finished, or abandoned).
+  if (!source) {
+    const t = await getTemplate(sourceId);
+    if (t && !t.deleted_at && t.scope === "partnership" && (await userManagesThreadPlan(sourceId, coachId))) {
+      source = t;
+    }
+  }
   if (!source) return null;
   return createTemplate({
     name: `${source.name} (copy)`,
