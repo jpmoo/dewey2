@@ -1403,7 +1403,7 @@ function MessageBubble({
               className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-1.5 ring-1 ring-dewey-border"
             />
           ) : (
-            <div className={senderIsCoach ? "rounded-full ring-2 ring-dewey-accent ring-offset-1" : ""}>
+            <div className={`inline-flex shrink-0 rounded-full ${senderIsCoach ? "ring-1 ring-dewey-accent" : ""}`}>
               <Avatar userId={m.sender_id} name={m.sender_name} size={36} />
             </div>
           )}
