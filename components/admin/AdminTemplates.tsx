@@ -224,11 +224,11 @@ function Group({
           {items.map((t) => (
             <li
               key={t.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-dewey-border bg-dewey-surface p-3"
+              className="rounded-lg border border-dewey-border bg-dewey-surface p-3"
             >
               <button
                 type="button"
-                className="min-w-0 flex-1 cursor-pointer text-left"
+                className="block w-full cursor-pointer text-left"
                 onClick={() => onOpen(t)}
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -247,7 +247,7 @@ function Group({
                   {t.graph.phases.length} phase{t.graph.phases.length === 1 ? "" : "s"}
                 </div>
               </button>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
                 {renderActions(t)}
               </div>
             </li>
