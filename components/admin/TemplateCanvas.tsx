@@ -858,21 +858,21 @@ function CanvasInner({
         />
         <button
           type="button"
-          className="dewey-btn-secondary"
+          className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2.5 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10 disabled:opacity-50"
           onClick={handleGroup}
           disabled={groupDisabled}
           title={groupTitle}
         >
-          {groupLabel}
+          <span aria-hidden>🧩</span> {groupLabel}
         </button>
         <button
           type="button"
-          className="dewey-btn-secondary"
+          className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2.5 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10 disabled:opacity-50"
           onClick={removeSelectedFromPhase}
           disabled={!someSelectedInPhase}
           title="Remove the selected activities from their phase"
         >
-          Remove from phase
+          <span aria-hidden>✂️</span> Remove from phase
         </button>
         <div className="ml-auto flex items-center gap-3">
           {template.scope === "partnership" && (
