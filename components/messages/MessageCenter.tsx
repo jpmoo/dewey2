@@ -908,6 +908,30 @@ export function ThreadPane({
     [dialog, threadId, fetchThread]
   );
 
+  const revivePlan = useCallback(
+    async (messageId: number) => {
+      if (
+        !(await dialog.confirm(
+          "Revive this plan? It will replace the current active plan and drop back in as the latest — everyone re-accepts it.",
+          { title: "Revive plan", confirmText: "Revive" }
+        ))
+      )
+        return;
+      try {
+        const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/revive-plan`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageId }),
+        });
+        if (!res.ok) throw new Error();
+        fetchThread(false);
+      } catch {
+        dialog.alert("Couldn't revive the plan.");
+      }
+    },
+    [dialog, threadId, fetchThread]
+  );
+
   const dismissPlan = useCallback(
     async (messageId: number) => {
       if (!(await dialog.confirm("Dismiss this plan from the conversation?", { title: "Dismiss plan" })))
@@ -1012,6 +1036,7 @@ export function ThreadPane({
                 onEditPlan={editPlan}
                 onCopyPlan={copyPlan}
                 onDismissPlan={dismissPlan}
+                onRevivePlan={revivePlan}
                 onReply={(t) => setReplyTarget(t)}
               />
             ))
@@ -1127,6 +1152,7 @@ function MessageBubble({
   onEditPlan,
   onCopyPlan,
   onDismissPlan,
+  onRevivePlan,
   onReply,
 }: {
   message: MessageView;
@@ -1141,6 +1167,7 @@ function MessageBubble({
   onEditPlan: (planId: number) => void;
   onCopyPlan: (planId: number) => void;
   onDismissPlan: (messageId: number) => void;
+  onRevivePlan: (messageId: number) => void;
   onReply: (t: ReplyTarget) => void;
 }) {
   const senderLabel = m.is_ai ? "Dewey" : m.sender_name ?? "Unknown";
@@ -1232,10 +1259,13 @@ function MessageBubble({
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <PlanPill icon="🗂️" label="View plan" onClick={() => onViewPlan(m.plan_id as number)} />
-              {/* Superseded: owner can clear it away. */}
+              {/* Superseded: owner can revive (make it active again) or clear it. */}
               {m.plan_deactivated ? (
                 canManagePlan && (
-                  <PlanPill icon="🗑️" label="Dismiss" onClick={() => onDismissPlan(m.id)} />
+                  <>
+                    <PlanPill icon="♻️" label="Revive" onClick={() => onRevivePlan(m.id)} />
+                    <PlanPill icon="🗑️" label="Dismiss" onClick={() => onDismissPlan(m.id)} />
+                  </>
                 )
               ) : m.plan_accepted && m.plan_outcome ? (
                 // Terminal (finished/abandoned). Owner can reopen it.
@@ -1314,22 +1344,25 @@ function MessageBubble({
             )}
           </div>
         )}
-        {/* Reply link beneath messages from others (incl. @dewey). */}
+        {/* Reply pill beneath messages from others (incl. Dewey), against the
+            right edge of the bubble. */}
         {!mine && (
-          <button
-            type="button"
-            className="mt-0.5 text-[11px] text-dewey-mute hover:text-dewey-accent"
-            onClick={() =>
-              onReply({
-                id: m.id,
-                sender: senderLabel,
-                excerpt: (m.body || (m.plan_id ? `Plan: ${m.plan_name ?? ""}` : "")).slice(0, 120),
-                isAi: m.is_ai,
-              })
-            }
-          >
-            {m.is_ai ? "Reply to Dewey" : "Reply"}
-          </button>
+          <div className="mt-0.5 flex w-full justify-end">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-dewey-border bg-dewey-surface px-2 py-0.5 text-[11px] text-dewey-mute hover:border-dewey-mute hover:text-dewey-ink"
+              onClick={() =>
+                onReply({
+                  id: m.id,
+                  sender: senderLabel,
+                  excerpt: (m.body || (m.plan_id ? `Plan: ${m.plan_name ?? ""}` : "")).slice(0, 120),
+                  isAi: m.is_ai,
+                })
+              }
+            >
+              <span aria-hidden>↩</span> {m.is_ai ? "Reply to Dewey" : "Reply"}
+            </button>
+          </div>
         )}
       </div>
     </div>

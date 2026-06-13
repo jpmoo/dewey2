@@ -114,6 +114,7 @@ const ACTION_LABELS: Record<string, string> = {
   plan_finished: "Marked a plan finished",
   plan_abandoned: "Marked a plan abandoned",
   plan_reopened: "Reopened a plan",
+  plan_revived: "Revived a plan",
   dewey_replied: "@dewey replied",
   participant_added: "Added someone to a conversation",
   invitation_accepted: "Accepted a partnership",

@@ -1277,6 +1277,39 @@ export async function setPlanOutcome(
 }
 
 /**
+ * Revive a superseded plan: make it the thread's live plan again (fresh/pending),
+ * superseding every other plan. Returns the updated plan, or null if not a
+ * coach-manageable partnership plan.
+ */
+export async function reactivateThreadPlan(
+  planId: number,
+  coachId: number
+): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (
+    !plan ||
+    plan.deleted_at ||
+    plan.scope !== "partnership" ||
+    plan.thread_id == null ||
+    !(await userManagesThreadPlan(planId, coachId))
+  ) {
+    return null;
+  }
+  await clearPlanAcceptances(planId);
+  await pool.query(
+    `UPDATE coaching_templates
+        SET deactivated_at = NULL, accepted_at = NULL, current_node_id = NULL,
+            outcome = NULL, updated_at = NOW()
+      WHERE id = $1`,
+    [planId]
+  );
+  await deactivatePriorThreadPlans(plan.thread_id, planId);
+  return getTemplate(planId);
+}
+
+/**
  * Whether a user may MANAGE an embedded plan (edit/dismiss/unlock/outcome). Any
  * coach who participates in the plan's thread can — not just the one who added
  * it — so multiple coaches share the same rights over a thread's plans.
