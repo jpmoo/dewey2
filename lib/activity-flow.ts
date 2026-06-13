@@ -9,6 +9,7 @@ import {
   getTemplate,
   markActivitySubmission,
   userManagesThreadPlan,
+  withdrawSubmission,
   type ConsultTurn,
 } from "@/lib/db";
 import {
@@ -206,6 +207,25 @@ export async function submitActivity(params: {
 
   await logThreadEvent({ userId: partnerId, actorId: partnerId, action: "activity_submitted", threadId });
   return { ok: true, pendingReview: true, advanced: false, finished: false };
+}
+
+/** A partner withdraws their own pending submission before the coach reviews it. */
+export async function withdrawActivity(params: {
+  threadId: number;
+  partnerId: number;
+}): Promise<SubmitResult> {
+  await ensureSchema();
+  const { threadId, partnerId } = params;
+  const active = await getActiveActivity(threadId);
+  if (!active || !active.submission || active.submission.status !== "pending") {
+    return { ok: false, error: "There's no pending submission to withdraw.", status: 400 };
+  }
+  const done = await withdrawSubmission(active.submission.id, partnerId);
+  if (!done) {
+    return { ok: false, error: "You can only withdraw your own pending submission.", status: 403 };
+  }
+  await logThreadEvent({ userId: partnerId, actorId: partnerId, action: "activity_withdrawn", threadId });
+  return { ok: true, pendingReview: false, advanced: false, finished: false };
 }
 
 export async function reviewActivity(params: {

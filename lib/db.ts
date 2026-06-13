@@ -1542,6 +1542,24 @@ export async function markActivitySubmission(params: {
   return rowToSubmission(res.rows[0]);
 }
 
+/**
+ * Withdraw a still-pending submission (partner action, before any coach review).
+ * Deletes the row so the activity has no submission and the partner's chat
+ * unfreezes. Only the submitting partner can withdraw, and only while pending.
+ */
+export async function withdrawSubmission(
+  submissionId: number,
+  partnerId: number
+): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "DELETE FROM activity_submissions WHERE id = $1 AND partner_id = $2 AND status = 'pending'",
+    [submissionId, partnerId]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
 /** Record a coach's decision on a submission ('approved' or 'returned'). */
 export async function decideSubmission(
   submissionId: number,

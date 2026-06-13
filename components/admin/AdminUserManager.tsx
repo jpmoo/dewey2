@@ -119,6 +119,7 @@ const ACTION_LABELS: Record<string, string> = {
   plan_completed: "Completed a plan",
   phase_advanced: "Advanced to the next phase",
   activity_submitted: "Submitted an activity for review",
+  activity_withdrawn: "Withdrew a submission",
   activity_attested: "Attested an activity complete",
   activity_approved: "Approved an activity submission",
   activity_returned: "Returned a submission with feedback",

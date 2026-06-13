@@ -937,6 +937,31 @@ export function ThreadPane({
     [activeActivity, dialog, threadId, fetchThread, onPosted]
   );
 
+  // A partner withdraws their own pending submission before the coach reviews it.
+  const withdrawSubmission = useCallback(async () => {
+    if (
+      !(await dialog.confirm(
+        "Withdraw your submission? Your coach hasn't reviewed it yet, and the chat will reopen so you can keep working.",
+        { title: "Withdraw submission", confirmText: "Withdraw" }
+      ))
+    )
+      return;
+    try {
+      const res = await fetch(
+        pathWithBase(`/api/messages/threads/${threadId}/activity/withdraw`),
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't withdraw");
+      }
+      fetchThread(false);
+      onPosted();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't withdraw the submission.");
+    }
+  }, [dialog, threadId, fetchThread, onPosted]);
+
   const acceptPlan = useCallback(
     async (messageId: number) => {
       if (
@@ -1252,10 +1277,19 @@ export function ThreadPane({
           System notice — replies are disabled.
         </div>
       ) : partnerFrozen ? (
-        <div className="border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
-          ⏳ Your submission for{" "}
-          <span className="font-medium text-dewey-ink">{activeActivity?.nodeLabel}</span> is awaiting
-          your coach&apos;s review. The chat will reopen once they respond.
+        <div className="flex flex-col items-center gap-1.5 border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
+          <span>
+            ⏳ Your submission for{" "}
+            <span className="font-medium text-dewey-ink">{activeActivity?.nodeLabel}</span> is awaiting
+            your coach&apos;s review. The chat will reopen once they respond.
+          </span>
+          <button
+            type="button"
+            onClick={withdrawSubmission}
+            className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
+          >
+            ↩ Withdraw submission
+          </button>
         </div>
       ) : (
         <Composer
