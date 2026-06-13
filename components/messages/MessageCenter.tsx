@@ -1326,7 +1326,6 @@ export function ThreadPane({
         <Composer
           threadId={threadId}
           replyTarget={replyTarget}
-          activeActivity={canSubmit ? activeActivity : null}
           onClearReply={() => setReplyTarget(null)}
           onSent={() => {
             setReplyTarget(null);
@@ -1730,7 +1729,6 @@ type AddableUser = { id: number; full_name: string; username: string; system_rol
 function Composer({
   threadId,
   replyTarget,
-  activeActivity,
   onClearReply,
   onSent,
   onRefresh,
@@ -1738,7 +1736,6 @@ function Composer({
 }: {
   threadId: number;
   replyTarget: ReplyTarget | null;
-  activeActivity: ActiveActivity | null;
   onClearReply: () => void;
   onSent: () => void;
   onRefresh: () => void;
@@ -1748,8 +1745,6 @@ function Composer({
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
-  // Partner option: post this message AND mark it as the activity's submission.
-  const [submitAsSubmission, setSubmitAsSubmission] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1820,20 +1815,6 @@ function Composer({
   const send = async () => {
     if (sending) return;
     if (!body.trim() && files.length === 0) return;
-    // If this message is also the activity submission, confirm the consequence
-    // up front (OPEN self-attest completes the activity; otherwise it pauses for
-    // coach review).
-    const submitNow = submitAsSubmission && activeActivity != null;
-    if (submitNow && activeActivity) {
-      const openAttest = activeActivity.gating === "OPEN" && !activeActivity.isLastInPhase;
-      const ok = await dialog.confirm(
-        openAttest
-          ? `Send this and submit it as your work for "${activeActivity.nodeLabel}"? The activity will be marked complete and the plan moves on.`
-          : `Send this and submit it for "${activeActivity.nodeLabel}"? Your coach reviews it before the plan advances, and the chat pauses until then.`,
-        { title: "Submit", confirmText: "Send & submit" }
-      );
-      if (!ok) return;
-    }
     // @dewey generates within the request, so show the typing indicator until
     // the response (which includes the AI reply) returns — also when replying
     // to an @dewey message (that's a prompt back to the AI).
@@ -1861,24 +1842,6 @@ function Composer({
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error((d as { error?: string }).error || `HTTP ${res.status}`);
-      }
-      if (submitNow) {
-        const posted = (await res.json().catch(() => ({}))) as { messageId?: number };
-        setSubmitAsSubmission(false);
-        if (posted.messageId != null) {
-          const sres = await fetch(
-            pathWithBase(`/api/messages/threads/${threadId}/activity/submit`),
-            {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ messageId: posted.messageId }),
-            }
-          );
-          if (!sres.ok) {
-            const d = await sres.json().catch(() => ({}));
-            dialog.alert((d as { error?: string }).error || "Message sent, but couldn't submit it.");
-          }
-        }
       }
       onSent();
     } catch (e) {
@@ -1950,17 +1913,6 @@ function Composer({
             </span>
           ))}
         </div>
-      )}
-      {activeActivity && (
-        <label className="mb-2 flex cursor-pointer items-center gap-2 text-xs text-dewey-mute">
-          <input
-            type="checkbox"
-            checked={submitAsSubmission}
-            onChange={(e) => setSubmitAsSubmission(e.target.checked)}
-          />
-          📎 Submit this message as my work for{" "}
-          <span className="font-medium text-dewey-ink">{activeActivity.nodeLabel}</span>
-        </label>
       )}
       <div className="flex items-end gap-2">
         <button
