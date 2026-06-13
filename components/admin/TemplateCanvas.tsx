@@ -868,6 +868,11 @@ function CanvasInner({
           Remove from phase
         </button>
         <div className="ml-auto flex items-center gap-3">
+          {template.scope === "partnership" && (
+            <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
+              Partnership copy — saves to this conversation only, not your plan library
+            </span>
+          )}
           {dirty ? (
             <span className="text-xs text-amber-600">Unsaved changes</span>
           ) : savedAt ? (
@@ -1095,8 +1100,9 @@ function CanvasInner({
           <div className="w-full max-w-lg rounded-lg border border-dewey-border bg-dewey-surface p-5 shadow-xl">
             <h2 className="text-base font-semibold text-dewey-ink">Save plan</h2>
             <p className="mt-1 text-sm text-dewey-mute">
-              Add a description so coaches know what this plan is for. We&apos;ve drafted one
-              you can edit.
+              {template.scope === "partnership"
+                ? "This saves the partnership's copy in the conversation only — it won't be added to your plan library. Add a short description so everyone knows what it's for."
+                : "Add a description so coaches know what this plan is for. We've drafted one you can edit."}
             </p>
             <div className="mt-3 flex items-center justify-between">
               <label className="dewey-label mb-0">Description</label>

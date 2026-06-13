@@ -283,6 +283,8 @@ export function ensureSchema(): Promise<void> {
         -- iMessage-style reply: the message this one is a reply to.
         ALTER TABLE messages
           ADD COLUMN IF NOT EXISTS reply_to BIGINT REFERENCES messages (id) ON DELETE SET NULL;
+        -- RAG source documents cited by an @dewey reply: [{name, path}].
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS sources JSONB;
 
         -- File attachments live in the DB (BYTEA) so they're covered by the same
         -- backups and need no separate storage volume. Previews are by mime type.
@@ -1041,6 +1043,7 @@ function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
     current_node_id: (row.current_node_id as string | null) ?? null,
     deactivated_at: row.deactivated_at ? toIso(row.deactivated_at) : null,
     thread_id: (row.thread_id as number | null) ?? null,
+    submission_status: (row.submission_status as "open" | "approved" | "rejected" | null) ?? null,
   };
 }
 
@@ -1059,12 +1062,19 @@ export async function getTemplatesForCoach(coachId: number): Promise<CoachingTem
   const pool = getPool();
   await ensureSchema();
   // Partnership-scoped copies are deliberately excluded — they live only in the
-  // partnership chat, not in any plan list.
+  // partnership chat, not in any plan list. submission_status reflects the latest
+  // district-submission thread for the plan (so approve/reject in the message
+  // center shows up here too).
   const res = await pool.query(
-    `SELECT * FROM coaching_templates
-      WHERE deleted_at IS NULL
-        AND (scope = 'global' OR (scope = 'personal' AND owner_id = $1))
-      ORDER BY scope = 'global' DESC, name`,
+    `SELECT ct.*,
+            (SELECT st.status FROM message_threads st
+              WHERE st.kind = 'template_submission' AND st.template_id = ct.id
+                AND st.deleted_at IS NULL
+              ORDER BY st.created_at DESC LIMIT 1) AS submission_status
+       FROM coaching_templates ct
+      WHERE ct.deleted_at IS NULL
+        AND (ct.scope = 'global' OR (ct.scope = 'personal' AND ct.owner_id = $1))
+      ORDER BY ct.scope = 'global' DESC, ct.name`,
     [coachId]
   );
   return res.rows.map(rowToTemplate);

@@ -37,6 +37,7 @@ type MessageView = {
   reply_to: number | null;
   reply_excerpt: string | null;
   reply_sender: string | null;
+  sources: { name: string; path: string }[];
 };
 type ThreadSummary = {
   id: number;
@@ -1290,6 +1291,23 @@ function MessageBubble({
               <div className="mt-2 space-y-2">
                 {m.attachments.map((a) => (
                   <Attachment key={a.id} att={a} onPreview={onPreview} />
+                ))}
+              </div>
+            )}
+            {m.sources.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-dewey-border pt-1.5">
+                <span className="text-[11px] text-dewey-mute">Sources</span>
+                {m.sources.map((s, j) => (
+                  <a
+                    key={j}
+                    href={pathWithBase(`/api/rag/source?path=${encodeURIComponent(s.path)}`)}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={s.name}
+                    className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute hover:border-dewey-mute hover:text-dewey-ink"
+                  >
+                    {s.name}
+                  </a>
                 ))}
               </div>
             )}

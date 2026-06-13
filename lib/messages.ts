@@ -61,6 +61,8 @@ export interface MessageView {
   reply_to: number | null;
   reply_excerpt: string | null;
   reply_sender: string | null;
+  /** RAG source documents cited by an @dewey reply. */
+  sources: { name: string; path: string }[];
 }
 
 export interface ThreadSummary {
@@ -758,6 +760,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
             ct.graph -> 'phases' -> 0 ->> 'name' AS plan_phase,
             (ct.accepted_at IS NOT NULL) AS plan_accepted,
             (ct.deactivated_at IS NOT NULL) AS plan_deactivated,
+            m.sources,
             m.reply_to,
             LEFT(rm.body, 120) AS reply_excerpt,
             CASE WHEN rm.id IS NULL THEN NULL
@@ -808,6 +811,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
     reply_to: m.reply_to != null ? Number(m.reply_to) : null,
     reply_excerpt: (m.reply_excerpt as string | null) ?? null,
     reply_sender: (m.reply_sender as string | null) ?? null,
+    sources: Array.isArray(m.sources) ? (m.sources as { name: string; path: string }[]) : [],
   }));
 }
 
@@ -822,12 +826,13 @@ export async function postMessage(params: {
   planId?: number | null;
   isAi?: boolean;
   replyTo?: number | null;
+  sources?: { name: string; path: string }[] | null;
 }): Promise<number> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `INSERT INTO messages (thread_id, sender_id, body, plan_id, is_ai, reply_to)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    `INSERT INTO messages (thread_id, sender_id, body, plan_id, is_ai, reply_to, sources)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
     [
       params.threadId,
       params.senderId,
@@ -835,6 +840,7 @@ export async function postMessage(params: {
       params.planId ?? null,
       params.isAi === true,
       params.replyTo ?? null,
+      params.sources && params.sources.length ? JSON.stringify(params.sources) : null,
     ]
   );
   await pool.query("UPDATE message_threads SET updated_at = NOW() WHERE id = $1", [params.threadId]);

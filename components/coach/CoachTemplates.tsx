@@ -489,11 +489,29 @@ function Group({
                 className="min-w-0 flex-1 cursor-pointer text-left"
                 onClick={() => onOpen(t)}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{t.name}</span>
                   {badge && (
                     <span className="rounded bg-dewey-surface-2 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-dewey-mute">
                       {badge}
+                    </span>
+                  )}
+                  {t.submission_status && (
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${
+                        t.submission_status === "approved"
+                          ? "bg-green-100 text-green-800"
+                          : t.submission_status === "rejected"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                      title="District-submission status"
+                    >
+                      {t.submission_status === "approved"
+                        ? "Approved"
+                        : t.submission_status === "rejected"
+                        ? "Rejected"
+                        : "Pending review"}
                     </span>
                   )}
                 </div>

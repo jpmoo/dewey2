@@ -81,4 +81,6 @@ export interface CoachingTemplate {
   deactivated_at?: string | null;
   /** Partnership plans only: the thread this plan is embedded in. */
   thread_id?: number | null;
+  /** Latest district-submission status for this plan (from its submission thread), if any. */
+  submission_status?: "open" | "approved" | "rejected" | null;
 }

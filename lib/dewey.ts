@@ -1,6 +1,6 @@
 import { chatComplete, complianceCheck } from "@/lib/ai";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
-import { queryRagDefault, formatRagContext } from "@/lib/rag";
+import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
 import {
   createTemplate,
   deactivatePriorThreadPlans,
@@ -130,6 +130,7 @@ export async function runDeweyForThread(params: {
   // Ground in the org's documents via RAGDoll, like the canvas assistant does,
   // so message-built plans are as well-grounded as canvas-built ones.
   const chunks = await queryRagDefault(invokingMessage).catch(() => []);
+  const sources = uniqueSources(chunks);
   if (chunks.length > 0) {
     system +=
       "\n\nRelevant excerpts from the organization's documents — ground your suggestions in these where applicable:\n" +
@@ -212,7 +213,13 @@ export async function runDeweyForThread(params: {
   const outbound = await complianceCheck(prose);
   if (!outbound.allowed) prose = "I'm not able to help with that here.";
 
-  await postMessage({ threadId, senderId: null, isAi: true, body: prose });
+  await postMessage({
+    threadId,
+    senderId: null,
+    isAi: true,
+    body: prose,
+    sources: outbound.allowed ? sources : null,
+  });
 
   // Plan directives only apply when the coach invoked @dewey (they own the copy).
   if (outbound.allowed && canSuggestPlans && coachId != null) {
