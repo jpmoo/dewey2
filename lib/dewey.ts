@@ -1,5 +1,6 @@
 import { chatComplete, complianceCheck } from "@/lib/ai";
-import { ACTIVITY_TYPES, ACTIVITY_BY_KEY } from "@/lib/activities";
+import { ACTIVITY_BY_KEY } from "@/lib/activities";
+import { queryRagDefault, formatRagContext } from "@/lib/rag";
 import {
   createTemplate,
   duplicatePlanForPartnership,
@@ -13,6 +14,12 @@ import {
   postMessage,
   reportComplianceFlag,
 } from "@/lib/messages";
+import {
+  buildMessagePlanPrompt,
+  sanitizeProposedGraph,
+  extractJsonObject,
+  GRAPH_MARKER,
+} from "@/lib/plan-ai";
 import type { TemplateGraph } from "@/lib/templates";
 
 /**
@@ -21,116 +28,27 @@ import type { TemplateGraph } from "@/lib/templates";
  * attached plan) as context, screens for compliance both ways, and posts a
  * reply as the AI participant. In a partnership it may, if asked, attach an
  * existing library plan or a custom plan it designs (owned by the coach).
+ *
+ * Plan generation shares its prompt + sanitizer with the canvas assistant via
+ * lib/plan-ai, so message-built plans match canvas-built ones in quality.
  */
 
 const ATTACH_MARKER = "===ATTACH===";
-const GRAPH_MARKER = "===GRAPH===";
 
 function buildSystemPrompt(
   library: { id: number; name: string; description: string | null }[],
   allowPlans: boolean
 ): string {
-  const base = `You are @dewey, an AI coaching companion participating in a conversation on Dewey, a coaching platform for educators and school/district leaders. You can see the whole conversation and any plan attached to it.
-
-Respond to the most recent message: answer the question or respond to the comment, concisely and helpfully, grounded in the conversation and the attached plan when relevant.`;
-
   // Only the coach may have @dewey suggest/build a plan. For everyone else,
   // @dewey answers and comments but never proposes a plan.
   if (!allowPlans) {
-    return `${base}
+    return `You are @dewey, an AI coaching companion participating in a conversation on Dewey, a coaching platform for educators and school/district leaders. You can see the whole conversation and any plan attached to it.
+
+Respond to the most recent message: answer the question or respond to the comment, concisely and helpfully, grounded in the conversation and the attached plan when relevant.
 
 You may answer questions and offer reflections, but do NOT propose, choose, or build a coaching plan in this conversation — only the coach can ask you to do that. If asked for a plan, suggest they ask their coach.`;
   }
-
-  const catalog = ACTIVITY_TYPES.map((a) => `- ${a.key} — ${a.label} (${a.category})`).join("\n");
-  const lib = library.length
-    ? library.map((p) => `- id ${p.id}: ${p.name}${p.description ? ` — ${p.description}` : ""}`).join("\n")
-    : "(none)";
-  return `${base}
-
-PLANS: When the coach asks you for a plan, an arc, a template, or to build/draft/design/suggest/create one, you MUST actually produce it in this same reply — do NOT just ask for more information, and do NOT promise to build it later. A "plan" (a.k.a. arc or template) is an ARC: an ordered set of PHASES, each containing one or more ACTIVITIES drawn only from the fixed taxonomy below. Make reasonable assumptions from the conversation (the partner, their goal, the topic) and design a complete, sensible arc. Only ask a single clarifying question if the request is genuinely impossible to act on.
-
-There are two ways to deliver a plan:
-- If an EXISTING plan in the coach's library clearly fits, attach it: end your short prose, then on a new line output exactly:
-${ATTACH_MARKER}
-followed by a single JSON object: {"sourcePlanId": <id from the library list>}
-- Otherwise DESIGN a custom arc: end your short prose, then on a new line output exactly:
-${GRAPH_MARKER}
-followed by a single JSON object:
-{ "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "artifact": "<what they produce>", "phaseId": "p1" } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }
-Prefer DESIGNING a custom arc unless an existing library plan is an obvious match. A good arc has 2–4 phases and 1–3 activities per phase, connected in order by edges.
-
-Rules:
-- When asked for a plan/arc/template, ALWAYS end with one of the two marker blocks above — never reply with only prose in that case.
-- Do NOT output a marker or JSON when the coach is only chatting and did not ask for a plan.
-- Use ONLY activityKey values from the list. Never invent activities or keys.
-- Keep the prose to a sentence or two; do not paste the JSON into the prose or mention the markers.
-
-Coach's plan library (for the attach option):
-${lib}
-
-Available activity types (use these activityKey values):
-${catalog}`;
-}
-
-function extractJson(s: string): unknown {
-  const start = s.indexOf("{");
-  const end = s.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  try {
-    return JSON.parse(s.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-}
-
-/** Validate + lay out a model-proposed graph into a stable TemplateGraph. */
-function sanitizeGraph(raw: unknown): TemplateGraph | null {
-  if (!raw || typeof raw !== "object") return null;
-  const obj = raw as { nodes?: unknown; edges?: unknown; phases?: unknown };
-  const phasesIn = Array.isArray(obj.phases) ? obj.phases : [];
-  const phases = phasesIn
-    .map((p) => p as { id?: unknown; name?: unknown; exitConditions?: unknown })
-    .filter((p) => typeof p.id === "string" && typeof p.name === "string")
-    .map((p) => ({
-      id: String(p.id),
-      name: String(p.name),
-      exitConditions: typeof p.exitConditions === "string" ? p.exitConditions : "",
-    }));
-  const phaseOrder = phases.map((p) => p.id);
-
-  const nodesIn = Array.isArray(obj.nodes) ? obj.nodes : [];
-  const perPhaseCount = new Map<string, number>();
-  const nodes = nodesIn
-    .map((n) => n as { id?: unknown; activityKey?: unknown; gating?: unknown; instructions?: unknown; artifact?: unknown; phaseId?: unknown })
-    .filter((n) => typeof n.activityKey === "string" && ACTIVITY_BY_KEY[n.activityKey as string])
-    .map((n, i) => {
-      const key = n.activityKey as string;
-      const def = ACTIVITY_BY_KEY[key];
-      const phaseId = typeof n.phaseId === "string" && phaseOrder.includes(n.phaseId) ? n.phaseId : null;
-      const col = phaseId ? phaseOrder.indexOf(phaseId) : phaseOrder.length;
-      const row = perPhaseCount.get(phaseId ?? "_") ?? 0;
-      perPhaseCount.set(phaseId ?? "_", row + 1);
-      return {
-        id: typeof n.id === "string" ? n.id : `n${i + 1}`,
-        activityKey: key,
-        label: def.label,
-        position: { x: col * 340, y: row * 140 },
-        phaseId,
-        gating: (n.gating === "OPEN" ? "OPEN" : "REVIEWED") as "OPEN" | "REVIEWED",
-        instructions: typeof n.instructions === "string" ? n.instructions : def.defaultInstructions,
-        artifact: typeof n.artifact === "string" ? n.artifact : def.defaultArtifact,
-      };
-    });
-  const nodeIds = new Set(nodes.map((n) => n.id));
-  const edgesIn = Array.isArray(obj.edges) ? obj.edges : [];
-  const edges = edgesIn
-    .map((e) => e as { source?: unknown; target?: unknown })
-    .filter((e) => typeof e.source === "string" && typeof e.target === "string" && nodeIds.has(e.source as string) && nodeIds.has(e.target as string))
-    .map((e, i) => ({ id: `e${i + 1}`, source: String(e.source), target: String(e.target) }));
-
-  if (nodes.length === 0) return null;
-  return { nodes, edges, phases } as TemplateGraph;
+  return buildMessagePlanPrompt(library, ATTACH_MARKER);
 }
 
 export async function runDeweyForThread(params: {
@@ -188,10 +106,19 @@ export async function runDeweyForThread(params: {
   // Only the coach (thread creator) may have @dewey suggest or build a plan.
   const canSuggestPlans = isPartnership && coachId != null && coachId === invokerId;
   const library = canSuggestPlans ? await getTemplatesForCoach(coachId) : [];
-  const system = buildSystemPrompt(
+  let system = buildSystemPrompt(
     library.map((p) => ({ id: p.id, name: p.name, description: p.description })),
     canSuggestPlans
   );
+
+  // Ground in the org's documents via RAGDoll, like the canvas assistant does,
+  // so message-built plans are as well-grounded as canvas-built ones.
+  const chunks = await queryRagDefault(invokingMessage).catch(() => []);
+  if (chunks.length > 0) {
+    system +=
+      "\n\nRelevant excerpts from the organization's documents — ground your suggestions in these where applicable:\n" +
+      formatRagContext(chunks);
+  }
 
   let reply = "";
   try {
@@ -203,7 +130,7 @@ export async function runDeweyForThread(params: {
           content: `Conversation so far:\n${transcript}${planContext}\n\nRespond to the most recent message.`,
         },
       ],
-      maxTokens: 2048,
+      maxTokens: 4096,
     });
     reply = result.text;
   } catch (e) {
@@ -225,10 +152,10 @@ export async function runDeweyForThread(params: {
   let graph: TemplateGraph | null = null;
   if (ai !== -1) {
     prose = reply.slice(0, ai).trim();
-    attach = extractJson(reply.slice(ai + ATTACH_MARKER.length));
+    attach = extractJsonObject(reply.slice(ai + ATTACH_MARKER.length));
   } else if (gi !== -1) {
     prose = reply.slice(0, gi).trim();
-    graph = sanitizeGraph(extractJson(reply.slice(gi + GRAPH_MARKER.length)));
+    graph = sanitizeProposedGraph(extractJsonObject(reply.slice(gi + GRAPH_MARKER.length)));
   }
   prose = prose.replace(/[:：]\s*$/, "").trim() || "Here you go.";
 
