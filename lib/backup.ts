@@ -3,12 +3,11 @@ import { createWriteStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
 import { createGzip } from "zlib";
-import { getPool } from "@/lib/pg";
 import { getSystemSettings } from "@/lib/settings";
 
 /**
- * Daily on-server backup: a gzipped pg_dump of the whole database plus a copy of
- * every uploaded attachment/avatar as real files, into backups/<YYYY-MM-DD>/ in
+ * Daily on-server backup: a gzipped pg_dump of the whole database (which includes
+ * uploaded attachments/avatars, stored as BYTEA) into backups/<YYYY-MM-DD>/ in
  * the project root. Triggered lazily (on login) — it checks whether today's
  * folder exists and only runs if not — and prunes folders older than the
  * admin-configured retention window (default 30 days).
@@ -21,10 +20,6 @@ function todayStr(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-function safeName(name: string): string {
-  return (name || "file").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
 }
 
 // Module-level guard so concurrent logins don't kick off duplicate runs.
@@ -82,42 +77,6 @@ function dumpDatabase(destFile: string): Promise<void> {
   });
 }
 
-/** Export every attachment + avatar to filesDir as real files, with a manifest. */
-async function dumpFiles(filesDir: string): Promise<void> {
-  const pool = getPool();
-  const manifest: Record<string, unknown>[] = [];
-
-  const attDir = path.join(filesDir, "attachments");
-  await fs.mkdir(attDir, { recursive: true });
-  const atts = await pool.query(
-    "SELECT id, message_id, filename, mime_type, data FROM message_attachments ORDER BY id"
-  );
-  for (const r of atts.rows) {
-    const fname = `${r.id}__${safeName(r.filename)}`;
-    await fs.writeFile(path.join(attDir, fname), r.data as Buffer);
-    manifest.push({
-      kind: "attachment",
-      id: r.id,
-      message_id: r.message_id,
-      filename: r.filename,
-      mime_type: r.mime_type,
-      file: `attachments/${fname}`,
-    });
-  }
-
-  const avaDir = path.join(filesDir, "avatars");
-  await fs.mkdir(avaDir, { recursive: true });
-  const avas = await pool.query("SELECT user_id, mime_type, data FROM user_avatars ORDER BY user_id");
-  for (const r of avas.rows) {
-    const ext = String(r.mime_type).includes("png") ? "png" : "jpg";
-    const fname = `${r.user_id}.${ext}`;
-    await fs.writeFile(path.join(avaDir, fname), r.data as Buffer);
-    manifest.push({ kind: "avatar", user_id: r.user_id, mime_type: r.mime_type, file: `avatars/${fname}` });
-  }
-
-  await fs.writeFile(path.join(filesDir, "manifest.json"), JSON.stringify(manifest, null, 2));
-}
-
 async function pruneOldBackups(keepDays: number): Promise<void> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - keepDays);
@@ -139,7 +98,6 @@ export async function runBackup(date = todayStr()): Promise<void> {
   await fs.mkdir(partDir, { recursive: true });
   try {
     await dumpDatabase(path.join(partDir, "database.sql.gz"));
-    await dumpFiles(path.join(partDir, "files"));
     // Atomic-ish swap: remove any existing final, then rename the partial in.
     await fs.rm(finalDir, { recursive: true, force: true }).catch(() => {});
     await fs.rename(partDir, finalDir);

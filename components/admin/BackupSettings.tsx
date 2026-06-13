@@ -82,8 +82,8 @@ export function BackupSettings() {
     <section className="rounded-lg border border-dewey-border bg-dewey-surface p-4">
       <h3 className="text-sm font-semibold text-dewey-ink">Backups</h3>
       <p className="mt-1 text-xs text-dewey-mute">
-        Once per day (checked at login) the server saves a full database dump plus a copy of every
-        uploaded file to <code>backups/&lt;date&gt;/</code> in the project root.
+        Once per day (checked at login) the server saves a full database dump (which includes all
+        uploaded files) to <code>backups/&lt;date&gt;/</code> in the project root.
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-3">
