@@ -51,6 +51,8 @@ export interface MessageView {
   plan_id: number | null;
   plan_name: string | null;
   plan_phase: string | null;
+  /** Whether the coach has accepted the embedded plan (partnership plans only). */
+  plan_accepted: boolean;
   is_ai: boolean;
   reply_to: number | null;
   reply_excerpt: string | null;
@@ -719,6 +721,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
     `SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name, m.is_ai,
             m.plan_id, ct.name AS plan_name,
             ct.graph -> 'phases' -> 0 ->> 'name' AS plan_phase,
+            (ct.accepted_at IS NOT NULL) AS plan_accepted,
             m.reply_to,
             LEFT(rm.body, 120) AS reply_excerpt,
             CASE WHEN rm.id IS NULL THEN NULL
@@ -763,6 +766,7 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
     plan_id: (m.plan_id as number | null) ?? null,
     plan_name: (m.plan_name as string | null) ?? null,
     plan_phase: (m.plan_phase as string | null) ?? null,
+    plan_accepted: m.plan_accepted === true,
     is_ai: m.is_ai === true,
     reply_to: m.reply_to != null ? Number(m.reply_to) : null,
     reply_excerpt: (m.reply_excerpt as string | null) ?? null,

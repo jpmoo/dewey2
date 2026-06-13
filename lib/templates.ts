@@ -73,4 +73,8 @@ export interface CoachingTemplate {
   updated_at: string;
   /** Soft-delete marker; null when visible. Only ever non-null in admin views. */
   deleted_at: string | null;
+  /** Partnership plans only: when the coach accepted the embedded plan (null = pending). */
+  accepted_at?: string | null;
+  /** Partnership plans only: the activity node the partner is currently on (for progress coloring). */
+  current_node_id?: string | null;
 }

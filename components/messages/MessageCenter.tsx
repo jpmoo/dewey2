@@ -31,6 +31,7 @@ type MessageView = {
   plan_id: number | null;
   plan_name: string | null;
   plan_phase: string | null;
+  plan_accepted: boolean;
   is_ai: boolean;
   reply_to: number | null;
   reply_excerpt: string | null;
@@ -616,14 +617,15 @@ export function ThreadPane({
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   // Partnership-plan UI.
   const [picking, setPicking] = useState(false);
-  const [openPlan, setOpenPlan] = useState<{ id: number; name: string; phase: string | null } | null>(
-    null
-  );
+  const [viewPlanId, setViewPlanId] = useState<number | null>(null);
+  const [editPlanId, setEditPlanId] = useState<number | null>(null);
   const isPartnership = thread?.kind === "partnership";
   const amCoach = isPartnership && thread?.created_by === meId;
   // Coach or admin may manage a partnership's lifecycle (done/abandon/archive).
   const canManage = isPartnership && (amCoach || isAdmin);
   const ended = thread?.status === "done" || thread?.status === "abandoned";
+  // The active (accepted) plan in this thread, surfaced as a header link once accepted.
+  const acceptedPlan = [...messages].reverse().find((m) => m.plan_id != null && m.plan_accepted);
 
   const toggleArchive = async () => {
     if (
@@ -723,6 +725,44 @@ export function ThreadPane({
     onPosted();
   }, [fetchThread, onPosted]);
 
+  const acceptPlan = useCallback(
+    async (messageId: number) => {
+      if (
+        !(await dialog.confirm(
+          "Accept this plan? It becomes the active plan and the partner sees the current activity.",
+          { title: "Accept plan", confirmText: "Accept" }
+        ))
+      )
+        return;
+      try {
+        const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/accept-plan`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageId }),
+        });
+        if (!res.ok) throw new Error();
+        fetchThread(false);
+      } catch {
+        dialog.alert("Couldn't accept the plan.");
+      }
+    },
+    [dialog, threadId, fetchThread]
+  );
+
+  const copyPlan = useCallback(
+    async (planId: number) => {
+      try {
+        await apiFetch(`/api/coach/templates/${planId}/duplicate`, { method: "POST" });
+        await dialog.alert("Copied to your plans — find it under the Coaching Canvas.", {
+          title: "Copied",
+        });
+      } catch (e) {
+        dialog.alert(e instanceof Error ? e.message : "Couldn't copy the plan");
+      }
+    },
+    [dialog]
+  );
+
   const dismissPlan = useCallback(
     async (messageId: number) => {
       if (!(await dialog.confirm("Dismiss this plan from the conversation?", { title: "Dismiss plan" })))
@@ -756,6 +796,16 @@ export function ThreadPane({
             >
               {thread.status}
             </span>
+          )}
+          {acceptedPlan && (
+            <button
+              type="button"
+              className="flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10"
+              onClick={() => setViewPlanId(acceptedPlan.plan_id as number)}
+              title={acceptedPlan.plan_name ?? "Plan"}
+            >
+              🗂️ <span className="max-w-[140px] truncate">View plan</span>
+            </button>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-3">
             {amCoach && !ended && (
@@ -831,7 +881,10 @@ export function ThreadPane({
                 mine={m.sender_id === meId}
                 amCoach={!!amCoach}
                 onPreview={onPreview}
-                onOpenPlan={(p) => setOpenPlan(p)}
+                onViewPlan={(planId) => setViewPlanId(planId)}
+                onAcceptPlan={acceptPlan}
+                onEditPlan={(planId) => setEditPlanId(planId)}
+                onCopyPlan={copyPlan}
                 onDismissPlan={dismissPlan}
                 onReply={(t) => setReplyTarget(t)}
               />
@@ -893,12 +946,21 @@ export function ThreadPane({
           }}
         />
       )}
-      {openPlan && (
-        <PlanModal
-          plan={openPlan}
-          amCoach={!!amCoach}
-          onClose={() => setOpenPlan(null)}
-          onChanged={() => fetchThread(false)}
+      {viewPlanId != null && (
+        <TemplateReadOnly
+          templateId={viewPlanId}
+          templatesBase="/api/partnership-plans"
+          onClose={() => setViewPlanId(null)}
+        />
+      )}
+      {editPlanId != null && (
+        <TemplateCanvas
+          templateId={editPlanId}
+          templatesBase="/api/coach/templates"
+          onClose={() => {
+            setEditPlanId(null);
+            fetchThread(false);
+          }}
         />
       )}
     </>
@@ -910,7 +972,10 @@ function MessageBubble({
   mine,
   amCoach,
   onPreview,
-  onOpenPlan,
+  onViewPlan,
+  onAcceptPlan,
+  onEditPlan,
+  onCopyPlan,
   onDismissPlan,
   onReply,
 }: {
@@ -918,7 +983,10 @@ function MessageBubble({
   mine: boolean;
   amCoach: boolean;
   onPreview: (a: AttachmentMeta) => void;
-  onOpenPlan: (p: { id: number; name: string; phase: string | null }) => void;
+  onViewPlan: (planId: number) => void;
+  onAcceptPlan: (messageId: number) => void;
+  onEditPlan: (planId: number) => void;
+  onCopyPlan: (planId: number) => void;
   onDismissPlan: (messageId: number) => void;
   onReply: (t: ReplyTarget) => void;
 }) {
@@ -948,41 +1016,69 @@ function MessageBubble({
           </div>
         )}
         {m.plan_id != null ? (
-          // Specialized plan bubble.
+          // Specialized plan bubble. "View plan" opens the plan preview directly.
           <div className="rounded-lg border border-dewey-accent/40 bg-dewey-accent/5 p-3">
             <div className="flex items-center gap-2">
               <span className="text-lg">🗂️</span>
               <div className="min-w-0">
-                <div className="text-xs uppercase tracking-wide text-dewey-mute">Coaching plan</div>
+                <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-dewey-mute">
+                  Coaching plan
+                  {m.plan_accepted && (
+                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
+                      Accepted
+                    </span>
+                  )}
+                </div>
                 <button
                   type="button"
                   className="truncate text-left text-sm font-semibold text-dewey-ink hover:underline"
-                  onClick={() =>
-                    onOpenPlan({ id: m.plan_id as number, name: m.plan_name ?? "Plan", phase: m.plan_phase })
-                  }
+                  onClick={() => onViewPlan(m.plan_id as number)}
                 >
                   {m.plan_name ?? "Plan"}
                 </button>
               </div>
             </div>
-            <div className="mt-2 flex items-center gap-3">
+            <div className="mt-2 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                className="text-xs text-dewey-accent hover:underline"
-                onClick={() =>
-                  onOpenPlan({ id: m.plan_id as number, name: m.plan_name ?? "Plan", phase: m.plan_phase })
-                }
+                className="text-xs font-medium text-dewey-accent hover:underline"
+                onClick={() => onViewPlan(m.plan_id as number)}
               >
                 View plan ↗
               </button>
               {amCoach && (
-                <button
-                  type="button"
-                  className="text-xs text-red-700 hover:underline"
-                  onClick={() => onDismissPlan(m.id)}
-                >
-                  Dismiss
-                </button>
+                <>
+                  {!m.plan_accepted && (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-green-700 hover:underline"
+                      onClick={() => onAcceptPlan(m.id)}
+                    >
+                      Accept
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="text-xs text-dewey-accent hover:underline"
+                    onClick={() => onEditPlan(m.plan_id as number)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-dewey-mute hover:text-dewey-ink"
+                    onClick={() => onCopyPlan(m.plan_id as number)}
+                  >
+                    Copy to my plans
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs text-red-700 hover:underline"
+                    onClick={() => onDismissPlan(m.id)}
+                  >
+                    Dismiss
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1400,106 +1496,6 @@ function AddPlanModal({
 }
 
 /** Plan embedded in a partnership: coach edits the copy; partner sees the phase + read-only. */
-function PlanModal({
-  plan,
-  amCoach,
-  onClose,
-  onChanged,
-}: {
-  plan: { id: number; name: string; phase: string | null };
-  amCoach: boolean;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const dialog = useDialog();
-  const [editing, setEditing] = useState(false);
-  const [viewing, setViewing] = useState(false);
-  const [copying, setCopying] = useState(false);
-
-  const copyToMine = async () => {
-    setCopying(true);
-    try {
-      await apiFetch(`/api/coach/templates/${plan.id}/duplicate`, { method: "POST" });
-      await dialog.alert("Copied to your plans — find it under the Coaching Canvas.", {
-        title: "Copied",
-      });
-    } catch (e) {
-      dialog.alert(e instanceof Error ? e.message : "Couldn't copy the plan");
-    } finally {
-      setCopying(false);
-    }
-  };
-
-  if (editing) {
-    return (
-      <TemplateCanvas
-        templateId={plan.id}
-        templatesBase="/api/coach/templates"
-        onClose={() => {
-          setEditing(false);
-          onChanged();
-        }}
-      />
-    );
-  }
-  if (viewing) {
-    return (
-      <TemplateReadOnly
-        templateId={plan.id}
-        templatesBase="/api/partnership-plans"
-        onClose={() => setViewing(false)}
-      />
-    );
-  }
-
-  return (
-    <PlanShell title={plan.name} onClose={onClose}>
-      {amCoach ? (
-        <div className="space-y-4">
-          <p className="text-sm text-dewey-mute">
-            Reporting and review for this plan will live here. For now you can edit this
-            partnership&apos;s copy, or copy it back into your plan library.
-          </p>
-          <div className="rounded-md border border-dewey-border bg-dewey-surface-2 p-3 text-sm">
-            <span className="text-dewey-mute">Current phase: </span>
-            <span className="font-medium text-dewey-ink">{plan.phase ?? "Not set"}</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="dewey-btn-primary w-auto"
-              onClick={() => setViewing(true)}
-            >
-              View plan
-            </button>
-            <button type="button" className="dewey-btn-secondary" onClick={() => setEditing(true)}>
-              Edit plan
-            </button>
-            <button
-              type="button"
-              className="dewey-btn-secondary"
-              onClick={copyToMine}
-              disabled={copying}
-            >
-              {copying ? "Copying…" : "Copy to my plans"}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="rounded-md border border-dewey-border bg-dewey-surface-2 p-3 text-sm">
-            <span className="text-dewey-mute">Current phase: </span>
-            <span className="font-medium text-dewey-ink">{plan.phase ?? "Not set"}</span>
-          </div>
-          <button type="button" className="dewey-btn-secondary" onClick={() => setViewing(true)}>
-            View plan (read-only)
-          </button>
-        </div>
-      )}
-    </PlanShell>
-  );
-}
-
 function PlanShell({
   title,
   children,

@@ -164,6 +164,8 @@ type ActivityNodeData = {
   phaseId?: string | null;
   phaseName?: string | null;
   phaseColor?: string | null;
+  /** Progress state for an accepted partnership plan; undefined = no progress overlay. */
+  progress?: "completed" | "current" | "upcoming";
 };
 
 let idCounter = 0;
@@ -181,14 +183,25 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
   const description = data.instructions || ACTIVITY_BY_KEY[data.activityKey]?.defaultInstructions || "";
   const artifact = data.artifact || ACTIVITY_BY_KEY[data.activityKey]?.defaultArtifact || "";
   const tip = [description, artifact && `Expected: ${artifact}`].filter(Boolean).join("\n\n");
+
+  // Progress overlay for an accepted partnership plan: the current activity is
+  // ringed green; completed activities are grayed/dimmed.
+  const isCurrent = data.progress === "current";
+  const isCompleted = data.progress === "completed";
+  const borderColor = isCurrent ? "#16a34a" : data.phaseColor || catColor;
+  const borderWidth = isCurrent ? 3 : selected ? 2 : 1;
   return (
     <div
-      className="rounded-md border bg-dewey-surface text-dewey-ink shadow-sm text-xs"
+      className={`rounded-md border text-dewey-ink shadow-sm text-xs ${
+        isCurrent ? "bg-green-50" : isCompleted ? "bg-dewey-surface-2" : "bg-dewey-surface"
+      }`}
       title={tip || undefined}
       style={{
-        borderColor: data.phaseColor || catColor,
-        borderWidth: selected ? 2 : 1,
+        borderColor,
+        borderWidth,
         minWidth: 150,
+        opacity: isCompleted ? 0.55 : 1,
+        filter: isCompleted ? "grayscale(1)" : undefined,
       }}
     >
       {/* A handle on every side; all are source-typed but connect both ways in
@@ -199,7 +212,15 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
       <div className="h-1 rounded-t" style={{ background: catColor }} />
       <div className="px-2 py-1.5">
         <div className="font-medium leading-tight">{data.label}</div>
-        <div className="text-[10px] text-dewey-mute mt-0.5">{data.gating}</div>
+        <div className="mt-0.5 flex items-center gap-1">
+          <span className="text-[10px] text-dewey-mute">{data.gating}</span>
+          {isCurrent && (
+            <span className="rounded bg-green-600 px-1 text-[9px] font-medium uppercase text-white">
+              Current
+            </span>
+          )}
+          {isCompleted && <span className="text-[9px] uppercase text-dewey-mute">✓ done</span>}
+        </div>
       </div>
       <Handle type="source" position={Position.Bottom} id="bottom" />
     </div>
@@ -1794,6 +1815,34 @@ export function TemplateReadOnly({
   }, [templateId, templatesBase]);
 
   const graph = template?.graph ?? EMPTY_GRAPH;
+  // For an accepted partnership plan, derive each activity's progress from the
+  // current node: the current activity is green, every activity that can reach
+  // it (its predecessors) is "completed" (grayed), the rest are upcoming.
+  const progressByNode = useMemo(() => {
+    const map = new Map<string, "completed" | "current" | "upcoming">();
+    const current = template?.current_node_id;
+    if (!current || !template?.accepted_at) return map;
+    // Predecessor adjacency: target -> [sources].
+    const preds = new Map<string, string[]>();
+    for (const e of graph.edges ?? []) {
+      const list = preds.get(e.target) ?? [];
+      list.push(e.source);
+      preds.set(e.target, list);
+    }
+    const completed = new Set<string>();
+    const stack = [...(preds.get(current) ?? [])];
+    while (stack.length) {
+      const id = stack.pop() as string;
+      if (completed.has(id) || id === current) continue;
+      completed.add(id);
+      for (const p of preds.get(id) ?? []) stack.push(p);
+    }
+    for (const n of graph.nodes ?? []) {
+      map.set(n.id, n.id === current ? "current" : completed.has(n.id) ? "completed" : "upcoming");
+    }
+    return map;
+  }, [graph, template?.current_node_id, template?.accepted_at]);
+
   const nodes: Node<ActivityNodeData>[] = useMemo(
     () =>
       (graph.nodes ?? []).map((n) => {
@@ -1813,10 +1862,11 @@ export function TemplateReadOnly({
             phaseId: n.phaseId ?? null,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
+            progress: progressByNode.get(n.id),
           },
         };
       }),
-    [graph]
+    [graph, progressByNode]
   );
   const edges: Edge[] = useMemo(
     () =>

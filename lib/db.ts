@@ -247,6 +247,15 @@ export function ensureSchema(): Promise<void> {
         ALTER TABLE coaching_templates
           ADD COLUMN IF NOT EXISTS thread_id INTEGER REFERENCES message_threads (id) ON DELETE SET NULL;
 
+        -- Partnership-plan acceptance: a coach must accept an embedded plan
+        -- before it becomes the active plan. accepted_at marks acceptance;
+        -- current_node_id points at the activity the partner is currently on
+        -- (the entry activity at acceptance), used to color canvas progress.
+        ALTER TABLE coaching_templates
+          ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ;
+        ALTER TABLE coaching_templates
+          ADD COLUMN IF NOT EXISTS current_node_id TEXT;
+
         -- Invitation state for partnership threads: NULL = invited/pending,
         -- TRUE = accepted, FALSE = declined. Ignored for non-partnership threads.
         ALTER TABLE thread_participants ADD COLUMN IF NOT EXISTS accepted BOOLEAN;
@@ -1024,6 +1033,8 @@ function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
     created_at: toIso(row.created_at),
     updated_at: toIso(row.updated_at),
     deleted_at: row.deleted_at ? toIso(row.deleted_at) : null,
+    accepted_at: row.accepted_at ? toIso(row.accepted_at) : null,
+    current_node_id: (row.current_node_id as string | null) ?? null,
   };
 }
 
@@ -1145,6 +1156,52 @@ export async function getPlanForThreadMember(
     [planId, userId]
   );
   return res.rows[0] ? t : null;
+}
+
+/**
+ * The entry activity of a graph: the node with no incoming edge (the start of
+ * the arc). Falls back to the first node in graph order.
+ */
+function entryNodeId(graph: TemplateGraph): string | null {
+  const nodes = graph.nodes ?? [];
+  if (nodes.length === 0) return null;
+  const hasIncoming = new Set((graph.edges ?? []).map((e) => e.target));
+  const entry = nodes.find((n) => !hasIncoming.has(n.id));
+  return (entry ?? nodes[0]).id;
+}
+
+/**
+ * Coach accepts an embedded partnership plan: mark it accepted and point the
+ * current activity at the entry node. Any previously-accepted plan in the same
+ * thread is un-accepted, so a thread has at most one active plan. Returns the
+ * updated plan, or null if it isn't a partnership plan owned by this coach.
+ */
+export async function acceptPartnershipPlan(
+  planId: number,
+  coachId: number
+): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (!plan || plan.deleted_at || plan.scope !== "partnership" || plan.owner_id !== coachId) {
+    return null;
+  }
+  const current = entryNodeId(plan.graph);
+  // Un-accept any sibling plan in the same thread first.
+  await pool.query(
+    `UPDATE coaching_templates
+        SET accepted_at = NULL
+      WHERE thread_id = (SELECT thread_id FROM coaching_templates WHERE id = $1)
+        AND id <> $1 AND scope = 'partnership'`,
+    [planId]
+  );
+  await pool.query(
+    `UPDATE coaching_templates
+        SET accepted_at = NOW(), current_node_id = $2, updated_at = NOW()
+      WHERE id = $1`,
+    [planId, current]
+  );
+  return getTemplate(planId);
 }
 
 /** Update a coach's own personal template only. Returns null if not owned. */
