@@ -80,6 +80,8 @@ export interface MessageView {
   submission_status: "pending" | "approved" | "returned" | null;
   /** True when this message has a restricted audience (visible to a subset). */
   restricted: boolean;
+  /** Celebratory progress marker: 'advance' | 'finish' | null. */
+  event: "advance" | "finish" | null;
 }
 
 export interface ThreadSummary {
@@ -812,6 +814,7 @@ export async function getThreadMessages(
             ct.owner_id AS plan_owner_id,
             ct.outcome AS plan_outcome,
             m.sources,
+            m.event,
             (m.audience IS NOT NULL) AS restricted,
             sub.status AS submission_status,
             m.reply_to,
@@ -888,6 +891,7 @@ export async function getThreadMessages(
     submission_status:
       (m.submission_status as "pending" | "approved" | "returned" | null) ?? null,
     restricted: m.restricted === true,
+    event: (m.event as "advance" | "finish" | null) ?? null,
   }));
 }
 
@@ -963,12 +967,14 @@ export async function postMessage(params: {
   sources?: { name: string; path: string }[] | null;
   /** Restrict visibility to these user ids (null/omitted = everyone). */
   audience?: number[] | null;
+  /** Celebratory marker on a progress note: 'advance' | 'finish'. */
+  event?: "advance" | "finish" | null;
 }): Promise<number> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `INSERT INTO messages (thread_id, sender_id, body, plan_id, is_ai, reply_to, sources, audience)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    `INSERT INTO messages (thread_id, sender_id, body, plan_id, is_ai, reply_to, sources, audience, event)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
     [
       params.threadId,
       params.senderId,
@@ -978,6 +984,7 @@ export async function postMessage(params: {
       params.replyTo ?? null,
       params.sources && params.sources.length ? JSON.stringify(params.sources) : null,
       params.audience && params.audience.length ? params.audience : null,
+      params.event ?? null,
     ]
   );
   await pool.query("UPDATE message_threads SET updated_at = NOW() WHERE id = $1", [params.threadId]);

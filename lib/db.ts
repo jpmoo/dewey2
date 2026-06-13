@@ -296,6 +296,10 @@ export function ensureSchema(): Promise<void> {
         -- to an array of user ids, only those users (plus any admin, for oversight)
         -- may see it — used for coach review feedback meant for one partner.
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS audience INTEGER[];
+        -- Celebratory event marker on auto-posted progress notes: 'advance' (an
+        -- activity/phase was completed) or 'finish' (the whole plan finished).
+        -- Drives the chat-window fireworks. NULL for ordinary messages.
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS event TEXT;
 
         -- Activity submissions: a partner marks one chat message as the active
         -- activity's submission. One live row per (plan, node); approved rows are

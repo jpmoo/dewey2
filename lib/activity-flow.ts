@@ -50,7 +50,13 @@ async function postAdvanceNote(
     const nextLabel = nextNode?.label || nextNode?.activityKey || "the next activity";
     body = `✅ "${completedLabel}" is complete. The plan is now on "${nextLabel}".`;
   }
-  await postMessage({ threadId, senderId: null, isAi: true, body });
+  await postMessage({
+    threadId,
+    senderId: null,
+    isAi: true,
+    body,
+    event: finished ? "finish" : "advance",
+  });
 }
 
 export interface SubmissionView {

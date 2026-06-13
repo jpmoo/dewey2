@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
 import { Avatar } from "@/components/Avatar";
+import { Fireworks } from "@/components/Fireworks";
 
 // Loaded only when a partnership plan is opened/edited (React Flow is heavy).
 const TemplateCanvas = dynamic(
@@ -49,6 +50,7 @@ type MessageView = {
   sources: { name: string; path: string }[];
   submission_status: "pending" | "approved" | "returned" | null;
   restricted: boolean;
+  event: "advance" | "finish" | null;
 };
 type ActiveActivity = {
   planId: number;
@@ -695,6 +697,7 @@ export function ThreadPane({
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [activeActivity, setActiveActivity] = useState<ActiveActivity | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [celebration, setCelebration] = useState<{ big: boolean; key: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Only auto-scroll on new messages when already near the bottom.
@@ -861,6 +864,32 @@ export function ThreadPane({
     const el = scrollRef.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [messages, deweyThinking]);
+
+  // Fireworks the first time a participant sees a completion note (BIG when the
+  // whole plan finishes). Per-browser: a session-start timestamp avoids firing
+  // retroactively for old notes, and a seen-id set fires each one only once.
+  useEffect(() => {
+    const events = messages.filter((m) => m.event === "advance" || m.event === "finish");
+    if (events.length === 0) return;
+    try {
+      let since = Number(localStorage.getItem("dewey-fw-since"));
+      if (!since) {
+        since = Date.now();
+        localStorage.setItem("dewey-fw-since", String(since));
+      }
+      const seen = new Set<number>(JSON.parse(localStorage.getItem("dewey-fw-seen") ?? "[]"));
+      const fresh = events.filter(
+        (m) => !seen.has(m.id) && new Date(m.created_at).getTime() >= since
+      );
+      if (fresh.length === 0) return;
+      fresh.forEach((m) => seen.add(m.id));
+      localStorage.setItem("dewey-fw-seen", JSON.stringify(Array.from(seen)));
+      const big = fresh.some((m) => m.event === "finish");
+      setCelebration({ big, key: fresh[fresh.length - 1].id });
+    } catch {
+      /* localStorage unavailable — skip the celebration */
+    }
+  }, [messages]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -1148,7 +1177,15 @@ export function ThreadPane({
         )}
       </div>
 
-      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="relative flex-1 overflow-hidden">
+        {celebration && (
+          <Fireworks
+            key={celebration.key}
+            big={celebration.big}
+            onDone={() => setCelebration(null)}
+          />
+        )}
+        <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-4 py-3">
         {/* min-h-full + justify-end anchors a short conversation to the bottom so
             the pane reads as filled, while long threads scroll normally. */}
         <div className="flex min-h-full flex-col justify-end gap-3">
@@ -1206,6 +1243,7 @@ export function ThreadPane({
               </div>
             </div>
           )}
+        </div>
         </div>
       </div>
 
