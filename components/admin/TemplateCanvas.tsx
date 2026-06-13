@@ -1937,21 +1937,25 @@ export function TemplateReadOnly({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-dewey-cream">
       <div className="flex items-center gap-3 border-b border-dewey-border px-4 py-2">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-dewey-ink">{template.name}</h2>
-            <span className="rounded bg-dewey-surface-2 px-2 py-0.5 text-xs text-dewey-mute">
-              {template.scope === "global" ? "Global plan" : "Read-only"}
-            </span>
+            {template.scope === "global" && (
+              <span className="rounded bg-dewey-surface-2 px-2 py-0.5 text-xs text-dewey-mute">
+                Global plan
+              </span>
+            )}
           </div>
           {template.description && (
-            <p className="truncate text-xs text-dewey-mute">{template.description}</p>
+            <p className="text-xs text-dewey-mute">{template.description}</p>
           )}
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="hidden sm:inline text-xs text-dewey-mute">
-            {onDuplicate ? "Locked — duplicate to make changes" : "Read-only"}
-          </span>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {onDuplicate && (
+            <span className="hidden sm:inline text-xs text-dewey-mute">
+              Locked — duplicate to make changes
+            </span>
+          )}
           {onDuplicate && (
             <button
               type="button"
