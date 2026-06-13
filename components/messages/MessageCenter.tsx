@@ -47,6 +47,28 @@ type MessageView = {
   reply_excerpt: string | null;
   reply_sender: string | null;
   sources: { name: string; path: string }[];
+  submission_status: "pending" | "approved" | "returned" | null;
+  restricted: boolean;
+};
+type ActiveActivity = {
+  planId: number;
+  planName: string;
+  nodeId: string;
+  nodeLabel: string;
+  gating: "OPEN" | "REVIEWED";
+  instructions: string;
+  artifact: string;
+  phaseId: string | null;
+  phaseName: string | null;
+  exitConditions: string | null;
+  isLastInPhase: boolean;
+  submission: {
+    id: number;
+    messageId: number | null;
+    partnerId: number | null;
+    status: "pending" | "approved" | "returned";
+  } | null;
+  pendingReview: boolean;
 };
 type ThreadSummary = {
   id: number;
@@ -671,6 +693,8 @@ export function ThreadPane({
   const dialog = useDialog();
   const [thread, setThread] = useState<ThreadSummary | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
+  const [activeActivity, setActiveActivity] = useState<ActiveActivity | null>(null);
+  const [reviewing, setReviewing] = useState(false);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Only auto-scroll on new messages when already near the bottom.
@@ -706,6 +730,13 @@ export function ThreadPane({
   const hasLivePlan = messages.some(
     (m) => m.plan_id != null && !m.plan_deactivated && m.plan_outcome == null
   );
+  // Submission flow: a partner (non-coach, non-admin) can mark a message while an
+  // activity is active and nothing's pending review; a pending review freezes the
+  // partner's composer and surfaces a Review button to coaches.
+  const iAmPartner = !iAmCoach && !isAdmin;
+  const canSubmit = !!activeActivity && !activeActivity.pendingReview && iAmPartner;
+  const partnerFrozen = !!activeActivity?.pendingReview && iAmPartner;
+  const coachCanReview = !!activeActivity?.pendingReview && (iAmCoach || isAdmin);
 
   const toggleArchive = async () => {
     if (
@@ -793,15 +824,19 @@ export function ThreadPane({
     async (showSpinner: boolean) => {
       if (showSpinner) setLoading(true);
       try {
-        const d = await apiFetch<{ thread: ThreadSummary; messages: MessageView[] }>(
-          `/api/messages/threads/${threadId}`
-        );
+        const d = await apiFetch<{
+          thread: ThreadSummary;
+          messages: MessageView[];
+          activeActivity: ActiveActivity | null;
+        }>(`/api/messages/threads/${threadId}`);
         setThread(d.thread);
         setMessages(d.messages);
+        setActiveActivity(d.activeActivity ?? null);
       } catch {
         if (showSpinner) {
           setThread(null);
           setMessages([]);
+          setActiveActivity(null);
         }
       } finally {
         if (showSpinner) setLoading(false);
@@ -838,6 +873,40 @@ export function ThreadPane({
     fetchThread(false);
     onPosted();
   }, [fetchThread, onPosted]);
+
+  // A partner marks one of their messages as the active activity's submission.
+  const submitMessage = useCallback(
+    async (messageId: number) => {
+      if (!activeActivity) return;
+      const openAttest = activeActivity.gating === "OPEN" && !activeActivity.isLastInPhase;
+      const ok = await dialog.confirm(
+        openAttest
+          ? `Submit this message as your work for "${activeActivity.nodeLabel}" and mark the activity complete? The plan will move to the next activity.`
+          : `Submit this message for "${activeActivity.nodeLabel}"? Your coach will review it before the plan advances, and the chat will pause until they do.`,
+        { title: "Submit", confirmText: "Submit" }
+      );
+      if (!ok) return;
+      try {
+        const res = await fetch(
+          pathWithBase(`/api/messages/threads/${threadId}/activity/submit`),
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ messageId }),
+          }
+        );
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error((d as { error?: string }).error || "Couldn't submit");
+        }
+        fetchThread(false);
+        onPosted();
+      } catch (e) {
+        dialog.alert(e instanceof Error ? e.message : "Couldn't submit that message.");
+      }
+    },
+    [activeActivity, dialog, threadId, fetchThread, onPosted]
+  );
 
   const acceptPlan = useCallback(
     async (messageId: number) => {
@@ -1032,6 +1101,16 @@ export function ThreadPane({
             </>
           )}
           <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            {coachCanReview && (
+              <button
+                type="button"
+                onClick={() => setReviewing(true)}
+                className="flex shrink-0 items-center gap-1 rounded-full bg-dewey-accent px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+                title="Review the partner's submission"
+              >
+                🔎 <span className="max-w-[160px] truncate">Review submission</span>
+              </button>
+            )}
             {isAdmin && submissionPending && (
               <>
                 <PlanPill icon="✅" label="Approve" onClick={() => decideSubmission("approve")} />
@@ -1086,6 +1165,9 @@ export function ThreadPane({
                 meId={meId}
                 iAmCoach={iAmCoach}
                 senderIsCoach={m.sender_id != null && coachIds.has(m.sender_id)}
+                canSubmit={canSubmit && m.sender_id === meId && m.plan_id == null && !m.is_ai}
+                isCurrentSubmission={activeActivity?.submission?.messageId === m.id}
+                onSubmit={submitMessage}
                 onPreview={onPreview}
                 onViewPlan={(planId) => {
                   setViewPlanFocus(false);
@@ -1131,10 +1213,17 @@ export function ThreadPane({
         <div className="border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
           System notice — replies are disabled.
         </div>
+      ) : partnerFrozen ? (
+        <div className="border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
+          ⏳ Your submission for{" "}
+          <span className="font-medium text-dewey-ink">{activeActivity?.nodeLabel}</span> is awaiting
+          your coach&apos;s review. The chat will reopen once they respond.
+        </div>
       ) : (
         <Composer
           threadId={threadId}
           replyTarget={replyTarget}
+          activeActivity={canSubmit ? activeActivity : null}
           onClearReply={() => setReplyTarget(null)}
           onSent={() => {
             setReplyTarget(null);
@@ -1144,6 +1233,19 @@ export function ThreadPane({
           onDeweyPending={(pending) => {
             setDeweyThinking(pending);
             if (pending) stick.current = true;
+          }}
+        />
+      )}
+
+      {reviewing && activeActivity && (
+        <ReviewModal
+          threadId={threadId}
+          activity={activeActivity}
+          onClose={() => setReviewing(false)}
+          onDecided={() => {
+            setReviewing(false);
+            fetchThread(false);
+            onPosted();
           }}
         />
       )}
@@ -1207,6 +1309,9 @@ function MessageBubble({
   meId,
   iAmCoach,
   senderIsCoach,
+  canSubmit,
+  isCurrentSubmission,
+  onSubmit,
   onPreview,
   onViewPlan,
   onAcceptPlan,
@@ -1223,6 +1328,9 @@ function MessageBubble({
   meId: number | null;
   iAmCoach: boolean;
   senderIsCoach: boolean;
+  canSubmit: boolean;
+  isCurrentSubmission: boolean;
+  onSubmit: (messageId: number) => void;
   onPreview: (a: AttachmentMeta) => void;
   onViewPlan: (planId: number) => void;
   onAcceptPlan: (messageId: number) => void;
@@ -1278,6 +1386,33 @@ function MessageBubble({
             <span className="font-medium text-dewey-ink">↩ {m.reply_sender}: </span>
             {m.reply_excerpt}
           </button>
+        )}
+        {(m.submission_status || m.restricted) && (
+          <div className={`mb-1 flex flex-wrap items-center gap-1 ${mine ? "justify-end" : ""}`}>
+            {m.submission_status && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                  m.submission_status === "approved"
+                    ? "bg-green-100 text-green-800"
+                    : m.submission_status === "returned"
+                    ? "bg-dewey-surface-2 text-dewey-mute"
+                    : "bg-amber-100 text-amber-800"
+                }`}
+              >
+                📎{" "}
+                {m.submission_status === "approved"
+                  ? "Submission · approved"
+                  : m.submission_status === "returned"
+                  ? "Submission · returned"
+                  : "Submission · pending review"}
+              </span>
+            )}
+            {m.restricted && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute">
+                🔒 Coaches &amp; partner
+              </span>
+            )}
+          </div>
         )}
         {m.plan_id != null ? (
           // Specialized plan bubble. "View plan" opens the plan preview directly.
@@ -1425,6 +1560,18 @@ function MessageBubble({
             </button>
           </div>
         )}
+        {/* Partner: mark this (own) message as the active activity's submission. */}
+        {canSubmit && !isCurrentSubmission && (
+          <div className="mt-0.5 flex w-full justify-end">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
+              onClick={() => onSubmit(m.id)}
+            >
+              <span aria-hidden>📎</span> Mark as Submission
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1480,6 +1627,7 @@ type AddableUser = { id: number; full_name: string; username: string; system_rol
 function Composer({
   threadId,
   replyTarget,
+  activeActivity,
   onClearReply,
   onSent,
   onRefresh,
@@ -1487,6 +1635,7 @@ function Composer({
 }: {
   threadId: number;
   replyTarget: ReplyTarget | null;
+  activeActivity: ActiveActivity | null;
   onClearReply: () => void;
   onSent: () => void;
   onRefresh: () => void;
@@ -1496,6 +1645,8 @@ function Composer({
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
+  // Partner option: post this message AND mark it as the activity's submission.
+  const [submitAsSubmission, setSubmitAsSubmission] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1566,6 +1717,20 @@ function Composer({
   const send = async () => {
     if (sending) return;
     if (!body.trim() && files.length === 0) return;
+    // If this message is also the activity submission, confirm the consequence
+    // up front (OPEN self-attest completes the activity; otherwise it pauses for
+    // coach review).
+    const submitNow = submitAsSubmission && activeActivity != null;
+    if (submitNow && activeActivity) {
+      const openAttest = activeActivity.gating === "OPEN" && !activeActivity.isLastInPhase;
+      const ok = await dialog.confirm(
+        openAttest
+          ? `Send this and submit it as your work for "${activeActivity.nodeLabel}"? The activity will be marked complete and the plan moves on.`
+          : `Send this and submit it for "${activeActivity.nodeLabel}"? Your coach reviews it before the plan advances, and the chat pauses until then.`,
+        { title: "Submit", confirmText: "Send & submit" }
+      );
+      if (!ok) return;
+    }
     // @dewey generates within the request, so show the typing indicator until
     // the response (which includes the AI reply) returns — also when replying
     // to an @dewey message (that's a prompt back to the AI).
@@ -1593,6 +1758,24 @@ function Composer({
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error((d as { error?: string }).error || `HTTP ${res.status}`);
+      }
+      if (submitNow) {
+        const posted = (await res.json().catch(() => ({}))) as { messageId?: number };
+        setSubmitAsSubmission(false);
+        if (posted.messageId != null) {
+          const sres = await fetch(
+            pathWithBase(`/api/messages/threads/${threadId}/activity/submit`),
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ messageId: posted.messageId }),
+            }
+          );
+          if (!sres.ok) {
+            const d = await sres.json().catch(() => ({}));
+            dialog.alert((d as { error?: string }).error || "Message sent, but couldn't submit it.");
+          }
+        }
       }
       onSent();
     } catch (e) {
@@ -1665,6 +1848,17 @@ function Composer({
           ))}
         </div>
       )}
+      {activeActivity && (
+        <label className="mb-2 flex cursor-pointer items-center gap-2 text-xs text-dewey-mute">
+          <input
+            type="checkbox"
+            checked={submitAsSubmission}
+            onChange={(e) => setSubmitAsSubmission(e.target.checked)}
+          />
+          📎 Submit this message as my work for{" "}
+          <span className="font-medium text-dewey-ink">{activeActivity.nodeLabel}</span>
+        </label>
+      )}
       <div className="flex items-end gap-2">
         <button
           type="button"
@@ -1704,6 +1898,339 @@ function Composer({
           {sending ? "Sending…" : "Send"}
         </button>
       </div>
+    </div>
+  );
+}
+
+type SubmissionView = {
+  nodeLabel: string;
+  partnerName: string | null;
+  body: string;
+  attachments: AttachmentMeta[];
+};
+type ConsultTurn = { id: number; role: "coach" | "dewey"; body: string; created_at: string };
+type ReviewData = {
+  activity: {
+    nodeLabel: string;
+    instructions: string;
+    artifact: string;
+    gating: "OPEN" | "REVIEWED";
+    phaseName: string | null;
+    exitConditions: string | null;
+    isLastInPhase: boolean;
+  };
+  submissionId: number;
+  submission: SubmissionView | null;
+  prior: SubmissionView[];
+  consults: ConsultTurn[];
+};
+
+/**
+ * Coach review modal: shows the partner's submission, the activity goal, the
+ * phase's earlier submissions (and exit conditions when it's the last activity),
+ * and a persisted Dewey consult. The coach approves (advance) or returns with
+ * feedback (visible only to coaches + the partner).
+ */
+function ReviewModal({
+  threadId,
+  activity,
+  onClose,
+  onDecided,
+}: {
+  threadId: number;
+  activity: ActiveActivity;
+  onClose: () => void;
+  onDecided: () => void;
+}) {
+  const dialog = useDialog();
+  const [data, setData] = useState<ReviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [returning, setReturning] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<AttachmentMeta | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const d = await apiFetch<{ data: ReviewData | null }>(
+        `/api/messages/threads/${threadId}/activity`
+      );
+      setData(d.data);
+    } catch {
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [threadId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const ask = async () => {
+    const q = question.trim();
+    if (!q || asking) return;
+    setAsking(true);
+    setQuestion("");
+    try {
+      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/activity/consult`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Dewey couldn't respond.");
+      }
+      await load();
+    } catch (e) {
+      setQuestion(q);
+      dialog.alert(e instanceof Error ? e.message : "Dewey couldn't respond.");
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  const decide = async (decision: "approve" | "return") => {
+    if (busy) return;
+    if (decision === "return" && !feedback.trim()) {
+      dialog.alert("Add feedback before returning the submission.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/activity/review`), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision, feedback: decision === "return" ? feedback : undefined }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't submit the decision.");
+      }
+      onDecided();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't submit the decision.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-dewey-border bg-dewey-cream shadow-xl">
+        <div className="flex items-center justify-between border-b border-dewey-border px-4 py-2">
+          <div className="min-w-0">
+            <h2 className="truncate text-sm font-semibold text-dewey-ink">
+              Review: {activity.nodeLabel}
+            </h2>
+            <p className="text-xs text-dewey-mute">
+              {activity.gating === "OPEN" ? "Partner Attests" : "Coach Approves"}
+              {activity.phaseName ? ` · ${activity.phaseName}` : ""}
+              {activity.isLastInPhase ? " · last activity in phase" : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="shrink-0 text-dewey-mute hover:text-dewey-ink"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3 text-sm">
+          {loading ? (
+            <p className="text-xs text-dewey-mute">Loading…</p>
+          ) : !data ? (
+            <p className="text-xs text-dewey-mute">Nothing to review.</p>
+          ) : (
+            <>
+              <section>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-dewey-mute">
+                  Activity goal
+                </h3>
+                {data.activity.instructions && (
+                  <p className="whitespace-pre-wrap text-dewey-ink">{data.activity.instructions}</p>
+                )}
+                {data.activity.artifact && (
+                  <p className="mt-1 text-dewey-mute">
+                    <span className="font-medium">Expected output:</span> {data.activity.artifact}
+                  </p>
+                )}
+                {data.activity.isLastInPhase && data.activity.exitConditions && (
+                  <p className="mt-2 rounded-md border border-dewey-border bg-dewey-surface-2 px-2 py-1.5 text-xs text-dewey-ink">
+                    <span className="font-medium">Phase exit conditions:</span>{" "}
+                    {data.activity.exitConditions}
+                  </p>
+                )}
+              </section>
+
+              <section>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-dewey-mute">
+                  Submission{data.submission?.partnerName ? ` · ${data.submission.partnerName}` : ""}
+                </h3>
+                {data.submission ? (
+                  <div className="rounded-md border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-2">
+                    {data.submission.body && (
+                      <p className="whitespace-pre-wrap text-dewey-ink">{data.submission.body}</p>
+                    )}
+                    {data.submission.attachments.length > 0 && (
+                      <div className="mt-2 space-y-2">
+                        {data.submission.attachments.map((a) => (
+                          <Attachment key={a.id} att={a} onPreview={setPreview} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-dewey-mute">The submitted message is unavailable.</p>
+                )}
+              </section>
+
+              {data.prior.length > 0 && (
+                <section>
+                  <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-dewey-mute">
+                    Earlier submissions this phase
+                  </h3>
+                  <div className="space-y-2">
+                    {data.prior.map((s, i) => (
+                      <div
+                        key={i}
+                        className="rounded-md border border-dewey-border bg-dewey-surface px-3 py-2"
+                      >
+                        <p className="mb-0.5 text-[11px] font-medium text-dewey-mute">{s.nodeLabel}</p>
+                        {s.body && (
+                          <p className="whitespace-pre-wrap text-dewey-ink">{s.body}</p>
+                        )}
+                        {s.attachments.length > 0 && (
+                          <div className="mt-2 space-y-2">
+                            {s.attachments.map((a) => (
+                              <Attachment key={a.id} att={a} onPreview={setPreview} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <section>
+                <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-dewey-mute">
+                  Consult Dewey
+                </h3>
+                <p className="mb-2 text-xs text-dewey-mute">
+                  Ask Dewey whether this submission meets the activity&apos;s goal
+                  {data.activity.isLastInPhase ? " (and the phase's exit conditions)" : ""}. Dewey
+                  advises you — you make the call.
+                </p>
+                <div className="space-y-2">
+                  {data.consults.map((c) => (
+                    <div
+                      key={c.id}
+                      className={`rounded-md px-3 py-2 text-sm ${
+                        c.role === "dewey"
+                          ? "bg-dewey-surface text-dewey-ink"
+                          : "bg-dewey-accent/15 text-dewey-ink"
+                      } border border-dewey-border`}
+                    >
+                      <p className="mb-0.5 text-[11px] font-medium text-dewey-mute">
+                        {c.role === "dewey" ? "Dewey" : "You"}
+                      </p>
+                      {c.role === "dewey" ? (
+                        <div className="chat-md text-sm">
+                          <ReactMarkdown>{c.body}</ReactMarkdown>
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap">{c.body}</p>
+                      )}
+                    </div>
+                  ))}
+                  {asking && <p className="text-xs text-dewey-mute">Dewey is thinking…</p>}
+                </div>
+                <div className="mt-2 flex items-end gap-2">
+                  <textarea
+                    className="dewey-input min-h-[38px] flex-1 resize-none"
+                    rows={1}
+                    placeholder="Ask Dewey…"
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        ask();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="dewey-btn-secondary w-auto shrink-0"
+                    onClick={ask}
+                    disabled={asking}
+                  >
+                    Ask
+                  </button>
+                </div>
+              </section>
+            </>
+          )}
+        </div>
+
+        <div className="border-t border-dewey-border px-4 py-3">
+          {returning ? (
+            <div className="space-y-2">
+              <textarea
+                className="dewey-input min-h-[60px] w-full resize-none"
+                placeholder="Feedback for the partner (only coaches and this partner will see it)…"
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="dewey-btn-secondary w-auto"
+                  onClick={() => setReturning(false)}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="dewey-btn-primary w-auto"
+                  onClick={() => decide("return")}
+                  disabled={busy}
+                >
+                  {busy ? "Returning…" : "Return with feedback"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="dewey-btn-secondary w-auto"
+                onClick={() => setReturning(true)}
+                disabled={busy}
+              >
+                ↩️ Return with feedback
+              </button>
+              <button
+                type="button"
+                className="dewey-btn-primary w-auto"
+                onClick={() => decide("approve")}
+                disabled={busy}
+              >
+                {busy ? "Approving…" : "✅ Approve & advance"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+      {preview && <AttachmentLightbox attachment={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

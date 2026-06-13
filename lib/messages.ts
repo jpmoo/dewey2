@@ -3,12 +3,15 @@ import {
   deactivatePriorThreadPlans,
   duplicatePlanForPartnership,
   ensureSchema,
+  getActivePlanForThread,
   getAdminIds,
+  getCurrentSubmission,
   getMessageRecipients,
   getPlanAcceptances,
   logUserEvent,
   threadHasAcceptedPlan,
 } from "@/lib/db";
+import { isLastInPhase } from "@/lib/plan-graph";
 import { getSystemSettings } from "@/lib/settings";
 import { summarizeWithComplianceModel } from "@/lib/ai";
 
@@ -73,6 +76,10 @@ export interface MessageView {
   reply_sender: string | null;
   /** RAG source documents cited by an @dewey reply. */
   sources: { name: string; path: string }[];
+  /** Review status if this message is marked as an activity submission. */
+  submission_status: "pending" | "approved" | "returned" | null;
+  /** True when this message has a restricted audience (visible to a subset). */
+  restricted: boolean;
 }
 
 export interface ThreadSummary {
@@ -605,6 +612,7 @@ export async function listThreadsForUser(
               AND EXISTS (
                 SELECT 1 FROM messages m
                  WHERE m.thread_id = t.id AND m.deleted_at IS NULL AND m.sender_id <> $1
+                   AND (m.audience IS NULL OR $1 = ANY(m.audience))
                    AND m.created_at > COALESCE(
                      (SELECT last_read_at FROM thread_participants tpr
                        WHERE tpr.thread_id = t.id AND tpr.user_id = $1),
@@ -648,7 +656,11 @@ export async function listThreadsForUser(
     byThread.set(r.thread_id, list);
   }
 
-  // Last message + count per thread.
+  // Last message + count per thread. Restricted messages the viewer can't see
+  // must not surface as the thread's preview (admins see everything).
+  const aud = isAdmin ? "" : "AND (audience IS NULL OR $2 = ANY(audience))";
+  const audM = isAdmin ? "" : "AND (m.audience IS NULL OR $2 = ANY(m.audience))";
+  const lastArgs: unknown[] = isAdmin ? [ids] : [ids, userId];
   const lastRes = await pool.query(
     `SELECT m.thread_id, m.body, m.created_at,
             CASE WHEN m.is_ai THEN '@dewey'
@@ -657,11 +669,11 @@ export async function listThreadsForUser(
        LEFT JOIN users u ON u.id = m.sender_id
        JOIN (
          SELECT thread_id, MAX(created_at) AS mx
-           FROM messages WHERE deleted_at IS NULL AND thread_id = ANY($1::int[])
+           FROM messages WHERE deleted_at IS NULL AND thread_id = ANY($1::int[]) ${aud}
           GROUP BY thread_id
        ) last ON last.thread_id = m.thread_id AND last.mx = m.created_at
-      WHERE m.deleted_at IS NULL`,
-    [ids]
+      WHERE m.deleted_at IS NULL ${audM}`,
+    lastArgs
   );
   const lastByThread = new Map<number, { body: string; created_at: string; sender_name: string | null }>();
   for (const r of lastRes.rows) {
@@ -779,9 +791,18 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
   };
 }
 
-export async function getThreadMessages(threadId: number): Promise<MessageView[]> {
+export async function getThreadMessages(
+  threadId: number,
+  viewer?: { userId: number; isAdmin: boolean }
+): Promise<MessageView[]> {
   const pool = getPool();
   await ensureSchema();
+  // Restricted messages (non-null audience) are hidden from anyone not listed —
+  // except admins, who see everything for oversight. Omitting `viewer` (e.g. the
+  // @dewey transcript or an admin viewer) returns everything.
+  const restrictClause =
+    viewer && !viewer.isAdmin ? "AND (m.audience IS NULL OR $2 = ANY(m.audience))" : "";
+  const args: unknown[] = viewer && !viewer.isAdmin ? [threadId, viewer.userId] : [threadId];
   const res = await pool.query(
     `SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name, m.is_ai,
             m.plan_id, ct.name AS plan_name,
@@ -791,6 +812,8 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
             ct.owner_id AS plan_owner_id,
             ct.outcome AS plan_outcome,
             m.sources,
+            (m.audience IS NOT NULL) AS restricted,
+            sub.status AS submission_status,
             m.reply_to,
             LEFT(rm.body, 2000) AS reply_excerpt,
             CASE WHEN rm.id IS NULL THEN NULL
@@ -801,9 +824,13 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
        LEFT JOIN coaching_templates ct ON ct.id = m.plan_id
        LEFT JOIN messages rm ON rm.id = m.reply_to
        LEFT JOIN users ru ON ru.id = rm.sender_id
-      WHERE m.thread_id = $1 AND m.deleted_at IS NULL
+       LEFT JOIN LATERAL (
+         SELECT s.status FROM activity_submissions s
+          WHERE s.message_id = m.id ORDER BY s.id DESC LIMIT 1
+       ) sub ON TRUE
+      WHERE m.thread_id = $1 AND m.deleted_at IS NULL ${restrictClause}
       ORDER BY m.created_at`,
-    [threadId]
+    args
   );
   const messages = res.rows;
   if (messages.length === 0) return [];
@@ -858,7 +885,68 @@ export async function getThreadMessages(threadId: number): Promise<MessageView[]
     reply_excerpt: (m.reply_excerpt as string | null) ?? null,
     reply_sender: (m.reply_sender as string | null) ?? null,
     sources: Array.isArray(m.sources) ? (m.sources as { name: string; path: string }[]) : [],
+    submission_status:
+      (m.submission_status as "pending" | "approved" | "returned" | null) ?? null,
+    restricted: m.restricted === true,
   }));
+}
+
+export interface ActiveActivity {
+  planId: number;
+  planName: string;
+  nodeId: string;
+  nodeLabel: string;
+  gating: "OPEN" | "REVIEWED";
+  instructions: string;
+  artifact: string;
+  phaseId: string | null;
+  phaseName: string | null;
+  exitConditions: string | null;
+  isLastInPhase: boolean;
+  submission: {
+    id: number;
+    messageId: number | null;
+    partnerId: number | null;
+    status: "pending" | "approved" | "returned";
+  } | null;
+  /** A submission is awaiting coach review (freezes the partner's composer). */
+  pendingReview: boolean;
+}
+
+/**
+ * The thread's currently-active activity (from its live plan's current_node_id),
+ * with any in-flight submission. Null when there's no live plan / current node.
+ */
+export async function getActiveActivity(threadId: number): Promise<ActiveActivity | null> {
+  await ensureSchema();
+  const plan = await getActivePlanForThread(threadId);
+  if (!plan || !plan.current_node_id) return null;
+  const node = (plan.graph.nodes ?? []).find((n) => n.id === plan.current_node_id);
+  if (!node) return null;
+  const phase = (plan.graph.phases ?? []).find((p) => p.id === node.phaseId);
+  const submission = await getCurrentSubmission(plan.id, plan.current_node_id);
+  return {
+    planId: plan.id,
+    planName: plan.name,
+    nodeId: node.id,
+    nodeLabel: node.label || node.activityKey,
+    gating: node.gating ?? "REVIEWED",
+    instructions: node.instructions ?? "",
+    artifact: node.artifact ?? "",
+    phaseId: node.phaseId ?? null,
+    phaseName: phase?.name ?? null,
+    exitConditions: phase?.exitConditions ?? null,
+    isLastInPhase: isLastInPhase(plan.graph, node.id),
+    submission: submission
+      ? {
+          id: submission.id,
+          messageId: submission.message_id,
+          partnerId: submission.partner_id,
+          status: submission.status,
+        }
+      : null,
+    pendingReview: submission?.status === "pending",
+  };
 }
 
 // ============================================================
@@ -873,12 +961,14 @@ export async function postMessage(params: {
   isAi?: boolean;
   replyTo?: number | null;
   sources?: { name: string; path: string }[] | null;
+  /** Restrict visibility to these user ids (null/omitted = everyone). */
+  audience?: number[] | null;
 }): Promise<number> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    `INSERT INTO messages (thread_id, sender_id, body, plan_id, is_ai, reply_to, sources)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    `INSERT INTO messages (thread_id, sender_id, body, plan_id, is_ai, reply_to, sources, audience)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
     [
       params.threadId,
       params.senderId,
@@ -887,6 +977,7 @@ export async function postMessage(params: {
       params.isAi === true,
       params.replyTo ?? null,
       params.sources && params.sources.length ? JSON.stringify(params.sources) : null,
+      params.audience && params.audience.length ? params.audience : null,
     ]
   );
   await pool.query("UPDATE message_threads SET updated_at = NOW() WHERE id = $1", [params.threadId]);

@@ -3,6 +3,7 @@ import { hashPassword } from "@/lib/password";
 import type { CoachingTemplate, TemplateGraph, TemplateScope } from "@/lib/templates";
 import type { MessagePermissions, RoleMessagePerms } from "@/lib/settings";
 import { EMPTY_GRAPH } from "@/lib/templates";
+import { nextNodeId, isLastInPhase, phaseIdOfNode } from "@/lib/plan-graph";
 
 // ============================================================
 // Types
@@ -291,6 +292,40 @@ export function ensureSchema(): Promise<void> {
           ADD COLUMN IF NOT EXISTS reply_to BIGINT REFERENCES messages (id) ON DELETE SET NULL;
         -- RAG source documents cited by an @dewey reply: [{name, path}].
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS sources JSONB;
+        -- Per-recipient visibility. NULL = everyone in the thread sees it. When set
+        -- to an array of user ids, only those users (plus any admin, for oversight)
+        -- may see it — used for coach review feedback meant for one partner.
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS audience INTEGER[];
+
+        -- Activity submissions: a partner marks one chat message as the active
+        -- activity's submission. One live row per (plan, node); approved rows are
+        -- kept as phase history. gating is snapshotted at submit time.
+        CREATE TABLE IF NOT EXISTS activity_submissions (
+          id         BIGSERIAL PRIMARY KEY,
+          plan_id    INTEGER NOT NULL REFERENCES coaching_templates (id) ON DELETE CASCADE,
+          node_id    TEXT NOT NULL,
+          phase_id   TEXT,
+          partner_id INTEGER REFERENCES users (id) ON DELETE SET NULL,
+          message_id BIGINT REFERENCES messages (id) ON DELETE SET NULL,
+          gating     TEXT NOT NULL,
+          status     TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'approved' | 'returned'
+          feedback   TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          decided_at TIMESTAMPTZ,
+          decided_by INTEGER REFERENCES users (id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_activity_sub_plan ON activity_submissions (plan_id, node_id);
+        CREATE INDEX IF NOT EXISTS idx_activity_sub_message ON activity_submissions (message_id);
+
+        -- Persisted coach⇄Dewey consult about a submission (review modal chat).
+        CREATE TABLE IF NOT EXISTS activity_review_consults (
+          id            BIGSERIAL PRIMARY KEY,
+          submission_id BIGINT NOT NULL REFERENCES activity_submissions (id) ON DELETE CASCADE,
+          role          TEXT NOT NULL, -- 'coach' | 'dewey'
+          body          TEXT NOT NULL,
+          created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_consult_submission ON activity_review_consults (submission_id, id);
 
         -- Multi-party plan acceptance: an embedded plan becomes active only once
         -- every thread participant has accepted it. One row per (plan, user).
@@ -1363,6 +1398,233 @@ export async function userManagesThreadPlan(planId: number, userId: number): Pro
     [planId, userId]
   );
   return res.rows.length > 0;
+}
+
+// ============================================================
+// Activity submissions, coach review, and plan advancement
+// ============================================================
+
+export type SubmissionStatus = "pending" | "approved" | "returned";
+
+export interface ActivitySubmission {
+  id: number;
+  plan_id: number;
+  node_id: string;
+  phase_id: string | null;
+  partner_id: number | null;
+  message_id: number | null;
+  gating: "OPEN" | "REVIEWED";
+  status: SubmissionStatus;
+  feedback: string | null;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: number | null;
+}
+
+function rowToSubmission(r: Record<string, unknown>): ActivitySubmission {
+  return {
+    id: r.id as number,
+    plan_id: r.plan_id as number,
+    node_id: r.node_id as string,
+    phase_id: (r.phase_id as string | null) ?? null,
+    partner_id: (r.partner_id as number | null) ?? null,
+    message_id: (r.message_id as number | null) ?? null,
+    gating: (r.gating as "OPEN" | "REVIEWED") ?? "REVIEWED",
+    status: (r.status as SubmissionStatus) ?? "pending",
+    feedback: (r.feedback as string | null) ?? null,
+    created_at: toIso(r.created_at),
+    decided_at: r.decided_at ? toIso(r.decided_at) : null,
+    decided_by: (r.decided_by as number | null) ?? null,
+  };
+}
+
+/** The thread's single live plan (accepted, in progress), or null. */
+export async function getActivePlanForThread(threadId: number): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT * FROM coaching_templates
+      WHERE thread_id = $1 AND scope = 'partnership' AND deleted_at IS NULL
+        AND accepted_at IS NOT NULL AND outcome IS NULL AND deactivated_at IS NULL
+      ORDER BY accepted_at DESC LIMIT 1`,
+    [threadId]
+  );
+  return res.rows[0] ? rowToTemplate(res.rows[0]) : null;
+}
+
+/** The current (latest non-superseded) submission for a plan's node, or null. */
+export async function getCurrentSubmission(
+  planId: number,
+  nodeId: string
+): Promise<ActivitySubmission | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT * FROM activity_submissions
+      WHERE plan_id = $1 AND node_id = $2
+      ORDER BY id DESC LIMIT 1`,
+    [planId, nodeId]
+  );
+  return res.rows[0] ? rowToSubmission(res.rows[0]) : null;
+}
+
+export async function getSubmission(id: number): Promise<ActivitySubmission | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query("SELECT * FROM activity_submissions WHERE id = $1", [id]);
+  return res.rows[0] ? rowToSubmission(res.rows[0]) : null;
+}
+
+/** Approved submissions for every node in a phase (history shown to the coach). */
+export async function getPhaseApprovedSubmissions(
+  planId: number,
+  phaseId: string | null
+): Promise<ActivitySubmission[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT * FROM activity_submissions
+      WHERE plan_id = $1 AND status = 'approved'
+        AND ($2::text IS NULL OR phase_id = $2)
+      ORDER BY decided_at ASC, id ASC`,
+    [planId, phaseId]
+  );
+  return res.rows.map(rowToSubmission);
+}
+
+/**
+ * Mark a chat message as the active activity's submission. Enforces one live
+ * submission per (plan, node): a prior pending/returned row is updated in place;
+ * an already-approved node is left untouched (returns it). `status` is set by the
+ * caller per gating ('approved' for OPEN mid-phase self-attest, else 'pending').
+ */
+export async function markActivitySubmission(params: {
+  planId: number;
+  nodeId: string;
+  phaseId: string | null;
+  partnerId: number;
+  messageId: number;
+  gating: "OPEN" | "REVIEWED";
+  status: SubmissionStatus;
+}): Promise<ActivitySubmission | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const existing = await getCurrentSubmission(params.planId, params.nodeId);
+  if (existing && existing.status === "approved") return existing;
+  if (existing) {
+    const res = await pool.query(
+      `UPDATE activity_submissions
+          SET message_id = $2, partner_id = $3, gating = $4, status = $5,
+              feedback = NULL, decided_at = NULL, decided_by = NULL, created_at = NOW()
+        WHERE id = $1 RETURNING *`,
+      [existing.id, params.messageId, params.partnerId, params.gating, params.status]
+    );
+    return rowToSubmission(res.rows[0]);
+  }
+  const res = await pool.query(
+    `INSERT INTO activity_submissions
+       (plan_id, node_id, phase_id, partner_id, message_id, gating, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [
+      params.planId,
+      params.nodeId,
+      params.phaseId,
+      params.partnerId,
+      params.messageId,
+      params.gating,
+      params.status,
+    ]
+  );
+  return rowToSubmission(res.rows[0]);
+}
+
+/** Record a coach's decision on a submission ('approved' or 'returned'). */
+export async function decideSubmission(
+  submissionId: number,
+  coachId: number,
+  status: "approved" | "returned",
+  feedback?: string | null
+): Promise<ActivitySubmission | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `UPDATE activity_submissions
+        SET status = $2, feedback = $3, decided_at = NOW(), decided_by = $4
+      WHERE id = $1 RETURNING *`,
+    [submissionId, status, feedback?.trim() || null, coachId]
+  );
+  return res.rows[0] ? rowToSubmission(res.rows[0]) : null;
+}
+
+/**
+ * Advance the plan's current activity to the next node in the flow. If there is
+ * no next node, the plan is complete → mark it finished. Returns
+ * { nextNodeId, crossedPhase, finished }.
+ */
+export async function advanceActivity(
+  planId: number
+): Promise<{ nextNodeId: string | null; crossedPhase: boolean; finished: boolean }> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (!plan || !plan.current_node_id) return { nextNodeId: null, crossedPhase: false, finished: false };
+  const next = nextNodeId(plan.graph, plan.current_node_id);
+  if (next == null) {
+    await pool.query(
+      "UPDATE coaching_templates SET outcome = 'finished', current_node_id = NULL, updated_at = NOW() WHERE id = $1",
+      [planId]
+    );
+    return { nextNodeId: null, crossedPhase: false, finished: true };
+  }
+  const crossedPhase =
+    phaseIdOfNode(plan.graph, plan.current_node_id) !== phaseIdOfNode(plan.graph, next);
+  await pool.query(
+    "UPDATE coaching_templates SET current_node_id = $2, updated_at = NOW() WHERE id = $1",
+    [planId, next]
+  );
+  return { nextNodeId: next, crossedPhase, finished: false };
+}
+
+/** Whether the plan's current activity is the last one in its phase. */
+export async function currentIsLastInPhase(planId: number): Promise<boolean> {
+  const plan = await getTemplate(planId);
+  if (!plan || !plan.current_node_id) return false;
+  return isLastInPhase(plan.graph, plan.current_node_id);
+}
+
+export interface ConsultTurn {
+  id: number;
+  role: "coach" | "dewey";
+  body: string;
+  created_at: string;
+}
+
+export async function addConsultTurn(
+  submissionId: number,
+  role: "coach" | "dewey",
+  body: string
+): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query(
+    "INSERT INTO activity_review_consults (submission_id, role, body) VALUES ($1, $2, $3)",
+    [submissionId, role, body]
+  );
+}
+
+export async function getConsultTurns(submissionId: number): Promise<ConsultTurn[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "SELECT id, role, body, created_at FROM activity_review_consults WHERE submission_id = $1 ORDER BY id ASC",
+    [submissionId]
+  );
+  return res.rows.map((r) => ({
+    id: r.id as number,
+    role: r.role as "coach" | "dewey",
+    body: r.body as string,
+    created_at: toIso(r.created_at),
+  }));
 }
 
 /** Remove all acceptances for a plan (e.g. on edit/revise/unlock). */
