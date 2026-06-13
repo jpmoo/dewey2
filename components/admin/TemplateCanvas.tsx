@@ -1871,7 +1871,9 @@ export function TemplateReadOnly({
   const progressByNode = useMemo(() => {
     const map = new Map<string, "completed" | "current" | "upcoming">();
     const current = template?.current_node_id;
-    if (!current || !template?.accepted_at) return map;
+    // Only an active (accepted, not finished/abandoned) plan shows progress; a
+    // terminal or superseded plan is viewable but has no current-activity shading.
+    if (!current || !template?.accepted_at || template?.outcome) return map;
     // Predecessor adjacency: target -> [sources].
     const preds = new Map<string, string[]>();
     for (const e of graph.edges ?? []) {

@@ -171,11 +171,11 @@ export function CoachTemplates() {
         <div className="mt-3 flex justify-center">
           <button
             type="button"
-            className="dewey-btn-secondary"
+            className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10 disabled:opacity-50"
             onClick={() => setEditing("new")}
             disabled={busy}
           >
-            + New plan
+            <span aria-hidden>🗂️</span> New plan
           </button>
         </div>
       </div>

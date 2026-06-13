@@ -172,10 +172,10 @@ export function MessageCenter() {
         </div>
         <button
           type="button"
-          className="dewey-btn-secondary shrink-0"
+          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10"
           onClick={() => setComposing(true)}
         >
-          + New message
+          <span aria-hidden>✉️</span> New message
         </button>
       </div>
 
