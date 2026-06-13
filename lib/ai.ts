@@ -21,11 +21,12 @@ export interface ChatMessage {
  * (Claude isn't capped here — its full context window applies automatically.)
  */
 const ollamaCtxCache = new Map<string, number>();
-async function resolveOllamaNumCtx(url: string, model: string): Promise<number> {
-  const key = `${url}::${model}`;
+async function resolveOllamaNumCtx(url: string, model: string, settingCap = 0): Promise<number> {
+  // The admin's pulldown choice is the ceiling; OLLAMA_NUM_CTX env overrides it.
+  const cap = Number(process.env.OLLAMA_NUM_CTX) || settingCap || 0;
+  const key = `${url}::${model}::${cap}`;
   const cached = ollamaCtxCache.get(key);
   if (cached) return cached;
-  const cap = Number(process.env.OLLAMA_NUM_CTX) || 0; // optional ceiling
   let ctx = cap || 8192; // fallback if the model's context length is unreadable
   try {
     const res = await fetch(`${url.replace(/\/$/, "")}/api/show`, {
@@ -78,7 +79,7 @@ export async function chatComplete(params: {
   if (backend === "ollama") {
     const url = (settings.ollama_url ?? "").trim();
     if (!url) throw new Error("No Ollama URL is configured.");
-    return callOllama({ url, model: modelId, ...params });
+    return callOllama({ url, model: modelId, numCtxCap: settings.ollama_num_ctx, ...params });
   }
   throw new Error(
     `Unrecognized coaching model "${selected}". Select a Claude or Ollama model in System settings.`
@@ -123,8 +124,9 @@ async function callOllama(p: {
   model: string;
   system: string;
   messages: ChatMessage[];
+  numCtxCap?: number;
 }): Promise<ChatResult> {
-  const num_ctx = await resolveOllamaNumCtx(p.url, p.model);
+  const num_ctx = await resolveOllamaNumCtx(p.url, p.model, p.numCtxCap ?? 0);
   const res = await fetch(`${p.url.replace(/\/$/, "")}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -173,7 +175,7 @@ export async function complianceCheck(text: string): Promise<{ allowed: boolean;
   if (!model || !url || !text.trim()) return { allowed: true };
 
   try {
-    const num_ctx = await resolveOllamaNumCtx(url, model);
+    const num_ctx = await resolveOllamaNumCtx(url, model, settings.ollama_num_ctx);
     const res = await fetch(`${url.replace(/\/$/, "")}/api/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -233,7 +235,7 @@ export async function summarizeWithComplianceModel(prompt: string): Promise<stri
   if (!model || !url) {
     throw new Error("No compliance/summarization model is configured in System settings.");
   }
-  const num_ctx = await resolveOllamaNumCtx(url, model);
+  const num_ctx = await resolveOllamaNumCtx(url, model, settings.ollama_num_ctx);
   const res = await fetch(`${url.replace(/\/$/, "")}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -361,7 +363,7 @@ export async function* chatStream(params: {
   if (backend === "ollama") {
     const url = (settings.ollama_url ?? "").trim();
     if (!url) throw new Error("No Ollama URL is configured.");
-    yield* streamOllama({ url, model: modelId, ...params });
+    yield* streamOllama({ url, model: modelId, numCtxCap: settings.ollama_num_ctx, ...params });
     return;
   }
   throw new Error(
@@ -429,8 +431,9 @@ async function* streamOllama(p: {
   model: string;
   system: string;
   messages: ChatMessage[];
+  numCtxCap?: number;
 }): AsyncGenerator<string> {
-  const num_ctx = await resolveOllamaNumCtx(p.url, p.model);
+  const num_ctx = await resolveOllamaNumCtx(p.url, p.model, p.numCtxCap ?? 0);
   const res = await fetch(`${p.url.replace(/\/$/, "")}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },

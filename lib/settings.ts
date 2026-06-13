@@ -54,6 +54,8 @@ export interface SystemSettings {
   ollama_url: string | null;
   ollama_compliance_model: string | null;
   ollama_coaching_model: string | null;
+  /** Context-window ceiling for Ollama (num_ctx). 0/null = each model's full window. */
+  ollama_num_ctx: number;
   anthropic_api_key: string | null;
   rag_url: string | null;
   rag_default_threshold: number;
@@ -70,6 +72,7 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
     ollama_url: (row.ollama_url as string | null) ?? null,
     ollama_compliance_model: (row.ollama_compliance_model as string | null) ?? null,
     ollama_coaching_model: (row.ollama_coaching_model as string | null) ?? null,
+    ollama_num_ctx: row.ollama_num_ctx != null ? Number(row.ollama_num_ctx) : 0,
     anthropic_api_key: (row.anthropic_api_key as string | null) ?? null,
     rag_url: (row.rag_url as string | null) ?? null,
     rag_default_threshold:
@@ -107,6 +110,7 @@ export interface UpdateSystemSettingsParams {
   ollama_url?: string | null;
   ollama_compliance_model?: string | null;
   ollama_coaching_model?: string | null;
+  ollama_num_ctx?: number;
   anthropic_api_key?: string | null;
   rag_url?: string | null;
   rag_default_threshold?: number;
@@ -136,6 +140,8 @@ export async function updateSystemSettings(
     push("ollama_compliance_model", emptyToNull(params.ollama_compliance_model));
   if (params.ollama_coaching_model !== undefined)
     push("ollama_coaching_model", emptyToNull(params.ollama_coaching_model));
+  if (params.ollama_num_ctx !== undefined)
+    push("ollama_num_ctx", params.ollama_num_ctx > 0 ? Math.floor(params.ollama_num_ctx) : null);
   if (params.anthropic_api_key !== undefined)
     push("anthropic_api_key", emptyToNull(params.anthropic_api_key));
   if (params.rag_url !== undefined) push("rag_url", emptyToNull(params.rag_url));

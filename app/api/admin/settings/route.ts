@@ -23,6 +23,7 @@ export async function GET() {
       ollama_url: s.ollama_url,
       ollama_compliance_model: s.ollama_compliance_model,
       ollama_coaching_model: s.ollama_coaching_model,
+      ollama_num_ctx: s.ollama_num_ctx,
       rag_url: s.rag_url,
       rag_default_threshold: s.rag_default_threshold,
       rag_default_collections: s.rag_default_collections,
@@ -56,6 +57,10 @@ export async function PATCH(request: NextRequest) {
     update.ollama_compliance_model = body.ollama_compliance_model;
   if (typeof body.ollama_coaching_model === "string")
     update.ollama_coaching_model = body.ollama_coaching_model;
+  if (body.ollama_num_ctx !== undefined && body.ollama_num_ctx !== null) {
+    const n = Number(body.ollama_num_ctx);
+    if (Number.isFinite(n) && n >= 0) update.ollama_num_ctx = n;
+  }
   if (typeof body.rag_url === "string") update.rag_url = body.rag_url;
   if (typeof body.rag_default_threshold === "number")
     update.rag_default_threshold = body.rag_default_threshold;

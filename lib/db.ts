@@ -150,6 +150,8 @@ export function ensureSchema(): Promise<void> {
           END IF;
         END $$;
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_compliance_model TEXT;
+        -- Ollama context-window ceiling (num_ctx). NULL/0 = use each model's max.
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_num_ctx INTEGER;
 
         -- Per-user audit log. user_id is the subject; actor_id is who did it
         -- (null for system/self events). Cascades away with the user.

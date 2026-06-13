@@ -15,6 +15,7 @@ type SettingsView = {
   ollama_url: string | null;
   ollama_compliance_model: string | null;
   ollama_coaching_model: string | null;
+  ollama_num_ctx: number;
   rag_url: string | null;
   rag_default_threshold: number;
   rag_default_collections: string[];
@@ -25,6 +26,17 @@ type SettingsView = {
 };
 
 const THEMES = ["light", "dark"];
+
+// Context-window ceiling options for Ollama (0 = each model's full window).
+const NUM_CTX_OPTIONS: { value: number; label: string }[] = [
+  { value: 0, label: "Auto — each model's full window" },
+  { value: 4096, label: "4K" },
+  { value: 8192, label: "8K" },
+  { value: 16384, label: "16K" },
+  { value: 32768, label: "32K" },
+  { value: 65536, label: "64K" },
+  { value: 131072, label: "128K" },
+];
 
 const EMPTY_PERMS: MessagePermissions = {
   coach: {
@@ -66,6 +78,7 @@ export function AdminSettings() {
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [classModel, setClassModel] = useState("");
   const [coachingModel, setCoachingModel] = useState("");
+  const [numCtx, setNumCtx] = useState(0);
   const [anthropicKey, setAnthropicKey] = useState("");
   const [ragUrl, setRagUrl] = useState("");
   const [ragThreshold, setRagThreshold] = useState(0.5);
@@ -89,6 +102,7 @@ export function AdminSettings() {
       setOllamaUrl(settings.ollama_url ?? "");
       setClassModel(settings.ollama_compliance_model ?? "");
       setCoachingModel(settings.ollama_coaching_model ?? "");
+      setNumCtx(settings.ollama_num_ctx ?? 0);
       setRagUrl(settings.rag_url ?? "");
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
       setDefaultCollections(settings.rag_default_collections ?? []);
@@ -157,6 +171,7 @@ export function AdminSettings() {
         ollama_url: ollamaUrl,
         ollama_compliance_model: classModel,
         ollama_coaching_model: coachingModel,
+        ollama_num_ctx: numCtx,
         rag_url: ragUrl,
         rag_default_threshold: ragThreshold,
         rag_default_collections: defaultCollections,
@@ -178,6 +193,7 @@ export function AdminSettings() {
     ollamaUrl,
     classModel,
     coachingModel,
+    numCtx,
     anthropicKey,
     ragUrl,
     ragThreshold,
@@ -293,6 +309,24 @@ export function AdminSettings() {
             {coachingIsClaude
               ? "A Claude model is selected — the Ollama coaching model is ignored."
               : "Select a Claude model to coach via the Anthropic API, or an Ollama model to coach locally."}
+          </p>
+        </div>
+
+        <div>
+          <label className="dewey-label">Ollama context window (num_ctx)</label>
+          <select
+            className="dewey-input"
+            value={numCtx}
+            onChange={(e) => setNumCtx(Number(e.target.value))}
+          >
+            {NUM_CTX_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-dewey-mute mt-1">
+            Ceiling on how much chat context each Ollama model receives. &ldquo;Auto&rdquo; uses the
+            model&apos;s full window; lower it if a large model runs short on VRAM under concurrent
+            chats. (Ignored for Claude.)
           </p>
         </div>
 
