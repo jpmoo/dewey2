@@ -165,13 +165,16 @@ function PhaseClouds({
   return (
     <ViewportPortal>
       {clouds.map((c) => {
-        const interactive = !!(onEditPhase || onPhaseInfo);
-        const tip = onEditPhase
-          ? "Double-click to edit phase exit conditions"
-          : `Phase: ${c.name}${c.exitConditions ? `\n\nExit conditions: ${c.exitConditions}` : ""}\n\nClick for details`;
+        // Read-only: the whole cloud is clickable for details (pointer events on
+        // the cloud — panning still works on empty space outside any cloud).
+        // Editor: keep the cloud click-through so nodes stay draggable; only the
+        // label double-click edits exit conditions.
+        const tip = `Phase: ${c.name}${c.exitConditions ? `\n\nExit conditions: ${c.exitConditions}` : ""}\n\nClick for details`;
         return (
           <div
             key={c.id}
+            onClick={onPhaseInfo ? () => onPhaseInfo(c.id) : undefined}
+            title={onPhaseInfo ? tip : undefined}
             style={{
               position: "absolute",
               transform: `translate(${c.x}px, ${c.y}px)`,
@@ -182,13 +185,13 @@ function PhaseClouds({
               borderRadius: 36,
               boxShadow: `0 2px 18px ${rgba(c.color, 0.12)}`,
               zIndex: -1,
-              pointerEvents: "none",
+              pointerEvents: onPhaseInfo ? "auto" : "none",
+              cursor: onPhaseInfo ? "pointer" : "default",
             }}
           >
             <span
               onDoubleClick={onEditPhase ? () => onEditPhase(c.id) : undefined}
-              onClick={onPhaseInfo ? () => onPhaseInfo(c.id) : undefined}
-              title={interactive ? tip : undefined}
+              title={onEditPhase ? "Double-click to edit phase exit conditions" : undefined}
               style={{
                 position: "absolute",
                 top: 10,
@@ -196,8 +199,8 @@ function PhaseClouds({
                 fontSize: 11,
                 fontWeight: 600,
                 color: c.color,
-                cursor: interactive ? "pointer" : "default",
-                pointerEvents: interactive ? "auto" : "none",
+                cursor: onEditPhase ? "pointer" : "inherit",
+                pointerEvents: onEditPhase ? "auto" : "none",
               }}
             >
               {c.name}
@@ -221,6 +224,8 @@ type ActivityNodeData = {
   phaseColor?: string | null;
   /** Progress state for an accepted partnership plan; undefined = no progress overlay. */
   progress?: "completed" | "current" | "upcoming";
+  /** Read-only preview: the node is clickable for details (show a pointer cursor). */
+  clickable?: boolean;
 };
 
 let idCounter = 0;
@@ -249,7 +254,7 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
     <div
       className={`rounded-md border text-dewey-ink shadow-sm text-xs ${
         isCurrent ? "bg-green-50" : isCompleted ? "bg-dewey-surface-2" : "bg-dewey-surface"
-      }`}
+      } ${data.clickable ? "cursor-pointer" : ""}`}
       title={tip || undefined}
       style={{
         borderColor,
@@ -1908,6 +1913,7 @@ export function TemplateReadOnly({
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
             progress: progressByNode.get(n.id),
+            clickable: true,
           },
         };
       }),
@@ -1986,6 +1992,7 @@ export function TemplateReadOnly({
             elementsSelectable={false}
             onNodeClick={(_e, node) => setDetail({ kind: "activity", data: node.data as ActivityNodeData })}
             fitView
+            fitViewOptions={{ padding: 0.28, maxZoom: 0.85 }}
             proOptions={{ hideAttribution: true }}
           >
             <PhaseClouds
