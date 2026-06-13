@@ -668,6 +668,11 @@ export function ThreadPane({
     thread?.kind === "template_submission" && (thread?.status == null || thread?.status === "open");
   // The most recent fully-accepted plan, surfaced as a header "View plan" link.
   const acceptedPlan = [...messages].reverse().find((m) => m.plan_id != null && m.plan_accepted);
+  // Coach senders get the same accent ring in the message window as they do in
+  // the thread list, so the coach's voice is easy to spot at a glance.
+  const coachIds = new Set(
+    (thread?.participants ?? []).filter((p) => p.system_role === "coach").map((p) => p.id)
+  );
   // An accepted plan that's still in progress (not finished/abandoned) blocks
   // adding a new one. A terminal plan frees the coach to add the next.
   const hasActivePlan = messages.some((m) => m.plan_accepted && !m.plan_outcome && !m.plan_deactivated);
@@ -1038,6 +1043,7 @@ export function ThreadPane({
                 mine={m.sender_id === meId}
                 meId={meId}
                 iAmCoach={iAmCoach}
+                senderIsCoach={m.sender_id != null && coachIds.has(m.sender_id)}
                 onPreview={onPreview}
                 onViewPlan={(planId) => setViewPlanId(planId)}
                 onAcceptPlan={acceptPlan}
@@ -1154,6 +1160,7 @@ function MessageBubble({
   mine,
   meId,
   iAmCoach,
+  senderIsCoach,
   onPreview,
   onViewPlan,
   onAcceptPlan,
@@ -1169,6 +1176,7 @@ function MessageBubble({
   mine: boolean;
   meId: number | null;
   iAmCoach: boolean;
+  senderIsCoach: boolean;
   onPreview: (a: AttachmentMeta) => void;
   onViewPlan: (planId: number) => void;
   onAcceptPlan: (messageId: number) => void;
@@ -1203,7 +1211,9 @@ function MessageBubble({
               className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-1.5 ring-1 ring-dewey-border"
             />
           ) : (
-            <Avatar userId={m.sender_id} name={m.sender_name} size={36} />
+            <div className={senderIsCoach ? "rounded-full ring-2 ring-dewey-accent ring-offset-1" : ""}>
+              <Avatar userId={m.sender_id} name={m.sender_name} size={36} />
+            </div>
           )}
           <span className="font-medium text-dewey-ink">{senderLabel}</span>
           <span>{new Date(m.created_at).toLocaleString()}</span>

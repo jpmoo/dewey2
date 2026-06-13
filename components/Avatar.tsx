@@ -40,7 +40,7 @@ export function Avatar({
   if (!src || failed) {
     return (
       <span
-        className="inline-flex shrink-0 items-center justify-center rounded-full bg-dewey-surface-2 font-medium text-dewey-mute"
+        className="inline-flex shrink-0 items-center justify-center rounded-full border border-dewey-border bg-dewey-surface-2 font-medium text-dewey-mute"
         style={{ width: size, height: size, fontSize: Math.round(size * 0.4) }}
         aria-hidden
       >
@@ -53,7 +53,7 @@ export function Avatar({
     <img
       src={src}
       alt={name ?? "avatar"}
-      className="shrink-0 rounded-full object-cover"
+      className="shrink-0 rounded-full border border-dewey-border object-cover"
       style={{ width: size, height: size }}
       onError={() => setFailed(true)}
     />
