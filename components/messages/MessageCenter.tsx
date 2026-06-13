@@ -1175,13 +1175,20 @@ function Composer({
     // the response (which includes the AI reply) returns — also when replying
     // to an @dewey message (that's a prompt back to the AI).
     const willDewey = /(^|\s)@dewey\b/i.test(body) || replyTarget?.isAi === true;
+    // Snapshot the outgoing content, then clear the composer immediately so the
+    // message doesn't linger in the box while a (slow, synchronous @dewey) send
+    // is in flight. Restore it if the send fails.
+    const sentBody = body;
+    const sentFiles = files;
+    setBody("");
+    setFiles([]);
     setSending(true);
     if (willDewey) onDeweyPending(true);
     try {
       const form = new FormData();
-      form.append("body", body);
+      form.append("body", sentBody);
       if (replyTarget) form.append("replyTo", String(replyTarget.id));
-      files.forEach((f) => form.append("files", f));
+      sentFiles.forEach((f) => form.append("files", f));
       const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/messages`), {
         method: "POST",
         body: form,
@@ -1190,10 +1197,11 @@ function Composer({
         const d = await res.json().catch(() => ({}));
         throw new Error((d as { error?: string }).error || `HTTP ${res.status}`);
       }
-      setBody("");
-      setFiles([]);
       onSent();
     } catch (e) {
+      // Put the unsent content back so the user doesn't lose it.
+      setBody((cur) => (cur ? cur : sentBody));
+      setFiles((cur) => (cur.length ? cur : sentFiles));
       dialog.alert(e instanceof Error ? e.message : "Failed to send");
     } finally {
       setSending(false);

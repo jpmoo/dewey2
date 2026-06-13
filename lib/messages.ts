@@ -531,9 +531,11 @@ export async function listThreadsForUser(
   // Per-user archive state (admins archive their own oversight view too). A
   // partnership that has been marked done or abandoned counts as archived for
   // everyone, so it leaves the active list and joins the archived area.
+  // NULL-safe: an open partnership has status NULL, and NULL IN (...) is NULL
+  // (not FALSE), so COALESCE it to a sentinel before comparing.
   const isArchived =
     "(EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)" +
-    " OR (t.kind = 'partnership' AND t.status IN ('done', 'abandoned')))";
+    " OR (t.kind = 'partnership' AND COALESCE(t.status, 'open') IN ('done', 'abandoned')))";
   where.push(opts.archived ? isArchived : `NOT ${isArchived}`);
   const q = opts.q?.trim();
   if (q) {
@@ -658,7 +660,7 @@ export async function getUnreadThreadCount(userId: number): Promise<number> {
        JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
       WHERE t.deleted_at IS NULL
         AND (t.kind <> 'partnership' OR p.accepted = TRUE OR t.created_by = $1)
-        AND NOT (t.kind = 'partnership' AND t.status IN ('done', 'abandoned'))
+        AND NOT (t.kind = 'partnership' AND COALESCE(t.status, 'open') IN ('done', 'abandoned'))
         AND NOT EXISTS (SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1)
         AND EXISTS (
           SELECT 1 FROM messages m
