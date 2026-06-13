@@ -235,7 +235,7 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
           className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10"
           onClick={() => setComposing(true)}
         >
-          <span aria-hidden>✉️</span> New thread
+          <span aria-hidden>✉️</span> New conversation
         </button>
       </div>
 
@@ -467,7 +467,7 @@ function ComposeModal({
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-dewey-surface p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-4 text-lg font-semibold">New thread</h3>
+        <h3 className="mb-4 text-lg font-semibold">New conversation</h3>
         <div className="space-y-4">
           {err && <p className="text-sm text-red-600">{err}</p>}
 
