@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/guard";
 import { canAccessThread, getActiveActivity, logThreadEvent } from "@/lib/messages";
 import { userManagesThreadPlan } from "@/lib/db";
 import { consultDeweyOnSubmission } from "@/lib/dewey-review";
+import { allowAiRequest } from "@/lib/rate-limit";
 
 /** A coach consults Dewey about the pending submission (persisted). */
 export async function POST(
@@ -28,6 +29,13 @@ export async function POST(
   }
   if (!(await userManagesThreadPlan(active.planId, me))) {
     return NextResponse.json({ error: "Only a coach can consult Dewey here." }, { status: 403 });
+  }
+
+  if (!allowAiRequest(me)) {
+    return NextResponse.json(
+      { error: "You're sending requests too quickly — please wait a moment." },
+      { status: 429 }
+    );
   }
 
   const body = await request.json().catch(() => ({}));

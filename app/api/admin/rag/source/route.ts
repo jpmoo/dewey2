@@ -15,6 +15,16 @@ export async function GET(request: NextRequest) {
   if (!path.startsWith("/fetch/")) {
     return NextResponse.json({ error: "Invalid source path" }, { status: 400 });
   }
+  // Block path traversal to other endpoints on the RAG host (SSRF).
+  let decodedPath = path;
+  try {
+    decodedPath = decodeURIComponent(path);
+  } catch {
+    /* keep raw */
+  }
+  if (path.includes("..") || decodedPath.includes("..") || /[\\\x00-\x1f]/.test(path)) {
+    return NextResponse.json({ error: "Invalid source path" }, { status: 400 });
+  }
 
   const url = (await getSystemSettings()).rag_url?.trim() ?? "";
   if (!url) return NextResponse.json({ error: "RAGDoll is not configured" }, { status: 400 });

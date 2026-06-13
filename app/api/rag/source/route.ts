@@ -15,10 +15,25 @@ export async function GET(request: NextRequest) {
   if (!path.startsWith("/fetch/")) {
     return NextResponse.json({ error: "Invalid source path" }, { status: 400 });
   }
+  // Block path traversal to other endpoints on the RAG host (SSRF). The embedded
+  // web-source URL may legitimately contain ":" and "//", but never "..".
+  let decodedPath = path;
+  try {
+    decodedPath = decodeURIComponent(path);
+  } catch {
+    /* keep raw */
+  }
+  const traversal =
+    path.includes("..") || decodedPath.includes("..") || /[\\\x00-\x1f]/.test(path);
+  if (traversal) {
+    return NextResponse.json({ error: "Invalid source path" }, { status: 400 });
+  }
+
+  const settings = await getSystemSettings();
 
   // Some RAG sources are indexed web pages: the fetch path embeds the original
-  // URL (e.g. /fetch/group/https%3A/example.com/...). Send the user straight to
-  // the real page rather than proxying it (the proxy mangles the embedded URL).
+  // URL (e.g. /fetch/group/https%3A/example.com/...). Redirect the user to the
+  // real page — but only to an admin-allowlisted host, to prevent open redirects.
   const embedded = path.match(/^\/fetch\/[^/]+\/(https?(?::|%3A).+)$/i);
   if (embedded) {
     let raw = embedded[1];
@@ -28,10 +43,27 @@ export async function GET(request: NextRequest) {
       /* use as-is */
     }
     const u = raw.match(/^(https?):\/{1,2}(.+)$/i);
-    if (u) return NextResponse.redirect(`${u[1].toLowerCase()}://${u[2]}`);
+    if (u) {
+      const target = `${u[1].toLowerCase()}://${u[2]}`;
+      let host = "";
+      try {
+        host = new URL(target).hostname.toLowerCase();
+      } catch {
+        return NextResponse.json({ error: "Invalid source URL" }, { status: 400 });
+      }
+      const allowed = settings.rag_allowed_source_hosts ?? [];
+      const ok = allowed.some((h) => host === h || host.endsWith(`.${h}`));
+      if (!ok) {
+        return NextResponse.json(
+          { error: "This source's host isn't on the allowed list. Ask an admin to add it." },
+          { status: 403 }
+        );
+      }
+      return NextResponse.redirect(target);
+    }
   }
 
-  const url = (await getSystemSettings()).rag_url?.trim() ?? "";
+  const url = settings.rag_url?.trim() ?? "";
   if (!url) return NextResponse.json({ error: "RAGDoll is not configured" }, { status: 400 });
 
   try {

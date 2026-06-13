@@ -61,6 +61,8 @@ export interface SystemSettings {
   rag_default_threshold: number;
   /** Collections selected as the platform-wide default for retrieval. */
   rag_default_collections: string[];
+  /** Hostnames a RAG web-source link may redirect to (anti open-redirect). */
+  rag_allowed_source_hosts: string[];
   default_theme: string;
   message_permissions: MessagePermissions;
   /** How many days of daily DB/file backups to keep on the server. */
@@ -81,6 +83,9 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
       row.rag_default_threshold != null ? Number(row.rag_default_threshold) : 0.5,
     rag_default_collections: Array.isArray(row.rag_default_collections)
       ? (row.rag_default_collections as string[])
+      : [],
+    rag_allowed_source_hosts: Array.isArray(row.rag_allowed_source_hosts)
+      ? (row.rag_allowed_source_hosts as string[])
       : [],
     default_theme: (row.default_theme as string | null) ?? "light",
     message_permissions: coercePerms(row.message_permissions),
@@ -119,6 +124,7 @@ export interface UpdateSystemSettingsParams {
   rag_url?: string | null;
   rag_default_threshold?: number;
   rag_default_collections?: string[];
+  rag_allowed_source_hosts?: string[];
   default_theme?: string;
   message_permissions?: MessagePermissions;
   backup_retention_days?: number;
@@ -156,6 +162,15 @@ export async function updateSystemSettings(
     push("rag_default_threshold", params.rag_default_threshold);
   if (params.rag_default_collections !== undefined)
     push("rag_default_collections", JSON.stringify(params.rag_default_collections));
+  if (params.rag_allowed_source_hosts !== undefined)
+    push(
+      "rag_allowed_source_hosts",
+      JSON.stringify(
+        params.rag_allowed_source_hosts
+          .map((h) => h.trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
   if (params.default_theme !== undefined) push("default_theme", params.default_theme);
   if (params.message_permissions !== undefined)
     push("message_permissions", JSON.stringify(params.message_permissions));

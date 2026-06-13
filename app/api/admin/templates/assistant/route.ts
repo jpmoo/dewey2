@@ -3,6 +3,7 @@ import { requireCoachOrAdmin } from "@/lib/guard";
 import { chatStream, complianceCheck, summarizeConversation, type ChatMessage } from "@/lib/ai";
 import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
 import { reportComplianceFlag } from "@/lib/messages";
+import { allowAiRequest } from "@/lib/rate-limit";
 import {
   buildCanvasPlanPrompt,
   sanitizeProposedGraph,
@@ -67,6 +68,13 @@ export async function POST(request: NextRequest) {
   const guard = await requireCoachOrAdmin();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
+
+  if (!allowAiRequest(Number(session.user.id))) {
+    return NextResponse.json(
+      { error: "You're sending requests too quickly — please wait a moment." },
+      { status: 429 }
+    );
+  }
 
   const body = await request.json().catch(() => ({}));
   const message = typeof body.message === "string" ? body.message.trim() : "";

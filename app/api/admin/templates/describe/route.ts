@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireCoachOrAdmin } from "@/lib/guard";
 import { summarizeWithComplianceModel } from "@/lib/ai";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
+import { allowAiRequest } from "@/lib/rate-limit";
 import type { TemplateGraph } from "@/lib/templates";
 
 /**
@@ -13,6 +14,9 @@ import type { TemplateGraph } from "@/lib/templates";
 export async function POST(request: NextRequest) {
   const guard = await requireCoachOrAdmin();
   if (guard instanceof NextResponse) return guard;
+  if (!allowAiRequest(Number(guard.session.user.id))) {
+    return NextResponse.json({ description: "" });
+  }
 
   const body = await request.json().catch(() => ({}));
   const name = typeof body.name === "string" ? body.name.trim() : "";

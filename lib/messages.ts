@@ -1248,6 +1248,20 @@ export async function getAttachmentTextsForThread(
   return map;
 }
 
+/** Total bytes of attachments across all of a user's own messages (quota check). */
+export async function getUserAttachmentBytes(userId: number): Promise<number> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT COALESCE(SUM(a.size_bytes), 0)::bigint AS n
+       FROM message_attachments a
+       JOIN messages m ON m.id = a.message_id
+      WHERE m.sender_id = $1 AND m.deleted_at IS NULL`,
+    [userId]
+  );
+  return Number(res.rows[0]?.n ?? 0);
+}
+
 /** Fetch attachment bytes plus the thread it belongs to (for an access check). */
 export async function getAttachmentForDownload(
   attachmentId: number

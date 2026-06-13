@@ -27,6 +27,7 @@ export async function GET() {
       rag_url: s.rag_url,
       rag_default_threshold: s.rag_default_threshold,
       rag_default_collections: s.rag_default_collections,
+      rag_allowed_source_hosts: s.rag_allowed_source_hosts,
       default_theme: s.default_theme,
       message_permissions: s.message_permissions,
       // Key is write-only from the client's perspective.
@@ -66,6 +67,10 @@ export async function PATCH(request: NextRequest) {
     update.rag_default_threshold = body.rag_default_threshold;
   if (Array.isArray(body.rag_default_collections))
     update.rag_default_collections = body.rag_default_collections.filter(
+      (c: unknown): c is string => typeof c === "string"
+    );
+  if (Array.isArray(body.rag_allowed_source_hosts))
+    update.rag_allowed_source_hosts = body.rag_allowed_source_hosts.filter(
       (c: unknown): c is string => typeof c === "string"
     );
   if (typeof body.default_theme === "string") update.default_theme = body.default_theme;

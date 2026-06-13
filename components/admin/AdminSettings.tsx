@@ -20,6 +20,7 @@ type SettingsView = {
   rag_url: string | null;
   rag_default_threshold: number;
   rag_default_collections: string[];
+  rag_allowed_source_hosts: string[];
   default_theme: string;
   message_permissions: MessagePermissions;
   anthropic_api_key_set: boolean;
@@ -82,6 +83,8 @@ export function AdminSettings() {
   const [numCtx, setNumCtx] = useState(0);
   const [anthropicKey, setAnthropicKey] = useState("");
   const [ragUrl, setRagUrl] = useState("");
+  // Comma-separated hostnames RAG web-source links may redirect to.
+  const [ragHosts, setRagHosts] = useState("");
   const [ragThreshold, setRagThreshold] = useState(0.5);
   const [defaultTheme, setDefaultTheme] = useState("light");
   const [perms, setPerms] = useState<MessagePermissions>(EMPTY_PERMS);
@@ -107,6 +110,7 @@ export function AdminSettings() {
       setRagUrl(settings.rag_url ?? "");
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
       setDefaultCollections(settings.rag_default_collections ?? []);
+      setRagHosts((settings.rag_allowed_source_hosts ?? []).join(", "));
       setDefaultTheme(settings.default_theme ?? "light");
       if (settings.message_permissions) setPerms(settings.message_permissions);
       setKeyFromEnv(settings.anthropic_api_key_from_env);
@@ -176,6 +180,10 @@ export function AdminSettings() {
         rag_url: ragUrl,
         rag_default_threshold: ragThreshold,
         rag_default_collections: defaultCollections,
+        rag_allowed_source_hosts: ragHosts
+          .split(",")
+          .map((h) => h.trim().toLowerCase())
+          .filter(Boolean),
         default_theme: defaultTheme,
         message_permissions: perms,
       };
@@ -199,6 +207,7 @@ export function AdminSettings() {
     ragUrl,
     ragThreshold,
     defaultCollections,
+    ragHosts,
     defaultTheme,
     perms,
     load,
@@ -380,6 +389,19 @@ export function AdminSettings() {
               value={ragThreshold}
               onChange={(e) => setRagThreshold(parseFloat(e.target.value) || 0)}
             />
+          </div>
+          <div className="col-span-2">
+            <label className="dewey-label">Allowed source-link hosts</label>
+            <input
+              className="dewey-input"
+              value={ragHosts}
+              onChange={(e) => setRagHosts(e.target.value)}
+              placeholder="learnercentered.org, edutopia.org"
+            />
+            <p className="mt-1 text-xs text-dewey-mute">
+              Comma-separated hostnames a cited web source may open. Anything not listed is
+              blocked (prevents open-redirects). Subdomains of a listed host are allowed.
+            </p>
           </div>
         </div>
 

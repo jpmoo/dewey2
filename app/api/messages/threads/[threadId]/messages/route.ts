@@ -4,12 +4,14 @@ import {
   addAttachment,
   canAccessThread,
   getMessageBrief,
+  getUserAttachmentBytes,
   logThreadEvent,
   postMessage,
 } from "@/lib/messages";
 import { mentionsDewey, runDeweyForThread } from "@/lib/dewey";
 import { extractText } from "@/lib/extract";
 import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
+import { allowAiRequest } from "@/lib/rate-limit";
 
 // pdf-parse / mammoth need the Node runtime (not edge).
 export const runtime = "nodejs";
@@ -17,6 +19,11 @@ export const runtime = "nodejs";
 // Per-file cap. Attachments are stored in the DB, so keep them modest.
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
 const MAX_FILES = 10;
+// Per-user total attachment storage cap (env-overridable).
+const QUOTA_BYTES =
+  (Number(process.env.ATTACHMENT_QUOTA_MB) > 0 ? Number(process.env.ATTACHMENT_QUOTA_MB) : 500) *
+  1024 *
+  1024;
 
 /**
  * Post a reply to a thread. multipart/form-data: `body` (text) plus zero or more
@@ -55,6 +62,17 @@ export async function POST(
       return NextResponse.json(
         { error: `"${f.name}" exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit` },
         { status: 400 }
+      );
+    }
+  }
+  // Per-user storage quota across all their attachments.
+  if (files.length > 0) {
+    const incoming = files.reduce((sum, f) => sum + f.size, 0);
+    const used = await getUserAttachmentBytes(Number(session.user.id));
+    if (used + incoming > QUOTA_BYTES) {
+      return NextResponse.json(
+        { error: `Attachment storage limit reached (${Math.round(QUOTA_BYTES / (1024 * 1024))}MB).` },
+        { status: 413 }
       );
     }
   }
@@ -109,14 +127,21 @@ export async function POST(
 
   // @dewey runs when mentioned OR when replying to one of its messages.
   // Run it before responding so the reply is there when the client refetches.
+  // Rate-limited per user so the LLM can't be hammered; the message itself is
+  // already saved, so over-limit just skips the AI reply.
+  let aiThrottled = false;
   if (mentionsDewey(body) || replyToAi) {
-    await runDeweyForThread({
-      threadId: id,
-      invokerId: me,
-      invokerName: session.user.nickname || session.user.name || session.user.username || "A user",
-      invokerIsCoach: session.user.system_role === "coach",
-      invokingMessage: body,
-    }).catch((e) => console.warn("[dewey] failed", e instanceof Error ? e.message : e));
+    if (allowAiRequest(me)) {
+      await runDeweyForThread({
+        threadId: id,
+        invokerId: me,
+        invokerName: session.user.nickname || session.user.name || session.user.username || "A user",
+        invokerIsCoach: session.user.system_role === "coach",
+        invokingMessage: body,
+      }).catch((e) => console.warn("[dewey] failed", e instanceof Error ? e.message : e));
+    } else {
+      aiThrottled = true;
+    }
   }
-  return NextResponse.json({ ok: true, messageId });
+  return NextResponse.json({ ok: true, messageId, aiThrottled });
 }

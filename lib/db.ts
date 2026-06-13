@@ -138,6 +138,10 @@ export function ensureSchema(): Promise<void> {
         -- bootstrap safe to run against databases created before this column.
         ALTER TABLE system_settings
           ADD COLUMN IF NOT EXISTS rag_default_collections JSONB NOT NULL DEFAULT '[]';
+        -- Hostnames a RAG web-source link may redirect to (anti open-redirect).
+        -- Empty = no external redirects allowed.
+        ALTER TABLE system_settings
+          ADD COLUMN IF NOT EXISTS rag_allowed_source_hosts JSONB NOT NULL DEFAULT '[]';
 
         -- The classification model slot is now the compliance model. Rename on
         -- upgrade; ADD ensures the column exists either way.
