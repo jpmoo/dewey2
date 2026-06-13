@@ -3,6 +3,7 @@ import { ACTIVITY_BY_KEY } from "@/lib/activities";
 import { queryRagDefault, formatRagContext } from "@/lib/rag";
 import {
   createTemplate,
+  deactivatePriorThreadPlans,
   duplicatePlanForPartnership,
   getTemplate,
   getTemplatesForCoach,
@@ -216,6 +217,7 @@ export async function runDeweyForThread(params: {
       if (library.some((p) => p.id === sourceId)) {
         const copy = await duplicatePlanForPartnership(sourceId, coachId, threadId);
         if (copy) {
+          await deactivatePriorThreadPlans(threadId, copy.id);
           await postMessage({
             threadId,
             senderId: null,
@@ -247,6 +249,7 @@ export async function runDeweyForThread(params: {
         ownerId: coachId,
         threadId,
       });
+      await deactivatePriorThreadPlans(threadId, copy.id);
       await postMessage({
         threadId,
         senderId: null,

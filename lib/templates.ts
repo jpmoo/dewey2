@@ -77,4 +77,8 @@ export interface CoachingTemplate {
   accepted_at?: string | null;
   /** Partnership plans only: the activity node the partner is currently on (for progress coloring). */
   current_node_id?: string | null;
+  /** Partnership plans only: set when a newer plan superseded this one in the thread. */
+  deactivated_at?: string | null;
+  /** Partnership plans only: the thread this plan is embedded in. */
+  thread_id?: number | null;
 }

@@ -255,6 +255,10 @@ export function ensureSchema(): Promise<void> {
           ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMPTZ;
         ALTER TABLE coaching_templates
           ADD COLUMN IF NOT EXISTS current_node_id TEXT;
+        -- A thread holds one live plan: when a newer plan is added or revised,
+        -- prior plans in the thread are deactivated (kept visible but inactive).
+        ALTER TABLE coaching_templates
+          ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ;
 
         -- Invitation state for partnership threads: NULL = invited/pending,
         -- TRUE = accepted, FALSE = declined. Ignored for non-partnership threads.
@@ -1035,6 +1039,8 @@ function rowToTemplate(row: Record<string, unknown>): CoachingTemplate {
     deleted_at: row.deleted_at ? toIso(row.deleted_at) : null,
     accepted_at: row.accepted_at ? toIso(row.accepted_at) : null,
     current_node_id: (row.current_node_id as string | null) ?? null,
+    deactivated_at: row.deactivated_at ? toIso(row.deactivated_at) : null,
+    thread_id: (row.thread_id as number | null) ?? null,
   };
 }
 
@@ -1171,6 +1177,26 @@ function entryNodeId(graph: TemplateGraph): string | null {
 }
 
 /**
+ * Deactivate every partnership plan in a thread except `keepId`: a thread holds
+ * one live plan, so adding/revising a plan supersedes the rest. Deactivated
+ * plans stay visible in the chat but are no longer acceptable/active.
+ */
+export async function deactivatePriorThreadPlans(
+  threadId: number,
+  keepId: number
+): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  await pool.query(
+    `UPDATE coaching_templates
+        SET deactivated_at = NOW(), accepted_at = NULL, current_node_id = NULL, updated_at = NOW()
+      WHERE thread_id = $1 AND id <> $2 AND scope = 'partnership'
+        AND deleted_at IS NULL AND deactivated_at IS NULL`,
+    [threadId, keepId]
+  );
+}
+
+/**
  * Coach accepts an embedded partnership plan: mark it accepted and point the
  * current activity at the entry node. Any previously-accepted plan in the same
  * thread is un-accepted, so a thread has at most one active plan. Returns the
@@ -1223,10 +1249,13 @@ export async function revisePartnershipPlan(
   }
   await pool.query(
     `UPDATE coaching_templates
-        SET graph = $2, accepted_at = NULL, current_node_id = NULL, updated_at = NOW()
+        SET graph = $2, accepted_at = NULL, current_node_id = NULL,
+            deactivated_at = NULL, updated_at = NOW()
       WHERE id = $1`,
     [planId, JSON.stringify(graph)]
   );
+  // A revised plan supersedes any earlier plan in the thread.
+  if (plan.thread_id != null) await deactivatePriorThreadPlans(plan.thread_id, planId);
   return getTemplate(planId);
 }
 

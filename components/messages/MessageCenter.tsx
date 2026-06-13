@@ -32,6 +32,7 @@ type MessageView = {
   plan_name: string | null;
   plan_phase: string | null;
   plan_accepted: boolean;
+  plan_deactivated: boolean;
   is_ai: boolean;
   reply_to: number | null;
   reply_excerpt: string | null;
@@ -1017,16 +1018,28 @@ function MessageBubble({
         )}
         {m.plan_id != null ? (
           // Specialized plan bubble. "View plan" opens the plan preview directly.
-          <div className="rounded-lg border border-dewey-accent/40 bg-dewey-accent/5 p-3">
+          <div
+            className={`rounded-lg border p-3 ${
+              m.plan_deactivated
+                ? "border-dewey-border bg-dewey-surface-2 opacity-75"
+                : "border-dewey-accent/40 bg-dewey-accent/5"
+            }`}
+          >
             <div className="flex items-center gap-2">
               <span className="text-lg">🗂️</span>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-dewey-mute">
                   Coaching plan
-                  {m.plan_accepted && (
-                    <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
-                      Accepted
+                  {m.plan_deactivated ? (
+                    <span className="rounded bg-dewey-surface px-1.5 py-0.5 text-[9px] font-medium text-dewey-mute">
+                      Superseded
                     </span>
+                  ) : (
+                    m.plan_accepted && (
+                      <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
+                        Accepted
+                      </span>
+                    )
                   )}
                 </div>
                 <button
@@ -1048,29 +1061,33 @@ function MessageBubble({
               </button>
               {amCoach && (
                 <>
-                  {!m.plan_accepted && (
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-green-700 hover:underline"
-                      onClick={() => onAcceptPlan(m.id)}
-                    >
-                      Accept
-                    </button>
+                  {!m.plan_deactivated && (
+                    <>
+                      {!m.plan_accepted && (
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-green-700 hover:underline"
+                          onClick={() => onAcceptPlan(m.id)}
+                        >
+                          Accept
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-accent hover:underline"
+                        onClick={() => onEditPlan(m.plan_id as number)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-mute hover:text-dewey-ink"
+                        onClick={() => onCopyPlan(m.plan_id as number)}
+                      >
+                        Copy to my plans
+                      </button>
+                    </>
                   )}
-                  <button
-                    type="button"
-                    className="text-xs text-dewey-accent hover:underline"
-                    onClick={() => onEditPlan(m.plan_id as number)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="text-xs text-dewey-mute hover:text-dewey-ink"
-                    onClick={() => onCopyPlan(m.plan_id as number)}
-                  >
-                    Copy to my plans
-                  </button>
                   <button
                     type="button"
                     className="text-xs text-red-700 hover:underline"
