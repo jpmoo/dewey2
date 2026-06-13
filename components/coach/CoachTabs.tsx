@@ -1,14 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { CoachDashboard } from "./CoachDashboard";
 import { CoachDirectory } from "./CoachDirectory";
 import { CoachTemplates } from "./CoachTemplates";
 import { MessageCenter } from "@/components/messages/MessageCenter";
 import { useUnreadCount } from "@/components/messages/useUnreadCount";
+import { usePendingApprovals } from "./usePendingApprovals";
 
-type Tab = "messages" | "directory" | "canvas";
+type Tab = "dashboard" | "messages" | "directory" | "canvas";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "dashboard", label: "Dashboard" },
   { id: "messages", label: "Message Center" },
   { id: "directory", label: "Partner Directory" },
   { id: "canvas", label: "Coaching Canvas" },
@@ -16,15 +19,25 @@ const TABS: { id: Tab; label: string }[] = [
 
 /** Tabbed shell for the coach workspace. Panels mount only when active. */
 export function CoachTabs() {
-  const [tab, setTab] = useState<Tab>("messages");
+  const [tab, setTab] = useState<Tab>("dashboard");
+  const [openThreadId, setOpenThreadId] = useState<number | null>(null);
   const unread = useUnreadCount();
+  const pending = usePendingApprovals();
+
+  const openThread = (id: number) => {
+    // A new object identity each time so MessageCenter re-opens even the same id.
+    setOpenThreadId(id);
+    setTab("messages");
+  };
 
   return (
     <div>
       <nav className="flex gap-1 border-b border-dewey-border mb-6" role="tablist">
         {TABS.map((t) => {
           const active = tab === t.id;
-          const badge = t.id === "messages" && unread > 0;
+          const dot =
+            (t.id === "dashboard" && pending.length > 0) ||
+            (t.id === "messages" && unread > 0);
           return (
             <button
               key={t.id}
@@ -39,17 +52,21 @@ export function CoachTabs() {
               }`}
             >
               {t.label}
-              {badge && (
-                <span className="inline-flex min-w-[18px] items-center justify-center rounded-full bg-dewey-accent px-1.5 text-[11px] font-semibold text-white">
-                  {unread}
-                </span>
+              {dot && (
+                <span
+                  className="h-2 w-2 rounded-full bg-dewey-accent"
+                  aria-label="needs attention"
+                />
               )}
             </button>
           );
         })}
       </nav>
 
-      {tab === "messages" && <MessageCenter />}
+      {tab === "dashboard" && (
+        <CoachDashboard pending={pending} onOpenThread={openThread} />
+      )}
+      {tab === "messages" && <MessageCenter openThreadId={openThreadId} />}
       {tab === "directory" && <CoachDirectory />}
       {tab === "canvas" && <CoachTemplates />}
     </div>

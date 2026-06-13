@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ProfileButton } from "@/components/ProfileButton";
 import { CoachTabs } from "@/components/coach/CoachTabs";
+import { CelebrationGate } from "@/components/CelebrationGate";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,7 @@ export default async function CoachPage() {
       <main className="flex-1 px-6 py-6 max-w-3xl w-full mx-auto">
         <CoachTabs />
       </main>
+      <CelebrationGate />
     </div>
   );
 }

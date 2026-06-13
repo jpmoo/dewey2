@@ -722,6 +722,94 @@ export async function markThreadRead(threadId: number, userId: number): Promise<
 }
 
 /** Count of the user's threads with unread messages (excludes archived/pending). */
+export interface PendingApproval {
+  submissionId: number;
+  threadId: number;
+  threadName: string;
+  partnerName: string | null;
+  activityLabel: string;
+  createdAt: string;
+}
+
+/**
+ * Submissions awaiting review in every live plan whose thread this coach is a
+ * coach participant of — powers the coach dashboard.
+ */
+export async function getCoachPendingApprovals(coachId: number): Promise<PendingApproval[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT s.id, s.node_id, s.created_at, ct.thread_id, ct.graph,
+            t.subject, t.kind, pu.full_name AS partner_name
+       FROM activity_submissions s
+       JOIN coaching_templates ct ON ct.id = s.plan_id
+       JOIN message_threads t ON t.id = ct.thread_id AND t.deleted_at IS NULL
+       JOIN thread_participants p ON p.thread_id = ct.thread_id AND p.user_id = $1
+       JOIN users me ON me.id = $1 AND me.system_role = 'coach'
+       LEFT JOIN users pu ON pu.id = s.partner_id
+      WHERE s.status = 'pending' AND ct.deleted_at IS NULL
+        AND ct.accepted_at IS NOT NULL AND ct.outcome IS NULL AND ct.deactivated_at IS NULL
+      ORDER BY s.created_at ASC`,
+    [coachId]
+  );
+  return res.rows.map((r) => {
+    const graph = (r.graph as { nodes?: { id: string; label?: string; activityKey?: string }[] }) ?? {};
+    const node = (graph.nodes ?? []).find((n) => n.id === r.node_id);
+    return {
+      submissionId: Number(r.id),
+      threadId: Number(r.thread_id),
+      threadName: (r.subject as string | null)?.trim() || "Conversation",
+      partnerName: (r.partner_name as string | null) ?? null,
+      activityLabel: node?.label || node?.activityKey || "an activity",
+      createdAt: toIso(r.created_at),
+    };
+  });
+}
+
+export interface Celebration {
+  id: number;
+  threadId: number;
+  threadName: string;
+  event: "advance" | "finish";
+  body: string;
+  createdAt: string;
+}
+
+/**
+ * Recent activity/phase/plan completion notes in the user's threads (last 14
+ * days) — the login fireworks check. The client dedupes against what it has
+ * already celebrated.
+ */
+export async function getRecentCelebrations(
+  userId: number,
+  isAdmin: boolean
+): Promise<Celebration[]> {
+  const pool = getPool();
+  await ensureSchema();
+  const join = isAdmin
+    ? ""
+    : "JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1";
+  const res = await pool.query(
+    `SELECT m.id, m.body, m.event, m.created_at, t.id AS thread_id, t.subject
+       FROM messages m
+       JOIN message_threads t ON t.id = m.thread_id AND t.deleted_at IS NULL
+       ${join}
+      WHERE m.deleted_at IS NULL AND m.event IN ('advance', 'finish')
+        AND m.created_at > NOW() - INTERVAL '14 days'
+        AND (m.audience IS NULL OR $1 = ANY(m.audience) OR ${isAdmin ? "TRUE" : "FALSE"})
+      ORDER BY m.created_at ASC`,
+    [userId]
+  );
+  return res.rows.map((r) => ({
+    id: Number(r.id),
+    threadId: Number(r.thread_id),
+    threadName: (r.subject as string | null)?.trim() || "Conversation",
+    event: r.event as "advance" | "finish",
+    body: r.body as string,
+    createdAt: toIso(r.created_at),
+  }));
+}
+
 export async function getUnreadThreadCount(userId: number): Promise<number> {
   const pool = getPool();
   await ensureSchema();

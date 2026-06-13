@@ -24,14 +24,21 @@ export function CornerLogo() {
       aria-label="Dewey home"
       className="absolute top-3.5 left-4 z-40 hover:opacity-80"
     >
-      {/* The navy monogram blends into the dark background, so in dark mode we
-          render a negative (white) version of it. brightness-0 flattens to black,
-          then invert makes it white. Light mode is unchanged. */}
+      {/* Dark mode uses a hand-recolored negative (white hair/mustache → black,
+          navy D and blue glasses preserved) instead of a flat white filter. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={pathWithBase("/logo.png")}
         alt="Dewey"
         style={{ height: 31, width: "auto" }}
-        className="dark:brightness-0 dark:invert"
+        className="block dark:hidden"
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={pathWithBase("/logo-reverse.png")}
+        alt="Dewey"
+        style={{ height: 31, width: "auto" }}
+        className="hidden dark:block"
       />
     </Link>
   );

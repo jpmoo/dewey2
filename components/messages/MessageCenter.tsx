@@ -115,7 +115,7 @@ function normalizeDeweyMention(body: string): string {
  * active conversation with a composer that supports file attachments (images and
  * PDFs preview inline). Admins see every thread for oversight.
  */
-export function MessageCenter() {
+export function MessageCenter({ openThreadId }: { openThreadId?: number | null } = {}) {
   const { data: session } = useSession();
   const meId = session?.user?.id ? Number(session.user.id) : null;
 
@@ -124,6 +124,13 @@ export function MessageCenter() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
+  // Open a specific thread on request (e.g. from the coach dashboard).
+  useEffect(() => {
+    if (openThreadId != null) {
+      setActiveId(openThreadId);
+      setListCollapsed(false);
+    }
+  }, [openThreadId]);
   const [preview, setPreview] = useState<AttachmentMeta | null>(null);
   const [composing, setComposing] = useState(false);
   const [search, setSearch] = useState("");
@@ -1286,7 +1293,7 @@ export function ThreadPane({
                   <img
                     src={pathWithBase("/logo.png")}
                     alt="@dewey"
-                    className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-1.5 ring-1 ring-dewey-border"
+                    className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-2 ring-1 ring-dewey-border"
                   />
                   <span className="font-medium text-dewey-ink">Dewey</span>
                 </div>
@@ -1465,7 +1472,7 @@ function MessageBubble({
             <img
               src={pathWithBase("/logo.png")}
               alt="@dewey"
-              className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-1.5 ring-1 ring-dewey-border"
+              className="h-9 w-9 shrink-0 rounded-full bg-white object-contain p-2 ring-1 ring-dewey-border"
             />
           ) : (
             <div className={`inline-flex shrink-0 rounded-full ${senderIsCoach ? "ring-1 ring-dewey-accent" : ""}`}>
