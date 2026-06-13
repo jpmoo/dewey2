@@ -24,13 +24,14 @@ export function CornerLogo() {
       aria-label="Dewey home"
       className="absolute top-3.5 left-4 z-40 hover:opacity-80"
     >
-      {/* The navy monogram blends into the dark background, so in dark mode it
-          sits on a light "puck" for contrast. Light mode is unchanged. */}
+      {/* The navy monogram blends into the dark background, so in dark mode we
+          render a negative (white) version of it. brightness-0 flattens to black,
+          then invert makes it white. Light mode is unchanged. */}
       <img
         src={pathWithBase("/logo.png")}
         alt="Dewey"
         style={{ height: 31, width: "auto" }}
-        className="dark:bg-white dark:p-1 dark:-m-1 dark:rounded-lg dark:box-content"
+        className="dark:brightness-0 dark:invert"
       />
     </Link>
   );
