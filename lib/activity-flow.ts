@@ -62,6 +62,8 @@ async function postAdvanceNote(
 
 export interface SubmissionView {
   nodeLabel: string;
+  instructions: string;
+  artifact: string;
   partnerName: string | null;
   body: string;
   attachments: AttachmentMeta[];
@@ -85,6 +87,8 @@ export interface ReviewData {
 
 async function submissionView(
   nodeLabel: string,
+  instructions: string,
+  artifact: string,
   partnerId: number | null,
   messageId: number | null
 ): Promise<SubmissionView | null> {
@@ -103,6 +107,8 @@ async function submissionView(
   );
   return {
     nodeLabel,
+    instructions,
+    artifact,
     partnerName: (m.rows[0].partner_name as string | null) ?? null,
     body: m.rows[0].body as string,
     attachments: a.rows.map((r) => ({
@@ -124,7 +130,13 @@ export async function getReviewData(threadId: number): Promise<ReviewData | null
   const plan = await getTemplate(sub.plan_id);
   const graph = plan?.graph;
 
-  const submission = await submissionView(active.nodeLabel, sub.partner_id, sub.message_id);
+  const submission = await submissionView(
+    active.nodeLabel,
+    active.instructions,
+    active.artifact,
+    sub.partner_id,
+    sub.message_id
+  );
 
   const priorSubs = (await getPhaseApprovedSubmissions(sub.plan_id, sub.phase_id)).filter(
     (s) => s.node_id !== sub.node_id
@@ -133,7 +145,13 @@ export async function getReviewData(threadId: number): Promise<ReviewData | null
   for (const s of priorSubs) {
     const node = (graph?.nodes ?? []).find((n) => n.id === s.node_id);
     const label = node?.label || node?.activityKey || s.node_id;
-    const v = await submissionView(label, s.partner_id, s.message_id);
+    const v = await submissionView(
+      label,
+      node?.instructions ?? "",
+      node?.artifact ?? "",
+      s.partner_id,
+      s.message_id
+    );
     if (v) prior.push(v);
   }
 

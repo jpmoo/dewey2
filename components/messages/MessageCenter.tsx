@@ -2116,6 +2116,8 @@ function DocumentEditorModal({
 
 type SubmissionView = {
   nodeLabel: string;
+  instructions: string;
+  artifact: string;
   partnerName: string | null;
   body: string;
   attachments: AttachmentMeta[];
@@ -2142,6 +2144,59 @@ type ReviewData = {
   prior: SubmissionView[];
   consults: ConsultTurn[];
 };
+
+/**
+ * One earlier-phase submission, collapsed under its activity name. Expanding
+ * reveals the activity's description + deliverable and what the partner submitted.
+ */
+function PriorSubmissionItem({
+  sub,
+  onPreview,
+}: {
+  sub: SubmissionView;
+  onPreview: (a: AttachmentMeta) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-md border border-dewey-border bg-dewey-surface">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+      >
+        <span className="truncate text-sm font-medium text-dewey-ink">{sub.nodeLabel}</span>
+        <span className="shrink-0 text-xs text-dewey-mute">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-dewey-border px-3 py-2 text-sm">
+          {sub.instructions && (
+            <p className="whitespace-pre-wrap text-dewey-mute">
+              <span className="font-medium text-dewey-ink">Activity:</span> {sub.instructions}
+            </p>
+          )}
+          {sub.artifact && (
+            <p className="text-dewey-mute">
+              <span className="font-medium text-dewey-ink">Deliverable:</span> {sub.artifact}
+            </p>
+          )}
+          <div className="rounded-md bg-dewey-surface-2 px-2 py-1.5">
+            <p className="mb-0.5 text-[11px] font-medium text-dewey-mute">
+              Submitted{sub.partnerName ? ` · ${sub.partnerName}` : ""}
+            </p>
+            {sub.body && <p className="whitespace-pre-wrap text-dewey-ink">{sub.body}</p>}
+            {sub.attachments.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {sub.attachments.map((a) => (
+                  <Attachment key={a.id} att={a} onPreview={onPreview} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Coach review modal: shows the partner's submission, the activity goal, the
@@ -2316,22 +2371,7 @@ function ReviewModal({
                   </h3>
                   <div className="space-y-2">
                     {data.prior.map((s, i) => (
-                      <div
-                        key={i}
-                        className="rounded-md border border-dewey-border bg-dewey-surface px-3 py-2"
-                      >
-                        <p className="mb-0.5 text-[11px] font-medium text-dewey-mute">{s.nodeLabel}</p>
-                        {s.body && (
-                          <p className="whitespace-pre-wrap text-dewey-ink">{s.body}</p>
-                        )}
-                        {s.attachments.length > 0 && (
-                          <div className="mt-2 space-y-2">
-                            {s.attachments.map((a) => (
-                              <Attachment key={a.id} att={a} onPreview={setPreview} />
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <PriorSubmissionItem key={i} sub={s} onPreview={setPreview} />
                     ))}
                   </div>
                 </section>
