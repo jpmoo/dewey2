@@ -236,6 +236,7 @@ export async function runDeweyForThread(params: {
             body: `I've attached the plan "${copy.name}". The coach can edit or dismiss it.`,
             planId: copy.id,
           });
+          await logThreadEvent({ userId: invokerId, actorId: invokerId, action: "plan_added", threadId, detail: "via @dewey" });
         }
       }
     } else if (graph && currentPlanId != null) {
@@ -249,6 +250,7 @@ export async function runDeweyForThread(params: {
           body: `I've updated the plan "${updated.name}". Re-accept, edit, or dismiss it.`,
           planId: updated.id,
         });
+        await logThreadEvent({ userId: invokerId, actorId: invokerId, action: "plan_edited", threadId, detail: "via @dewey" });
       }
     } else if (graph) {
       const copy = await createTemplate({
@@ -268,6 +270,7 @@ export async function runDeweyForThread(params: {
         body: `I've drafted a custom plan, "${copy.name}". The coach can edit or dismiss it.`,
         planId: copy.id,
       });
+      await logThreadEvent({ userId: invokerId, actorId: invokerId, action: "plan_added", threadId, detail: "drafted by @dewey" });
     }
   }
 

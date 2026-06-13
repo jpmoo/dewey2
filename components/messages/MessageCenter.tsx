@@ -873,50 +873,22 @@ export function ThreadPane({
               🗂️ <span className="max-w-[140px] truncate">View plan</span>
             </button>
           )}
-          <div className="ml-auto flex shrink-0 items-center gap-3">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
             {isAdmin && submissionPending && (
               <>
-                <button
-                  type="button"
-                  className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:bg-green-700"
-                  onClick={() => decideSubmission("approve")}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-dewey-border px-3 py-1 text-xs text-dewey-ink hover:bg-dewey-surface-2"
-                  onClick={() => decideSubmission("reject")}
-                >
-                  Reject
-                </button>
+                <PlanPill icon="✅" label="Approve" onClick={() => decideSubmission("approve")} />
+                <PlanPill icon="🚫" label="Reject" onClick={() => decideSubmission("reject")} />
               </>
             )}
-            {canManage && (
-              <button
-                type="button"
-                className="text-xs text-dewey-accent hover:underline"
-                onClick={renameThread}
-              >
-                Rename
-              </button>
-            )}
+            {canManage && <PlanPill icon="🏷️" label="Rename" onClick={renameThread} />}
             {iAmCoach && !hasActivePlan && (
-              <button
-                type="button"
-                className="text-xs text-dewey-accent hover:underline"
-                onClick={() => setPicking(true)}
-              >
-                + Add plan
-              </button>
+              <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
             )}
-            <button
-              type="button"
-              className="text-xs text-dewey-accent hover:underline"
+            <PlanPill
+              icon="🗄️"
+              label={archived ? "Unarchive" : "Archive"}
               onClick={toggleArchive}
-            >
-              {archived ? "Unarchive" : "Archive"}
-            </button>
+            />
           </div>
         </div>
         {thread && thread.participants.length > 0 && (
