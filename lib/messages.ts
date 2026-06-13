@@ -766,6 +766,37 @@ export async function getCoachPendingApprovals(coachId: number): Promise<Pending
   });
 }
 
+export interface UnreadThread {
+  threadId: number;
+  name: string;
+  lastMessage: string | null;
+  lastSender: string | null;
+  updatedAt: string;
+}
+
+/** Threads with unread messages for this user (for the coach dashboard). */
+export async function getUnreadThreadsForUser(
+  userId: number,
+  isAdmin: boolean
+): Promise<UnreadThread[]> {
+  const threads = await listThreadsForUser(userId, isAdmin, {});
+  return threads
+    .filter((t) => t.unread)
+    .map((t) => ({
+      threadId: t.id,
+      name:
+        t.subject?.trim() ||
+        t.participants
+          .filter((p) => p.id !== userId)
+          .map((p) => p.nickname || p.full_name)
+          .join(", ") ||
+        "Conversation",
+      lastMessage: t.last_message?.body ?? null,
+      lastSender: t.last_message?.sender_name ?? null,
+      updatedAt: t.updated_at,
+    }));
+}
+
 export interface Celebration {
   id: number;
   threadId: number;

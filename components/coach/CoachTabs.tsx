@@ -6,7 +6,7 @@ import { CoachDirectory } from "./CoachDirectory";
 import { CoachTemplates } from "./CoachTemplates";
 import { MessageCenter } from "@/components/messages/MessageCenter";
 import { useUnreadCount } from "@/components/messages/useUnreadCount";
-import { usePendingApprovals } from "./usePendingApprovals";
+import { useCoachDashboard } from "./usePendingApprovals";
 
 type Tab = "dashboard" | "messages" | "directory" | "canvas";
 
@@ -22,7 +22,7 @@ export function CoachTabs() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [openThreadId, setOpenThreadId] = useState<number | null>(null);
   const unread = useUnreadCount();
-  const pending = usePendingApprovals();
+  const { pending, unread: unreadThreads } = useCoachDashboard();
 
   const openThread = (id: number) => {
     // A new object identity each time so MessageCenter re-opens even the same id.
@@ -64,7 +64,7 @@ export function CoachTabs() {
       </nav>
 
       {tab === "dashboard" && (
-        <CoachDashboard pending={pending} onOpenThread={openThread} />
+        <CoachDashboard pending={pending} unread={unreadThreads} onOpenThread={openThread} />
       )}
       {tab === "messages" && <MessageCenter openThreadId={openThreadId} />}
       {tab === "directory" && <CoachDirectory />}
