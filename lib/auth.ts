@@ -4,6 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import { getUserById, getUserWithHashByUsername, logUserEvent } from "@/lib/db";
 import type { SystemRole, User } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
+import { maybeRunDailyBackup } from "@/lib/backup";
 
 /** Copy a user's identity onto the JWT. Shared by sign-in and impersonation. */
 function applyUserToToken(token: JWT, user: User): void {
@@ -135,6 +136,11 @@ export const authOptions: NextAuthOptions = {
     },
   },
   events: {
+    // On any sign-in, lazily ensure today's on-server backup exists (no-op if it
+    // already ran today). Fire-and-forget so login isn't blocked.
+    async signIn() {
+      maybeRunDailyBackup();
+    },
     // Record sign-out against the (possibly impersonated) account in the token.
     async signOut({ token }) {
       const uid = Number(token?.sub);

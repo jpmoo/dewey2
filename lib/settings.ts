@@ -63,6 +63,8 @@ export interface SystemSettings {
   rag_default_collections: string[];
   default_theme: string;
   message_permissions: MessagePermissions;
+  /** How many days of daily DB/file backups to keep on the server. */
+  backup_retention_days: number;
   settings: Record<string, unknown>;
   updated_at: string;
 }
@@ -82,6 +84,8 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
       : [],
     default_theme: (row.default_theme as string | null) ?? "light",
     message_permissions: coercePerms(row.message_permissions),
+    backup_retention_days:
+      row.backup_retention_days != null ? Number(row.backup_retention_days) : 30,
     settings: (row.settings as Record<string, unknown>) ?? {},
     updated_at: row.updated_at instanceof Date ? row.updated_at.toISOString() : String(row.updated_at),
   };
@@ -117,6 +121,7 @@ export interface UpdateSystemSettingsParams {
   rag_default_collections?: string[];
   default_theme?: string;
   message_permissions?: MessagePermissions;
+  backup_retention_days?: number;
   settings?: Record<string, unknown>;
 }
 
@@ -142,6 +147,8 @@ export async function updateSystemSettings(
     push("ollama_coaching_model", emptyToNull(params.ollama_coaching_model));
   if (params.ollama_num_ctx !== undefined)
     push("ollama_num_ctx", params.ollama_num_ctx > 0 ? Math.floor(params.ollama_num_ctx) : null);
+  if (params.backup_retention_days !== undefined)
+    push("backup_retention_days", Math.max(1, Math.floor(params.backup_retention_days || 30)));
   if (params.anthropic_api_key !== undefined)
     push("anthropic_api_key", emptyToNull(params.anthropic_api_key));
   if (params.rag_url !== undefined) push("rag_url", emptyToNull(params.rag_url));

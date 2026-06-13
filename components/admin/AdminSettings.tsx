@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
+import { BackupSettings } from "@/components/admin/BackupSettings";
 
 type RolePerms = {
   partner_same_school: boolean;
@@ -218,7 +219,7 @@ export function AdminSettings() {
   ).sort((a, b) => a.localeCompare(b));
 
   return (
-    <section>
+    <section className="space-y-6">
       <div className="mb-4">
         <h2 className="text-lg font-semibold">System settings</h2>
         <p className="text-sm text-dewey-mute">
@@ -479,6 +480,8 @@ export function AdminSettings() {
         </button>
         {message && <span className="text-sm text-dewey-mute">{message}</span>}
       </div>
+
+      <BackupSettings />
     </section>
   );
 }

@@ -436,6 +436,10 @@ export function ensureSchema(): Promise<void> {
              AND NOT EXISTS (SELECT 1 FROM user_schools us WHERE us.user_id = u.id)
           ON CONFLICT DO NOTHING;
 
+        -- How many days of daily backups to keep on the server (default 30).
+        ALTER TABLE system_settings
+          ADD COLUMN IF NOT EXISTS backup_retention_days INTEGER NOT NULL DEFAULT 30;
+
         -- Admin-configurable messaging permissions (who coaches/partners can DM).
         ALTER TABLE system_settings
           ADD COLUMN IF NOT EXISTS message_permissions JSONB NOT NULL DEFAULT

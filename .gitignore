@@ -19,3 +19,6 @@ npm-debug.log*
 # Runtime artifacts from restart.sh
 /dewey.log
 /dewey.pid
+
+# On-server daily backups (DB dumps + exported files)
+backups/
