@@ -721,6 +721,21 @@ export async function markThreadRead(threadId: number, userId: number): Promise<
   );
 }
 
+/** The user's last-read time for a thread (null if never read / not a participant). */
+export async function getThreadLastRead(
+  threadId: number,
+  userId: number
+): Promise<string | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "SELECT last_read_at FROM thread_participants WHERE thread_id = $1 AND user_id = $2",
+    [threadId, userId]
+  );
+  const v = res.rows[0]?.last_read_at;
+  return v ? toIso(v) : null;
+}
+
 /** Count of the user's threads with unread messages (excludes archived/pending). */
 export interface PendingApproval {
   submissionId: number;

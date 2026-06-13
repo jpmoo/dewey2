@@ -739,6 +739,11 @@ export function ThreadPane({
   const scrollRef = useRef<HTMLDivElement>(null);
   // Only auto-scroll on new messages when already near the bottom.
   const stick = useRef(true);
+  // The user's last-read time when they opened the thread (captured once, server
+  // marks read on open), used to scroll to / mark the first unread message.
+  const [lastReadAt, setLastReadAt] = useState<string | null>(null);
+  // First-open scroll-to-unread happens once per thread.
+  const didInitialScroll = useRef(false);
   // Show a typing indicator while an @dewey reply is being generated.
   const [deweyThinking, setDeweyThinking] = useState(false);
   // iMessage-style reply target.
@@ -868,10 +873,14 @@ export function ThreadPane({
           thread: ThreadSummary;
           messages: MessageView[];
           activeActivity: ActiveActivity | null;
+          lastReadAt: string | null;
         }>(`/api/messages/threads/${threadId}`);
         setThread(d.thread);
         setMessages(d.messages);
         setActiveActivity(d.activeActivity ?? null);
+        // Capture the read boundary only on the initial open (polls would see it
+        // already marked read and erase the unread marker).
+        if (showSpinner) setLastReadAt(d.lastReadAt ?? null);
       } catch {
         if (showSpinner) {
           setThread(null);
@@ -887,6 +896,8 @@ export function ThreadPane({
 
   useEffect(() => {
     stick.current = true; // jump to bottom when switching threads
+    didInitialScroll.current = false;
+    setLastReadAt(null);
     fetchThread(true);
   }, [fetchThread]);
 
@@ -896,11 +907,37 @@ export function ThreadPane({
     return () => clearInterval(t);
   }, [fetchThread]);
 
-  // Keep the newest message (or the typing bubble) in view, unless scrolled up.
+  // The first message the user hasn't read yet (from someone else, after their
+  // last-read time). Drives the "New" divider and the initial scroll position.
+  const firstUnreadId = useMemo(() => {
+    if (!lastReadAt) return null;
+    const cutoff = new Date(lastReadAt).getTime();
+    const m = messages.find(
+      (x) => x.sender_id !== meId && new Date(x.created_at).getTime() > cutoff
+    );
+    return m?.id ?? null;
+  }, [messages, lastReadAt, meId]);
+
+  // On first open, land on the first unread message; otherwise (and on new
+  // messages while pinned to the bottom) keep the newest in view.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages, deweyThinking]);
+    if (!el) return;
+    if (!didInitialScroll.current && !loading && messages.length > 0) {
+      didInitialScroll.current = true;
+      if (firstUnreadId != null) {
+        const node = el.querySelector<HTMLElement>(`[data-mid="${firstUnreadId}"]`);
+        if (node) {
+          node.scrollIntoView({ block: "start" });
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          return;
+        }
+      }
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    if (stick.current) el.scrollTop = el.scrollHeight;
+  }, [messages, deweyThinking, loading, firstUnreadId]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -1224,30 +1261,40 @@ export function ThreadPane({
             <p className="text-xs text-dewey-mute">No messages yet.</p>
           ) : (
             messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                message={m}
-                mine={m.sender_id === meId}
-                meId={meId}
-                iAmCoach={iAmCoach}
-                senderIsCoach={m.sender_id != null && coachIds.has(m.sender_id)}
-                canSubmit={canSubmit && m.sender_id === meId && m.plan_id == null && !m.is_ai}
-                isCurrentSubmission={activeActivity?.submission?.messageId === m.id}
-                onSubmit={submitMessage}
-                onPreview={onPreview}
-                onViewPlan={(planId) => {
-                  setViewPlanFocus(false);
-                  setViewPlanId(planId);
-                }}
-                onAcceptPlan={acceptPlan}
-                onUnlockPlan={unlockPlan}
-                onSetOutcome={setPlanOutcome}
-                onEditPlan={editPlan}
-                onCopyPlan={copyPlan}
-                onDismissPlan={dismissPlan}
-                onRevivePlan={revivePlan}
-                onReply={(t) => setReplyTarget(t)}
-              />
+              <div key={m.id} data-mid={m.id} className="scroll-mt-2">
+                {m.id === firstUnreadId && (
+                  <div className="my-1 flex items-center gap-2" aria-label="New messages">
+                    <span className="h-px flex-1 bg-dewey-accent/40" />
+                    <span className="rounded-full bg-dewey-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-dewey-accent">
+                      New
+                    </span>
+                    <span className="h-px flex-1 bg-dewey-accent/40" />
+                  </div>
+                )}
+                <MessageBubble
+                  message={m}
+                  mine={m.sender_id === meId}
+                  meId={meId}
+                  iAmCoach={iAmCoach}
+                  senderIsCoach={m.sender_id != null && coachIds.has(m.sender_id)}
+                  canSubmit={canSubmit && m.sender_id === meId && m.plan_id == null && !m.is_ai}
+                  isCurrentSubmission={activeActivity?.submission?.messageId === m.id}
+                  onSubmit={submitMessage}
+                  onPreview={onPreview}
+                  onViewPlan={(planId) => {
+                    setViewPlanFocus(false);
+                    setViewPlanId(planId);
+                  }}
+                  onAcceptPlan={acceptPlan}
+                  onUnlockPlan={unlockPlan}
+                  onSetOutcome={setPlanOutcome}
+                  onEditPlan={editPlan}
+                  onCopyPlan={copyPlan}
+                  onDismissPlan={dismissPlan}
+                  onRevivePlan={revivePlan}
+                  onReply={(t) => setReplyTarget(t)}
+                />
+              </div>
             ))
           )}
           {deweyThinking && (
