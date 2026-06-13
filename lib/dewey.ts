@@ -6,6 +6,7 @@ import {
   duplicatePlanForPartnership,
   getTemplate,
   getTemplatesForCoach,
+  revisePartnershipPlan,
 } from "@/lib/db";
 import {
   getThreadMessages,
@@ -92,19 +93,29 @@ export async function runDeweyForThread(params: {
     })
     .join("\n");
 
+  // Only the coach (thread creator) may have @dewey suggest or build a plan.
+  const canSuggestPlans = isPartnership && coachId != null && coachId === invokerId;
+
+  // The most-recently attached plan. When it's a coach-owned partnership copy we
+  // pass the FULL graph JSON (like the canvas) so @dewey can faithfully revise it
+  // in place when asked, and remember its id as the revision target.
   const lastPlanMsg = [...history].reverse().find((m) => m.plan_id);
   let planContext = "";
+  let currentPlanId: number | null = null;
   if (lastPlanMsg?.plan_id) {
     const plan = await getTemplate(lastPlanMsg.plan_id);
-    if (plan) {
-      planContext = `\n\nThe plan currently attached to this conversation ("${plan.name}") has these phases/activities:\n${plan.graph.phases
-        .map((p) => `Phase ${p.name}: ${plan.graph.nodes.filter((n) => n.phaseId === p.id).map((n) => ACTIVITY_BY_KEY[n.activityKey]?.label ?? n.label).join(", ")}`)
-        .join("\n")}`;
+    if (plan && !plan.deleted_at) {
+      if (canSuggestPlans && plan.scope === "partnership" && plan.owner_id === coachId) {
+        currentPlanId = plan.id;
+        planContext = `\n\nThe plan currently attached to this conversation is "${plan.name}". Its full graph JSON (revise this if the coach asks you to adjust the plan):\n${JSON.stringify(plan.graph)}`;
+      } else {
+        planContext = `\n\nThe plan currently attached to this conversation ("${plan.name}") has these phases/activities:\n${plan.graph.phases
+          .map((p) => `Phase ${p.name}: ${plan.graph.nodes.filter((n) => n.phaseId === p.id).map((n) => ACTIVITY_BY_KEY[n.activityKey]?.label ?? n.label).join(", ")}`)
+          .join("\n")}`;
+      }
     }
   }
 
-  // Only the coach (thread creator) may have @dewey suggest or build a plan.
-  const canSuggestPlans = isPartnership && coachId != null && coachId === invokerId;
   const library = canSuggestPlans ? await getTemplatesForCoach(coachId) : [];
   let system = buildSystemPrompt(
     library.map((p) => ({ id: p.id, name: p.name, description: p.description })),
@@ -213,6 +224,18 @@ export async function runDeweyForThread(params: {
             planId: copy.id,
           });
         }
+      }
+    } else if (graph && currentPlanId != null) {
+      // A plan is already attached — revise it in place (like the canvas does).
+      const updated = await revisePartnershipPlan(currentPlanId, coachId, graph);
+      if (updated) {
+        await postMessage({
+          threadId,
+          senderId: null,
+          isAi: true,
+          body: `I've updated the plan "${updated.name}". Re-accept, edit, or dismiss it.`,
+          planId: updated.id,
+        });
       }
     } else if (graph) {
       const copy = await createTemplate({

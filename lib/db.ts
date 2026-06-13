@@ -1204,6 +1204,32 @@ export async function acceptPartnershipPlan(
   return getTemplate(planId);
 }
 
+/**
+ * Revise an embedded partnership plan in place (e.g. @dewey adjusting it on
+ * request). Replaces the graph and resets acceptance so the coach re-accepts the
+ * revised plan. Returns the updated plan, or null if not a coach-owned
+ * partnership plan.
+ */
+export async function revisePartnershipPlan(
+  planId: number,
+  coachId: number,
+  graph: TemplateGraph
+): Promise<CoachingTemplate | null> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (!plan || plan.deleted_at || plan.scope !== "partnership" || plan.owner_id !== coachId) {
+    return null;
+  }
+  await pool.query(
+    `UPDATE coaching_templates
+        SET graph = $2, accepted_at = NULL, current_node_id = NULL, updated_at = NOW()
+      WHERE id = $1`,
+    [planId, JSON.stringify(graph)]
+  );
+  return getTemplate(planId);
+}
+
 /** Update a coach's own personal template only. Returns null if not owned. */
 export async function updateCoachTemplate(
   id: number,

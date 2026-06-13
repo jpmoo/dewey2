@@ -846,10 +846,13 @@ export async function addPlanToPartnership(
 
   const copy = await duplicatePlanForPartnership(sourcePlanId, coachId, threadId);
   if (!copy) return { ok: false, error: "Plan not available" };
+  // Post it like an @dewey suggestion so it has the same accept/edit/dismiss
+  // affordances and the coach can ask @dewey to adjust it.
   await postMessage({
     threadId,
-    senderId: coachId,
-    body: `Added the plan "${copy.name}".`,
+    senderId: null,
+    isAi: true,
+    body: `Here's the plan "${copy.name}" from the library. Accept, edit, or dismiss it — or ask me to adjust it.`,
     planId: copy.id,
   });
   return { ok: true };
