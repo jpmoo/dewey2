@@ -22,8 +22,8 @@ export async function GET() {
 }
 
 /**
- * Update the user's own editable profile fields: display name, nickname, and
- * description. Username, role, and org assignment are intentionally not editable
+ * Update the user's own editable profile fields: display name, nickname, title,
+ * and description. Username and org assignment are intentionally not editable
  * here — those are admin-managed.
  */
 export async function PATCH(request: NextRequest) {
@@ -36,7 +36,12 @@ export async function PATCH(request: NextRequest) {
   if (!user) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = await request.json().catch(() => ({}));
-  const update: { full_name?: string; nickname?: string | null; about?: string | null } = {};
+  const update: {
+    full_name?: string;
+    nickname?: string | null;
+    role?: string | null;
+    about?: string | null;
+  } = {};
   if (typeof body.full_name === "string") {
     if (!body.full_name.trim()) {
       return NextResponse.json({ error: "Name can't be empty" }, { status: 400 });
@@ -44,6 +49,7 @@ export async function PATCH(request: NextRequest) {
     update.full_name = body.full_name;
   }
   if ("nickname" in body) update.nickname = body.nickname == null ? null : String(body.nickname);
+  if ("role" in body) update.role = body.role == null ? null : String(body.role);
   if ("about" in body) update.about = body.about == null ? null : String(body.about);
 
   const updated = await updateUser(id, update);
@@ -54,6 +60,8 @@ export async function PATCH(request: NextRequest) {
     changes.push("name");
   if (update.nickname !== undefined && (update.nickname || "") !== (user.nickname || ""))
     changes.push("nickname");
+  if (update.role !== undefined && (update.role || "") !== (user.role || ""))
+    changes.push("title");
   if (update.about !== undefined && (update.about || "") !== (user.about || ""))
     changes.push("description");
   if (changes.length > 0) {

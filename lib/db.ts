@@ -1462,6 +1462,15 @@ export async function createDemoUsers(): Promise<void> {
 
   for (const demo of demos) {
     const exists = await getUserWithHashByUsername(demo.username);
-    if (!exists) await createUser(demo);
+    if (!exists) {
+      await createUser(demo);
+      continue;
+    }
+    // Backfill the building assignment for accounts seeded before multi-building,
+    // so demo users (e.g. jcoach) reliably land in Atlantis Elementary School.
+    const current = await getUserById(exists.id);
+    if (current && current.school_ids.length === 0 && demo.school_id != null) {
+      await setUserSchools(exists.id, [demo.school_id]);
+    }
   }
 }

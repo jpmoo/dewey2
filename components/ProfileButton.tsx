@@ -19,7 +19,7 @@ type Profile = {
 
 /**
  * "Profile" button + modal in the top bar. Lets a user edit their name,
- * nickname, description, and profile photo (with crop). Username and org
+ * nickname, title, description, and profile photo (with crop). Username and org
  * assignment are admin-managed and shown read-only.
  */
 export function ProfileButton({ className }: { className?: string }) {
@@ -74,6 +74,7 @@ function ProfileModal({
   const [profile, setProfile] = useState<Profile | null>(null);
   const [fullName, setFullName] = useState("");
   const [nickname, setNickname] = useState("");
+  const [title, setTitle] = useState("");
   const [about, setAbout] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -91,6 +92,7 @@ function ProfileModal({
         setProfile(d.profile);
         setFullName(d.profile.full_name);
         setNickname(d.profile.nickname ?? "");
+        setTitle(d.profile.role ?? "");
         setAbout(d.profile.about ?? "");
       })
       .catch((e) => {
@@ -114,7 +116,7 @@ function ProfileModal({
     try {
       await apiFetch("/api/me/profile", {
         method: "PATCH",
-        body: { full_name: fullName, nickname, about },
+        body: { full_name: fullName, nickname, role: title, about },
       });
       await update({ action: "refresh" });
       router.refresh();
@@ -226,6 +228,15 @@ function ProfileModal({
               />
             </div>
             <div>
+              <label className="dewey-label">Title</label>
+              <input
+                className="dewey-input"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Instructional Literacy Coach, 3rd Grade Teacher"
+              />
+            </div>
+            <div>
               <label className="dewey-label">Description</label>
               <textarea
                 className="dewey-input min-h-[90px]"
@@ -239,12 +250,7 @@ function ProfileModal({
               <div>
                 <span className="font-medium text-dewey-ink">Username:</span> @{profile?.username}
               </div>
-              {profile?.role && (
-                <div className="mt-0.5">
-                  <span className="font-medium text-dewey-ink">Title:</span> {profile.role}
-                </div>
-              )}
-              <p className="mt-1">Username and school assignment are managed by your administrator.</p>
+              <p className="mt-1">Username and building assignment are managed by your administrator.</p>
             </div>
           </div>
         )}
