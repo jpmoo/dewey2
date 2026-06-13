@@ -29,10 +29,10 @@ export function ImpersonationBanner() {
   }
 
   return (
-    // z-40 keeps the banner above normal page chrome but BELOW full-screen
+    // z-[45] keeps the banner above normal page chrome — including the corner "D"
+    // logo (z-40), which must sit behind this band — but BELOW full-screen
     // overlays/modals (z-50+), so it never covers a modal's top toolbar/commands.
-    // Those overlays each have their own close, so the banner is one tap away.
-    <div className="sticky top-0 z-40 bg-amber-500 text-amber-950 px-4 py-2 flex items-center justify-between gap-3 text-sm shadow">
+    <div className="sticky top-0 z-[45] bg-amber-500 text-amber-950 px-4 py-2 flex items-center justify-between gap-3 text-sm shadow">
       <span>
         Viewing as <strong>{nickname || name}</strong>{" "}
         <span className="opacity-80">({system_role})</span>
