@@ -1272,7 +1272,7 @@ export function ThreadPane({
                 <span key={p.id} title={isCoach ? "Coach" : undefined}>
                   {i > 0 && ", "}
                   <span className={isCoach ? "font-medium text-dewey-ink" : ""}>
-                    {isCoach && <span aria-hidden>🎓 </span>}
+                    {isCoach && <span aria-hidden>⚡️ </span>}
                     {p.nickname || p.full_name}
                   </span>
                 </span>
