@@ -465,7 +465,7 @@ function ComposeModal({
           {err && <p className="text-sm text-red-600">{err}</p>}
 
           <div>
-            <label className="dewey-label">To</label>
+            <label className="dewey-label">Include participants</label>
             {/* Selected recipient chips */}
             {selected.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5">
