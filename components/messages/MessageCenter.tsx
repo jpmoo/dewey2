@@ -180,10 +180,15 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
       setThreads(d.threads);
       setIsAdmin(d.isAdmin);
       setError(null);
-      // Keep selection valid; default to the first thread.
-      setActiveId((cur) =>
-        cur && d.threads.some((t) => t.id === cur) ? cur : d.threads[0]?.id ?? null
-      );
+      // Keep a valid selection. When nothing's selected, default to the first
+      // thread only on desktop (two-pane) — on mobile, leave the list showing so
+      // tapping "Back" doesn't get yanked into a thread by the next poll.
+      setActiveId((cur) => {
+        if (cur && d.threads.some((t) => t.id === cur)) return cur;
+        const isDesktop =
+          typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+        return isDesktop ? d.threads[0]?.id ?? null : null;
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load messages");
     } finally {
