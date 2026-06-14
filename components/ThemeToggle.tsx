@@ -35,11 +35,12 @@ export function ThemeToggle({ className }: { className?: string }) {
     <button
       type="button"
       onClick={toggle}
-      className={className}
+      className={`inline-flex items-center gap-1.5 rounded-full border border-dewey-border bg-dewey-surface px-3 py-1 text-sm text-dewey-mute transition-colors hover:bg-dewey-surface-2 hover:text-dewey-ink ${className ?? ""}`}
       aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
       title={dark ? "Switch to light theme" : "Switch to dark theme"}
     >
-      {dark ? "☀ Light" : "☾ Dark"}
+      <span aria-hidden>{dark ? "🔆" : "🌙"}</span>
+      {dark ? "Light" : "Dark"}
     </button>
   );
 }

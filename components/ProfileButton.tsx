@@ -34,11 +34,11 @@ export function ProfileButton({ className }: { className?: string }) {
     <>
       <button
         type="button"
-        className={`inline-flex items-center gap-1.5 ${className ?? ""}`}
+        className={`inline-flex items-center gap-1.5 rounded-full border border-dewey-border bg-dewey-surface py-0.5 pl-0.5 pr-3 text-sm text-dewey-mute transition-colors hover:bg-dewey-surface-2 hover:text-dewey-ink ${className ?? ""}`}
         onClick={() => setOpen(true)}
         title="Profile & settings"
       >
-        <Avatar userId={meId} name={name} size={22} version={avatarVersion} />
+        <Avatar userId={meId} name={name} size={24} version={avatarVersion} />
         Profile
       </button>
       {open && (

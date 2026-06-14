@@ -31,9 +31,9 @@ export default async function AdminPage() {
           </span>
         </div>
         <div className="flex items-center gap-4">
-          <ThemeToggle className="text-sm text-dewey-mute hover:text-dewey-ink" />
-          <ProfileButton className="text-sm text-dewey-mute hover:text-dewey-ink" />
-          <SignOutButton className="text-sm text-dewey-mute hover:text-dewey-ink" />
+          <ThemeToggle />
+          <ProfileButton />
+          <SignOutButton />
         </div>
       </header>
       <main className="flex-1 px-6 py-6 max-w-3xl w-full mx-auto">

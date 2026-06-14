@@ -25,9 +25,9 @@ export function RolePlaceholder({
         <p className="text-dewey-mute text-sm mb-1">Welcome, {name}.</p>
         <p className="text-dewey-mute text-sm mb-6 text-balance">{blurb}</p>
         <div className="flex items-center justify-center gap-4">
-          <ThemeToggle className="text-sm text-dewey-mute hover:text-dewey-ink" />
-          <ProfileButton className="text-sm text-dewey-mute hover:text-dewey-ink" />
-          <SignOutButton className="text-sm text-dewey-accent hover:underline" />
+          <ThemeToggle />
+          <ProfileButton />
+          <SignOutButton />
         </div>
       </div>
     </main>

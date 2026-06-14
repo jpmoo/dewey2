@@ -355,7 +355,7 @@ export function AdminUserManager() {
                 {currentUserId !== u.id && (
                   <button
                     type="button"
-                    className="text-xs text-dewey-accent hover:underline disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent transition-colors hover:bg-dewey-accent/10 disabled:opacity-50"
                     onClick={(e) => {
                       e.stopPropagation();
                       loginAs(u);
@@ -363,6 +363,7 @@ export function AdminUserManager() {
                     disabled={impersonating !== null}
                     title={`View Dewey as ${u.full_name}`}
                   >
+                    <span aria-hidden>🔑</span>{" "}
                     {impersonating === u.id ? "Switching…" : "Log in as"}
                   </button>
                 )}
