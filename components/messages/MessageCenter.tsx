@@ -225,11 +225,6 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold">Messages</h2>
-          {isAdmin && (
-            <span className="rounded bg-dewey-surface-2 px-1.5 py-0.5 text-[10px] uppercase text-dewey-mute">
-              All conversations
-            </span>
-          )}
         </div>
         <button
           type="button"
