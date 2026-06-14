@@ -691,6 +691,7 @@ export function ThreadPane({
   onPosted,
   onArchived,
   scrollToTime,
+  readOnly = false,
 }: {
   threadId: number;
   meId: number | null;
@@ -704,6 +705,8 @@ export function ThreadPane({
   onArchived: () => void;
   /** Opening from the audit log: scroll to the message nearest this timestamp. */
   scrollToTime?: string;
+  /** Read-only viewer (audit log): no composer, no header actions. */
+  readOnly?: boolean;
 }) {
   const dialog = useDialog();
   const [thread, setThread] = useState<ThreadSummary | null>(null);
@@ -1207,35 +1210,37 @@ export function ThreadPane({
               )}
             </>
           )}
-          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-            {coachCanReview && (
-              <button
-                type="button"
-                onClick={() => setReviewing(true)}
-                className="flex shrink-0 items-center gap-1 rounded-full bg-dewey-accent px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm hover:opacity-90"
-                title="Review the partner's submission"
-              >
-                🔎 <span className="max-w-[160px] truncate">Review submission</span>
-              </button>
-            )}
-            {isAdmin && submissionPending && (
-              <>
-                <PlanPill icon="✅" label="Approve" onClick={() => decideSubmission("approve")} />
-                <PlanPill icon="🚫" label="Reject" onClick={() => decideSubmission("reject")} />
-              </>
-            )}
-            {canManage && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
-            {iAmCoach && !hasActivePlan && (
-              <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
-            )}
-            {(isAdmin || !hasLivePlan || archived) && (
-              <PlanPill
-                icon="🗄️"
-                label={archived ? "Unarchive" : "Archive"}
-                onClick={toggleArchive}
-              />
-            )}
-          </div>
+          {!readOnly && (
+            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              {coachCanReview && (
+                <button
+                  type="button"
+                  onClick={() => setReviewing(true)}
+                  className="flex shrink-0 items-center gap-1 rounded-full bg-dewey-accent px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+                  title="Review the partner's submission"
+                >
+                  🔎 <span className="max-w-[160px] truncate">Review submission</span>
+                </button>
+              )}
+              {isAdmin && submissionPending && (
+                <>
+                  <PlanPill icon="✅" label="Approve" onClick={() => decideSubmission("approve")} />
+                  <PlanPill icon="🚫" label="Reject" onClick={() => decideSubmission("reject")} />
+                </>
+              )}
+              {canManage && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
+              {iAmCoach && !hasActivePlan && (
+                <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
+              )}
+              {(isAdmin || !hasLivePlan || archived) && (
+                <PlanPill
+                  icon="🗄️"
+                  label={archived ? "Unarchive" : "Archive"}
+                  onClick={toggleArchive}
+                />
+              )}
+            </div>
+          )}
         </div>
         {thread && thread.participants.length > 0 && (
           <p className="mt-1 truncate text-xs text-dewey-mute">
@@ -1326,7 +1331,7 @@ export function ThreadPane({
         </div>
       </div>
 
-      {thread?.kind === "compliance" ? (
+      {readOnly ? null : thread?.kind === "compliance" ? (
         <div className="shrink-0 border-t border-dewey-border bg-dewey-surface px-4 py-3 text-center text-xs text-dewey-mute">
           System notice — replies are disabled.
         </div>

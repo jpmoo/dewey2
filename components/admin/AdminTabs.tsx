@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AdminSettings } from "./AdminSettings";
 import { AdminOrgManager } from "./AdminOrgManager";
 import { AdminUserManager } from "./AdminUserManager";
@@ -24,7 +24,16 @@ const TABS: { id: Tab; label: string }[] = [
  */
 export function AdminTabs() {
   const [tab, setTab] = useState<Tab>("system");
+  const [openThreadId, setOpenThreadId] = useState<number | null>(null);
   const unread = useUnreadCount();
+
+  // Deep link from the audit log's "Open in Messages": ?tab=messages&thread=ID.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab") === "messages") setTab("messages");
+    const t = Number(params.get("thread"));
+    if (Number.isFinite(t) && t > 0) setOpenThreadId(t);
+  }, []);
 
   return (
     <div>
@@ -60,7 +69,7 @@ export function AdminTabs() {
       {tab === "organization" && <AdminOrgManager />}
       {tab === "users" && <AdminUserManager />}
       {tab === "templates" && <AdminTemplates />}
-      {tab === "messages" && <MessageCenter />}
+      {tab === "messages" && <MessageCenter openThreadId={openThreadId} />}
     </div>
   );
 }
