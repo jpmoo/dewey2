@@ -136,10 +136,6 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
   const [showArchived, setShowArchived] = useState(false);
   // Collapse the left conversation list to give the chat more room.
   const [listCollapsed, setListCollapsed] = useState(false);
-  // Plan preview opened from the thread-list "View plan" pill. `listPlanFocus`
-  // opens straight to the current activity ("Current activity" pill).
-  const [listPlanId, setListPlanId] = useState<number | null>(null);
-  const [listPlanFocus, setListPlanFocus] = useState(false);
 
   // True vertical flex: measure the pane's top against the viewport and let it
   // fill the rest of the screen. This adapts to whatever sits above it (header,
@@ -337,14 +333,6 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
                     meId={meId}
                     active={t.id === activeId}
                     onSelect={() => setActiveId(t.id)}
-                    onViewPlan={(planId) => {
-                      setListPlanFocus(false);
-                      setListPlanId(planId);
-                    }}
-                    onViewActivity={(planId) => {
-                      setListPlanFocus(true);
-                      setListPlanId(planId);
-                    }}
                   />
                 ))
               )}
@@ -385,14 +373,6 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
       {preview && <AttachmentLightbox attachment={preview} onClose={() => setPreview(null)} />}
       {composing && (
         <ComposeModal onClose={() => setComposing(false)} onSent={onComposed} />
-      )}
-      {listPlanId != null && (
-        <TemplateReadOnly
-          templateId={listPlanId}
-          templatesBase="/api/partnership-plans"
-          focusCurrentActivity={listPlanFocus}
-          onClose={() => setListPlanId(null)}
-        />
       )}
     </section>
   );
@@ -646,15 +626,11 @@ function ThreadListItem({
   meId,
   active,
   onSelect,
-  onViewPlan,
-  onViewActivity,
 }: {
   thread: ThreadSummary;
   meId: number | null;
   active: boolean;
   onSelect: () => void;
-  onViewPlan: (planId: number) => void;
-  onViewActivity: (planId: number) => void;
 }) {
   return (
     <li
@@ -705,26 +681,6 @@ function ThreadListItem({
           </>
         )}
       </button>
-      {t.accepted_plan_id != null && (
-        <div className="mt-1 flex flex-wrap items-center gap-1">
-          <button
-            type="button"
-            onClick={() => onViewPlan(t.accepted_plan_id as number)}
-            className="flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
-            title={t.accepted_plan_name ?? "Plan"}
-          >
-            🗂️ <span className="max-w-[160px] truncate">View plan</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onViewActivity(t.accepted_plan_id as number)}
-            className="flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
-            title="Open the current activity"
-          >
-            🎯 <span className="max-w-[160px] truncate">Current activity</span>
-          </button>
-        </div>
-      )}
     </li>
   );
 }
