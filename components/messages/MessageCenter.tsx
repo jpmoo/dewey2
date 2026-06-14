@@ -1326,7 +1326,7 @@ export function ThreadPane({
           )}
           {deweyThinking && (
             <div className="flex justify-start">
-              <div className="max-w-[min(75%,620px)]">
+              <div className="max-w-[min(85%,760px)]">
                 <div className="mb-0.5 flex items-center gap-2 text-[11px] text-dewey-mute">
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-dewey-border">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1502,7 +1502,7 @@ function MessageBubble({
   const [replyExpanded, setReplyExpanded] = useState(false);
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-      <div className={`flex max-w-[min(75%,620px)] flex-col ${mine ? "items-end" : "items-start"}`}>
+      <div className={`flex max-w-[min(85%,760px)] flex-col ${mine ? "items-end" : "items-start"}`}>
         <div className="mb-0.5 flex items-center gap-2 text-[11px] text-dewey-mute">
           {m.is_ai ? (
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-dewey-border">
