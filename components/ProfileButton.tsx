@@ -179,22 +179,22 @@ function ProfileModal({
             {/* Avatar */}
             <div className="flex items-center gap-4">
               <Avatar userId={meId} name={headerName} size={72} version={avatarVersion} />
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  className="text-sm text-dewey-accent hover:underline disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-sm text-dewey-accent transition-colors hover:bg-dewey-accent/10 disabled:opacity-50"
                   onClick={() => fileInput.current?.click()}
                   disabled={avatarBusy}
                 >
-                  {avatarBusy ? "Working…" : "Change photo"}
+                  <span aria-hidden>📷</span> {avatarBusy ? "Working…" : "Change photo"}
                 </button>
                 <button
                   type="button"
-                  className="text-left text-sm text-red-700 hover:underline disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-red-300 bg-red-50 px-3 py-1 text-sm text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
                   onClick={removePhoto}
                   disabled={avatarBusy}
                 >
-                  Remove photo
+                  <span aria-hidden>🗑️</span> Remove photo
                 </button>
                 <input
                   ref={fileInput}
