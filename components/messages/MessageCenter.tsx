@@ -218,9 +218,9 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
 
 
   return (
-    // Full-bleed: break out of the centered max-w container so the messenger is
-    // much wider than the other tabs.
-    <section className="relative left-1/2 w-[94vw] max-w-[1400px] -translate-x-1/2">
+    // Full width on phones; on desktop, full-bleed out of the centered max-w
+    // container so the messenger is much wider than the other tabs.
+    <section className="relative w-full md:left-1/2 md:w-[94vw] md:max-w-[1400px] md:-translate-x-1/2">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold">Messages</h2>
@@ -247,8 +247,9 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
           style={paneHeight ? { height: paneHeight } : undefined}
           className="flex h-[calc(100dvh-240px)] min-h-[340px] overflow-hidden rounded-lg border border-dewey-border"
         >
-          {listCollapsed ? (
-            <div className="flex w-10 shrink-0 flex-col items-center border-r border-dewey-border bg-dewey-surface py-2">
+          {/* Desktop-only collapsed strip (the collapse feature doesn't apply on mobile). */}
+          {listCollapsed && (
+            <div className="hidden w-10 shrink-0 flex-col items-center border-r border-dewey-border bg-dewey-surface py-2 md:flex">
               <button
                 type="button"
                 onClick={() => setListCollapsed(false)}
@@ -259,8 +260,14 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
                 »
               </button>
             </div>
-          ) : (
-          <div className="flex w-72 min-h-0 shrink-0 flex-col border-r border-dewey-border bg-dewey-surface">
+          )}
+          {/* Conversation list. Mobile: full-width, shown only when no thread is
+              open. Desktop: a fixed sidebar, hidden when collapsed. */}
+          <div
+            className={`${activeId == null ? "flex" : "hidden"} ${
+              listCollapsed ? "md:hidden" : "md:flex"
+            } w-full min-h-0 shrink-0 flex-col border-r border-dewey-border bg-dewey-surface md:w-72`}
+          >
             {/* List controls: search + inbox/archived toggle */}
             <div className="space-y-2 border-b border-dewey-border p-2">
               <div className="flex items-center gap-2">
@@ -276,7 +283,7 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
                   onClick={() => setListCollapsed(true)}
                   title="Hide conversations"
                   aria-label="Hide conversations"
-                  className="shrink-0 rounded p-1 text-dewey-mute hover:bg-dewey-surface-2 hover:text-dewey-ink"
+                  className="hidden shrink-0 rounded p-1 text-dewey-mute hover:bg-dewey-surface-2 hover:text-dewey-ink md:block"
                 >
                   «
                 </button>
@@ -338,8 +345,13 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
               )}
             </ul>
           </div>
-          )}
-          <div className="flex min-w-0 min-h-0 flex-1 flex-col bg-dewey-cream">
+          {/* Thread pane. Mobile: full-width, shown only when a thread is open.
+              Desktop: fills the remaining space with a placeholder when idle. */}
+          <div
+            className={`${
+              activeId == null ? "hidden md:flex" : "flex"
+            } min-w-0 min-h-0 flex-1 flex-col bg-dewey-cream`}
+          >
             {activeId == null ? (
               <div className="flex flex-1 items-center justify-center text-sm text-dewey-mute">
                 Select a conversation.
@@ -353,6 +365,7 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
                 isAdmin={isAdmin}
                 iAmCoach={session?.user?.system_role === "coach"}
                 onPreview={setPreview}
+                onBack={() => setActiveId(null)}
                 onPosted={loadThreads}
                 onArchived={() => {
                   setActiveId(null);
@@ -718,6 +731,7 @@ export function ThreadPane({
   isAdmin = false,
   iAmCoach = false,
   onPreview,
+  onBack,
   onPosted,
   onArchived,
 }: {
@@ -727,6 +741,8 @@ export function ThreadPane({
   isAdmin?: boolean;
   iAmCoach?: boolean;
   onPreview: (a: AttachmentMeta) => void;
+  /** Mobile: return to the conversation list. */
+  onBack?: () => void;
   onPosted: () => void;
   onArchived: () => void;
 }) {
@@ -1162,6 +1178,17 @@ export function ThreadPane({
     <>
       <div className="shrink-0 border-b border-dewey-border bg-dewey-surface px-4 py-2">
         <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back to conversations"
+              title="Back to conversations"
+              className="-ml-1 shrink-0 rounded p-1 text-dewey-mute hover:bg-dewey-surface-2 hover:text-dewey-ink md:hidden"
+            >
+              ‹ Back
+            </button>
+          )}
           <h3 className="truncate text-sm font-semibold text-dewey-ink">
             {thread ? threadTitle(thread, meId) : "…"}
           </h3>

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/components/SessionProvider";
@@ -17,6 +17,13 @@ export const metadata: Metadata = {
   title: "Dewey — Coaching for Educators and Leaders",
   description:
     "Dewey pairs educators and school and district leaders with a human coach, supported by an AI companion.",
+};
+
+// Explicit so mobile browsers render at device width and CSS breakpoints fire
+// reliably on phones (don't let the default get overridden anywhere).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 /**
