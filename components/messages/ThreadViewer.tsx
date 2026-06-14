@@ -7,7 +7,15 @@ import { ThreadPane, AttachmentLightbox } from "@/components/messages/MessageCen
 type AttachmentMeta = { id: number; filename: string; mime_type: string; size_bytes: number };
 
 /** Modal that shows a single conversation (used to open threads from the log). */
-export function ThreadViewer({ threadId, onClose }: { threadId: number; onClose: () => void }) {
+export function ThreadViewer({
+  threadId,
+  scrollToTime,
+  onClose,
+}: {
+  threadId: number;
+  scrollToTime?: string;
+  onClose: () => void;
+}) {
   const { data: session } = useSession();
   const meId = session?.user?.id ? Number(session.user.id) : null;
   const [preview, setPreview] = useState<AttachmentMeta | null>(null);
@@ -39,6 +47,7 @@ export function ThreadViewer({ threadId, onClose }: { threadId: number; onClose:
             onPreview={setPreview}
             onPosted={() => {}}
             onArchived={onClose}
+            scrollToTime={scrollToTime}
           />
         </div>
       </div>

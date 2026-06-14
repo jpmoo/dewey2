@@ -154,7 +154,7 @@ export function AdminUserManager() {
   const [creating, setCreating] = useState(false);
   // A template opened from a log entry (read-only overlay).
   const [viewTemplateId, setViewTemplateId] = useState<number | null>(null);
-  const [viewThreadId, setViewThreadId] = useState<number | null>(null);
+  const [viewThread, setViewThread] = useState<{ id: number; at?: string } | null>(null);
 
   // Filters.
   const [query, setQuery] = useState("");
@@ -399,7 +399,7 @@ export function AdminUserManager() {
           districts={districts}
           isSelf={currentUserId === editing.id}
           onOpenTemplate={(id) => setViewTemplateId(id)}
-          onOpenThread={(id) => setViewThreadId(id)}
+          onOpenThread={(id, at) => setViewThread({ id, at })}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
@@ -408,8 +408,12 @@ export function AdminUserManager() {
         />
       )}
 
-      {viewThreadId != null && (
-        <ThreadViewer threadId={viewThreadId} onClose={() => setViewThreadId(null)} />
+      {viewThread != null && (
+        <ThreadViewer
+          threadId={viewThread.id}
+          scrollToTime={viewThread.at}
+          onClose={() => setViewThread(null)}
+        />
       )}
 
       {viewTemplateId != null && (
@@ -689,7 +693,7 @@ function UserEditModal({
   districts: DistrictWithSchools[];
   isSelf: boolean;
   onOpenTemplate: (id: number) => void;
-  onOpenThread: (id: number) => void;
+  onOpenThread: (id: number, at?: string) => void;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1154,7 +1158,7 @@ function LogEntries({
 }: {
   logs: UserLogView[];
   onOpenTemplate: (id: number) => void;
-  onOpenThread: (id: number) => void;
+  onOpenThread: (id: number, at?: string) => void;
   onRestored: () => void;
 }) {
   if (logs.length === 0) {
@@ -1177,7 +1181,7 @@ function LogRow({
 }: {
   log: UserLogView;
   onOpenTemplate: (id: number) => void;
-  onOpenThread: (id: number) => void;
+  onOpenThread: (id: number, at?: string) => void;
   onRestored: () => void;
 }) {
   const dialog = useDialog();
@@ -1233,7 +1237,7 @@ function LogRow({
               onClick={() =>
                 linksTemplate
                   ? onOpenTemplate(l.entity_id as number)
-                  : onOpenThread(l.entity_id as number)
+                  : onOpenThread(l.entity_id as number, l.created_at)
               }
             >
               {l.entity_label} ↗
@@ -1259,7 +1263,7 @@ function FullLogModal({
   userId: number;
   userName: string;
   onOpenTemplate: (id: number) => void;
-  onOpenThread: (id: number) => void;
+  onOpenThread: (id: number, at?: string) => void;
   onClose: () => void;
 }) {
   const [q, setQ] = useState("");

@@ -690,6 +690,7 @@ export function ThreadPane({
   onBack,
   onPosted,
   onArchived,
+  scrollToTime,
 }: {
   threadId: number;
   meId: number | null;
@@ -701,6 +702,8 @@ export function ThreadPane({
   onBack?: () => void;
   onPosted: () => void;
   onArchived: () => void;
+  /** Opening from the audit log: scroll to the message nearest this timestamp. */
+  scrollToTime?: string;
 }) {
   const dialog = useDialog();
   const [thread, setThread] = useState<ThreadSummary | null>(null);
@@ -897,10 +900,29 @@ export function ThreadPane({
     if (!el) return;
     if (!didInitialScroll.current && !loading && messages.length > 0) {
       didInitialScroll.current = true;
-      if (firstUnreadId != null) {
-        const node = el.querySelector<HTMLElement>(`[data-mid="${firstUnreadId}"]`);
+      // Prefer an explicit target (opening from the audit log scrolls to the
+      // message closest to the log entry's time); otherwise the first unread.
+      let targetId: number | null = firstUnreadId;
+      if (scrollToTime) {
+        const target = new Date(scrollToTime).getTime();
+        let best: { id: number; diff: number } | null = null;
+        for (const m of messages) {
+          const diff = Math.abs(new Date(m.created_at).getTime() - target);
+          if (!best || diff < best.diff) best = { id: m.id, diff };
+        }
+        targetId = best?.id ?? null;
+      }
+      if (targetId != null) {
+        const node = el.querySelector<HTMLElement>(`[data-mid="${targetId}"]`);
         if (node) {
-          node.scrollIntoView({ block: "start" });
+          node.scrollIntoView({ block: scrollToTime ? "center" : "start" });
+          if (scrollToTime) {
+            node.classList.add("ring-2", "ring-dewey-accent", "rounded-lg");
+            setTimeout(
+              () => node.classList.remove("ring-2", "ring-dewey-accent", "rounded-lg"),
+              2500
+            );
+          }
           stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           return;
         }
@@ -909,7 +931,7 @@ export function ThreadPane({
       return;
     }
     if (stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages, deweyThinking, loading, firstUnreadId]);
+  }, [messages, deweyThinking, loading, firstUnreadId, scrollToTime]);
 
   const onScroll = () => {
     const el = scrollRef.current;
