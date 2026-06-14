@@ -253,8 +253,12 @@ export function AdminUserManager() {
             Each account has one role: admin, coach, or partner.
           </p>
         </div>
-        <button type="button" className="dewey-btn-secondary" onClick={() => setCreating(true)}>
-          + New user
+        <button
+          type="button"
+          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent transition-colors hover:bg-dewey-accent/10"
+          onClick={() => setCreating(true)}
+        >
+          <span aria-hidden>👤</span> New user
         </button>
       </div>
 
