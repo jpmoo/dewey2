@@ -34,7 +34,7 @@ export function ProfileButton({ className }: { className?: string }) {
     <>
       <button
         type="button"
-        className={`inline-flex items-center gap-1.5 rounded-full border border-dewey-border bg-dewey-surface py-0.5 pl-0.5 pr-3 text-sm text-dewey-mute transition-colors hover:bg-dewey-surface-2 hover:text-dewey-ink ${className ?? ""}`}
+        className={`inline-flex items-center gap-1.5 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 py-0.5 pl-1 pr-3 text-sm text-dewey-accent transition-colors hover:bg-dewey-accent/10 ${className ?? ""}`}
         onClick={() => setOpen(true)}
         title="Profile & settings"
       >
