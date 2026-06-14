@@ -1264,11 +1264,11 @@ export function ThreadPane({
             {thread.participants.map((p, i) => {
               const isCoach = p.system_role === "coach";
               return (
-                <span key={p.id}>
+                <span key={p.id} title={isCoach ? "Coach" : undefined}>
                   {i > 0 && ", "}
-                  <span className={isCoach ? "font-semibold text-dewey-accent" : ""}>
+                  <span className={isCoach ? "font-medium text-dewey-ink" : ""}>
+                    {isCoach && <span aria-hidden>🎓 </span>}
                     {p.nickname || p.full_name}
-                    {isCoach && " (coach)"}
                   </span>
                 </span>
               );
