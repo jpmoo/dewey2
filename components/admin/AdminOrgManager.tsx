@@ -135,11 +135,11 @@ export function AdminOrgManager() {
                 <h3 className="font-medium">{d.name}</h3>
                 <button
                   type="button"
-                  className="text-xs text-red-700 hover:underline disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
                   onClick={() => removeDistrict(d)}
                   disabled={busy}
                 >
-                  Delete district
+                  <span aria-hidden>🗑️</span> Delete district
                 </button>
               </div>
               <ul className="space-y-1 mb-3">
@@ -154,11 +154,11 @@ export function AdminOrgManager() {
                       <span>{s.name}</span>
                       <button
                         type="button"
-                        className="text-xs text-red-700 hover:underline disabled:opacity-50"
+                        className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
                         onClick={() => removeSchool(s)}
                         disabled={busy}
                       >
-                        Remove
+                        <span aria-hidden>🗑️</span> Remove
                       </button>
                     </li>
                   ))
