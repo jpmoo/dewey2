@@ -302,13 +302,17 @@ function CanvasInner({
   template,
   onClose,
   templatesBase,
+  lockedNodeIds = [],
 }: {
   template: CoachingTemplate;
   onClose: () => void;
   /** CRUD base path: "/api/admin/templates" (admin) or "/api/coach/templates" (coach). */
   templatesBase: string;
+  /** Completed activities that can't be edited/deleted (editing an active plan). */
+  lockedNodeIds?: string[];
 }) {
   const dialog = useDialog();
+  const lockedSet = useMemo(() => new Set(lockedNodeIds), [lockedNodeIds]);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
 
@@ -341,10 +345,12 @@ function CanvasInner({
       (template.graph.nodes ?? []).map((n) => {
         const phase = template.graph.phases?.find((p) => p.id === n.phaseId);
         const cat = ACTIVITY_BY_KEY[n.activityKey]?.category ?? "reflecting";
+        const locked = lockedSet.has(n.id);
         return {
           id: n.id,
           type: "activity",
           position: n.position,
+          deletable: !locked,
           data: {
             activityKey: n.activityKey,
             label: n.label,
@@ -355,15 +361,20 @@ function CanvasInner({
             phaseId: n.phaseId ?? null,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
+            // Locked = already completed: show the "done" treatment.
+            progress: locked ? "completed" : undefined,
           },
         };
       }),
-    [template]
+    [template, lockedSet]
   );
   const initialEdges: Edge[] = useMemo(() => {
     const posById = new Map((template.graph.nodes ?? []).map((n) => [n.id, n.position]));
-    return toFlowEdges(template.graph.edges ?? [], posById);
-  }, [template]);
+    return toFlowEdges(template.graph.edges ?? [], posById).map((e) =>
+      // An edge between two completed activities is locked (preserves their order).
+      lockedSet.has(e.source) && lockedSet.has(e.target) ? { ...e, deletable: false } : e
+    );
+  }, [template, lockedSet]);
 
   const [nodes, setNodes] = useNodesState<Node<ActivityNodeData>>(initialNodes);
 
@@ -906,6 +917,13 @@ function CanvasInner({
         </div>
       </div>
 
+      {lockedSet.size > 0 && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
+          🔒 Completed activities are locked. Saving sends the revised plan back to everyone to
+          re-accept; the partner resumes at the next unfinished activity.
+        </div>
+      )}
+
       <div className="flex-1 flex min-h-0">
         {/* Palette */}
         <aside className="w-60 shrink-0 border-r border-dewey-border overflow-y-auto p-3 space-y-4">
@@ -959,7 +977,9 @@ function CanvasInner({
             onConnect={onConnect}
             onConnectStart={onConnectStart}
             onConnectEnd={onConnectEnd}
-            onNodeDoubleClick={(_, node) => setEditingNodeId(node.id)}
+            onNodeDoubleClick={(_, node) => {
+              if (!lockedSet.has(node.id)) setEditingNodeId(node.id);
+            }}
             nodeTypes={nodeTypes}
             colorMode={colorMode}
             defaultEdgeOptions={{ markerEnd: ARROW }}
@@ -1791,13 +1811,20 @@ export function TemplateCanvas({
       : null
   );
   const [error, setError] = useState<string | null>(null);
+  // Completed (approved) activity ids that must stay locked while editing an
+  // active partnership plan (the GET returns these for /api/partnership-plans).
+  const [lockedNodeIds, setLockedNodeIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (templateId === null) return; // new template — nothing to load
     let cancelled = false;
-    apiFetch<{ template: CoachingTemplate }>(`${templatesBase}/${templateId}`)
+    apiFetch<{ template: CoachingTemplate; completedNodeIds?: string[] }>(
+      `${templatesBase}/${templateId}`
+    )
       .then((d) => {
-        if (!cancelled) setTemplate(d.template);
+        if (cancelled) return;
+        setTemplate(d.template);
+        setLockedNodeIds(d.completedNodeIds ?? []);
       })
       .catch((e) => {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load plan");
@@ -1827,7 +1854,12 @@ export function TemplateCanvas({
 
   return (
     <ReactFlowProvider>
-      <CanvasInner template={template} onClose={onClose} templatesBase={templatesBase} />
+      <CanvasInner
+        template={template}
+        onClose={onClose}
+        templatesBase={templatesBase}
+        lockedNodeIds={lockedNodeIds}
+      />
     </ReactFlowProvider>
   );
 }

@@ -3,7 +3,7 @@ import { hashPassword } from "@/lib/password";
 import type { CoachingTemplate, TemplateGraph, TemplateScope } from "@/lib/templates";
 import type { MessagePermissions, RoleMessagePerms } from "@/lib/settings";
 import { EMPTY_GRAPH } from "@/lib/templates";
-import { nextNodeId, isLastInPhase, phaseIdOfNode } from "@/lib/plan-graph";
+import { nextNodeId, isLastInPhase, phaseIdOfNode, recomputeCurrent } from "@/lib/plan-graph";
 
 // ============================================================
 // Types
@@ -1423,7 +1423,7 @@ export async function userManagesThreadPlan(planId: number, userId: number): Pro
        JOIN thread_participants p ON p.thread_id = ct.thread_id AND p.user_id = $2
        JOIN users u ON u.id = p.user_id
       WHERE ct.id = $1 AND ct.scope = 'partnership' AND ct.deleted_at IS NULL
-        AND u.system_role = 'coach'
+        AND u.system_role IN ('coach', 'admin')
       LIMIT 1`,
     [planId, userId]
   );
@@ -1503,6 +1503,91 @@ export async function getSubmission(id: number): Promise<ActivitySubmission | nu
   await ensureSchema();
   const res = await pool.query("SELECT * FROM activity_submissions WHERE id = $1", [id]);
   return res.rows[0] ? rowToSubmission(res.rows[0]) : null;
+}
+
+/** Node ids with an approved submission for a plan — the immutable "done" set. */
+export async function getApprovedNodeIds(planId: number): Promise<Set<string>> {
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    "SELECT DISTINCT node_id FROM activity_submissions WHERE plan_id = $1 AND status = 'approved'",
+    [planId]
+  );
+  return new Set(res.rows.map((r) => r.node_id as string));
+}
+
+/**
+ * Edit a partnership plan in place (coach or admin who manages the thread). Done
+ * (approved) activities/edges/phases are immutable; everything else is free. The
+ * plan returns to "proposed" (acceptances cleared) so everyone re-accepts the
+ * revised arc — approved submissions are kept, and the current activity is
+ * recomputed on re-acceptance. Returns { ok, error? }.
+ */
+export async function editThreadPlan(
+  planId: number,
+  userId: number,
+  params: { graph: TemplateGraph; name?: string }
+): Promise<{ ok: boolean; error?: string }> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (!plan || plan.deleted_at || plan.scope !== "partnership" || plan.deactivated_at || plan.outcome) {
+    return { ok: false, error: "This plan can't be edited." };
+  }
+  if (!(await userManagesThreadPlan(planId, userId))) {
+    return { ok: false, error: "You don't manage this plan." };
+  }
+
+  const done = await getApprovedNodeIds(planId);
+  const oldNodes = new Map(plan.graph.nodes.map((n) => [n.id, n]));
+  const newNodes = new Map(params.graph.nodes.map((n) => [n.id, n]));
+  const norm = (n: (typeof plan.graph.nodes)[number]) =>
+    JSON.stringify([
+      n.activityKey,
+      n.gating ?? "REVIEWED",
+      n.instructions ?? "",
+      n.artifact ?? "",
+      n.phaseId ?? null,
+      n.label ?? "",
+    ]);
+
+  // 1. Completed activities must persist unchanged.
+  for (const id of Array.from(done)) {
+    const o = oldNodes.get(id);
+    if (!o) continue;
+    const n = newNodes.get(id);
+    if (!n) return { ok: false, error: "A completed activity can't be removed." };
+    if (norm(n) !== norm(o)) return { ok: false, error: "A completed activity can't be changed." };
+  }
+  // 2. Edges between two completed activities must be preserved.
+  const key = (e: { source: string; target: string }) => `${e.source}->${e.target}`;
+  const newEdges = new Set((params.graph.edges ?? []).map(key));
+  for (const e of plan.graph.edges ?? []) {
+    if (done.has(e.source) && done.has(e.target) && !newEdges.has(key(e))) {
+      return { ok: false, error: "The order of completed activities can't be changed." };
+    }
+  }
+  // 3. Fully-completed phases must be unchanged.
+  const newPhases = new Map((params.graph.phases ?? []).map((p) => [p.id, p]));
+  for (const p of plan.graph.phases ?? []) {
+    const members = plan.graph.nodes.filter((n) => n.phaseId === p.id);
+    if (members.length > 0 && members.every((n) => done.has(n.id))) {
+      const np = newPhases.get(p.id);
+      if (!np || (np.name ?? "") !== (p.name ?? "") || (np.exitConditions ?? "") !== (p.exitConditions ?? "")) {
+        return { ok: false, error: "A completed phase can't be changed." };
+      }
+    }
+  }
+
+  await clearPlanAcceptances(planId);
+  await pool.query(
+    `UPDATE coaching_templates
+        SET graph = $2, name = COALESCE($3, name), accepted_at = NULL,
+            current_node_id = NULL, deactivated_at = NULL, updated_at = NOW()
+      WHERE id = $1`,
+    [planId, JSON.stringify(params.graph), params.name?.trim() || null]
+  );
+  return { ok: true };
 }
 
 /** Approved submissions for every node in a phase (history shown to the coach). */
@@ -1743,13 +1828,18 @@ export async function recordPlanAcceptance(
   const total = Number(counts.rows[0].total);
   const accepted = Number(counts.rows[0].accepted);
   if (total > 0 && accepted >= total) {
-    const current = entryNodeId(plan.graph);
+    // Land on the first not-done activity. For a fresh plan that's the entry
+    // node; for one re-accepted after an in-flight edit it skips already-approved
+    // activities (and finishes the plan if everything is done).
+    const done = await getApprovedNodeIds(planId);
+    const current = recomputeCurrent(plan.graph, done);
     await deactivatePriorThreadPlans(plan.thread_id, planId);
     await pool.query(
       `UPDATE coaching_templates
-          SET accepted_at = NOW(), current_node_id = $2, deactivated_at = NULL, updated_at = NOW()
+          SET accepted_at = NOW(), current_node_id = $2, deactivated_at = NULL,
+              outcome = $3, updated_at = NOW()
         WHERE id = $1`,
-      [planId, current]
+      [planId, current, current == null ? "finished" : null]
     );
     return { locked: true };
   }

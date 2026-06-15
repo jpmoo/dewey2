@@ -20,6 +20,26 @@ export function nextNodeId(graph: TemplateGraph, nodeId: string): string | null 
 }
 
 /**
+ * Find the activity a (re-)accepted plan should sit on: walk from the entry node
+ * along the flow, skipping any already-done (approved) activities, and return the
+ * first not-done node. Returns null when every reachable node is done (→ the plan
+ * is finished). Used when a plan is accepted or re-accepted after an in-flight
+ * edit, so the partner lands on the right next step regardless of what changed.
+ */
+export function recomputeCurrent(graph: TemplateGraph, doneNodeIds: Set<string>): string | null {
+  const nodes = graph.nodes ?? [];
+  if (nodes.length === 0) return null;
+  const hasIncoming = new Set((graph.edges ?? []).map((e) => e.target));
+  let id: string | null = (nodes.find((n) => !hasIncoming.has(n.id)) ?? nodes[0]).id;
+  const seen = new Set<string>();
+  while (id && doneNodeIds.has(id) && !seen.has(id)) {
+    seen.add(id);
+    id = nextNodeId(graph, id);
+  }
+  return id;
+}
+
+/**
  * Whether `nodeId` is the last activity in its phase: it has no successor that
  * sits in the same phase (covers both a phase boundary and the end of the plan).
  */

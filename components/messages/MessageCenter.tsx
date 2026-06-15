@@ -1229,7 +1229,7 @@ export function ThreadPane({
                 </>
               )}
               {canManage && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
-              {iAmCoach && !hasActivePlan && (
+              {canManage && !hasActivePlan && (
                 <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
               )}
               {(isAdmin || !hasLivePlan || archived) && (
@@ -1286,6 +1286,7 @@ export function ThreadPane({
                   mine={m.sender_id === meId}
                   meId={meId}
                   iAmCoach={iAmCoach}
+                  isAdmin={isAdmin}
                   senderIsCoach={m.sender_id != null && coachIds.has(m.sender_id)}
                   canSubmit={canSubmit && m.sender_id === meId && m.plan_id == null && !m.is_ai}
                   isCurrentSubmission={activeActivity?.submission?.messageId === m.id}
@@ -1383,6 +1384,7 @@ export function ThreadPane({
       {picking && (
         <AddPlanModal
           threadId={threadId}
+          isAdmin={isAdmin}
           onClose={() => setPicking(false)}
           onAdded={() => {
             setPicking(false);
@@ -1401,7 +1403,7 @@ export function ThreadPane({
       {editPlanId != null && (
         <TemplateCanvas
           templateId={editPlanId}
-          templatesBase="/api/coach/templates"
+          templatesBase="/api/partnership-plans"
           onClose={() => {
             setEditPlanId(null);
             fetchThread(false);
@@ -1438,6 +1440,7 @@ function MessageBubble({
   mine,
   meId,
   iAmCoach,
+  isAdmin,
   senderIsCoach,
   canSubmit,
   isCurrentSubmission,
@@ -1457,6 +1460,7 @@ function MessageBubble({
   mine: boolean;
   meId: number | null;
   iAmCoach: boolean;
+  isAdmin: boolean;
   senderIsCoach: boolean;
   canSubmit: boolean;
   isCurrentSubmission: boolean;
@@ -1475,7 +1479,7 @@ function MessageBubble({
   const senderLabel = m.is_ai ? "Dewey" : m.sender_name ?? "Unknown";
   // Per-plan acceptance state (multi-party): any coach in the thread manages the
   // plan; any participant accepts; it locks once everyone has.
-  const canManagePlan = iAmCoach;
+  const canManagePlan = iAmCoach || isAdmin;
   const iAccepted = meId != null && m.plan_accepted_by.includes(meId);
   const acceptedCount = m.plan_accepted_by.length;
   // Any non-active plan (superseded by a newer one, or finished/abandoned) is
@@ -1601,9 +1605,11 @@ function MessageBubble({
                   </>
                 )
               ) : m.plan_accepted ? (
-                // Active + locked. Owner: unlock to edit, complete, or abandon.
+                // Active + locked. Owner can edit the not-done parts in place (the
+                // plan goes back for re-acceptance), or unlock/complete/abandon.
                 canManagePlan && (
                   <>
+                    <PlanPill icon="✏️" label="Edit" onClick={() => onEditPlan(m.plan_id as number)} />
                     <PlanPill icon="🔓" label="Unlock" onClick={() => onUnlockPlan(m.id)} />
                     <PlanPill icon="🏁" label="Complete" onClick={() => onSetOutcome(m.id, "finished")} />
                     <PlanPill icon="🚫" label="Abandon" onClick={() => onSetOutcome(m.id, "abandoned")} />
@@ -2572,10 +2578,12 @@ type PlanOption = { id: number; name: string; scope: string; description: string
 /** Coach picks one of their plans (personal or global) to embed in the chat. */
 function AddPlanModal({
   threadId,
+  isAdmin = false,
   onClose,
   onAdded,
 }: {
   threadId: number;
+  isAdmin?: boolean;
   onClose: () => void;
   onAdded: () => void;
 }) {
@@ -2585,11 +2593,12 @@ function AddPlanModal({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    apiFetch<{ templates: PlanOption[] }>("/api/coach/templates")
+    // Admins pick from their own library (drafts + globals); coaches from theirs.
+    apiFetch<{ templates: PlanOption[] }>(isAdmin ? "/api/admin/templates" : "/api/coach/templates")
       .then((d) => setPlans(d.templates))
       .catch(() => setPlans([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [isAdmin]);
 
   const add = async (sourcePlanId: number) => {
     setBusy(true);
