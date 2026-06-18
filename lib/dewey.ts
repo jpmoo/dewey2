@@ -242,7 +242,8 @@ export async function runDeweyForThread(params: {
       if (jsonStart > 0) prose = reply.slice(0, jsonStart).trim();
     }
   }
-  prose = prose.replace(/[:：]\s*$/, "").trim() || "Here you go.";
+  // A plan lead-in should end with an ellipsis, not a colon — normalize either way.
+  prose = prose.replace(/[:：]\s*$/, "…").trim() || "Here you go.";
 
   // If the model emitted a plan directive but we couldn't build a plan from it,
   // tell the coach instead of leaving a bare "Here's a plan" with nothing.

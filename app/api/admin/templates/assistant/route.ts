@@ -207,8 +207,9 @@ export async function POST(request: NextRequest) {
           if (mi !== -1) {
             const prose = full.slice(0, mi);
             if (prose.length > sentLen) {
-              // Drop the dangling lead-in colon from the last streamed chunk.
-              const chunk = prose.slice(sentLen).replace(/[:：]\s*$/, "");
+              // Normalize a dangling lead-in colon to an ellipsis (we ask the
+              // model not to use a colon, but be safe).
+              const chunk = prose.slice(sentLen).replace(/[:：]\s*$/, "…");
               if (chunk) send(controller, { type: "text", text: chunk });
               sentLen = prose.length;
             }
@@ -230,8 +231,8 @@ export async function POST(request: NextRequest) {
           send(controller, { type: "text", text: full.slice(sentLen) });
         }
         let reply = (mi !== -1 ? full.slice(0, mi) : full).trim();
-        // When a graph follows, the lead-in ends with a colon — drop the dangling colon.
-        if (mi !== -1) reply = reply.replace(/[:：]\s*$/, "").trim();
+        // When a graph follows, normalize a trailing colon to an ellipsis.
+        if (mi !== -1) reply = reply.replace(/[:：]\s*$/, "…").trim();
         const proposedGraph =
           mi !== -1 ? sanitizeProposedGraph(extractJsonObject(full.slice(mi + GRAPH_MARKER.length))) : null;
 

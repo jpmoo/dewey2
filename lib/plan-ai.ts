@@ -47,7 +47,7 @@ You can:
 
 RESPONSE FORMAT:
 - First write a brief conversational reply to the admin, in plain prose.
-- If (and ONLY if) you are proposing concrete additions/changes to the canvas, end that prose reply with a colon (e.g. "Here's the arc I'd build:") and then, on the next line, output a line containing exactly:
+- If (and ONLY if) you are proposing concrete additions/changes to the canvas, end that prose reply with a period or an ellipsis — NOT a colon (e.g. "Here's the arc I'd build…") — and then, on the next line, output a line containing exactly:
 ${GRAPH_MARKER}
 followed by a single JSON object:
 ${GRAPH_JSON_SHAPE}
@@ -91,7 +91,7 @@ FRAMEWORKS — BUILD THE WHOLE ARC: When the coach names or implies a framework 
 
 ADJUSTING AN ATTACHED PLAN: If a plan is already attached to this conversation (its full graph JSON is given below) and the coach asks you to adjust, revise, change, add to, simplify, or otherwise modify it, output a GRAPH containing the FULL revised arc — keep the parts that should stay and apply only the requested changes. Always emit the entire arc, not just the delta.
 
-There are two ways to deliver a plan:
+There are two ways to deliver a plan (end your prose sentence with a period or an ellipsis — never a colon):
 - If an EXISTING plan in the coach's library clearly fits, attach it: write a one-sentence reply, then on a new line output exactly:
 ${attachMarker}
 followed by a single JSON object: {"sourcePlanId": <id from the library list>}
