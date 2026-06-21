@@ -1407,6 +1407,8 @@ export async function reactivateThreadPlan(
     [planId]
   );
   await deactivatePriorThreadPlans(plan.thread_id, planId);
+  // The reviver re-proposed it — auto-accept them; everyone else re-accepts.
+  await recordPlanAcceptance(planId, coachId);
   return getTemplate(planId);
 }
 
@@ -1587,6 +1589,8 @@ export async function editThreadPlan(
       WHERE id = $1`,
     [planId, JSON.stringify(params.graph), params.name?.trim() || null]
   );
+  // The editor re-proposed it — they're auto-accepted; everyone else re-accepts.
+  await recordPlanAcceptance(planId, userId);
   return { ok: true };
 }
 

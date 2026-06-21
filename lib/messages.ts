@@ -2,6 +2,7 @@ import { getPool } from "@/lib/pg";
 import {
   deactivatePriorThreadPlans,
   duplicatePlanForPartnership,
+  recordPlanAcceptance,
   ensureSchema,
   getActivePlanForThread,
   getAdminIds,
@@ -1200,6 +1201,8 @@ export async function addPlanToPartnership(
     body: `Here's the plan "${copy.name}" from the library. Accept, edit, or dismiss it — or ask me to adjust it.`,
     planId: copy.id,
   });
+  // The coach who added it is implicitly committed — everyone else still accepts.
+  await recordPlanAcceptance(copy.id, coachId);
   return { ok: true };
 }
 

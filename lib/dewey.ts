@@ -5,6 +5,7 @@ import {
   createTemplate,
   deactivatePriorThreadPlans,
   duplicatePlanForPartnership,
+  recordPlanAcceptance,
   getTemplate,
   getTemplatesForCoach,
   threadHasAcceptedPlan,
@@ -287,6 +288,7 @@ export async function runDeweyForThread(params: {
             body: `I've attached the plan "${copy.name}". The coach can edit or dismiss it.`,
             planId: copy.id,
           });
+          await recordPlanAcceptance(copy.id, coachId);
           await logThreadEvent({ userId: invokerId, actorId: invokerId, action: "plan_added", threadId, detail: "via @dewey" });
         }
       }
@@ -311,6 +313,7 @@ export async function runDeweyForThread(params: {
         body: `I've updated the plan — here's "${copy.name}". Accept, edit, or dismiss it.`,
         planId: copy.id,
       });
+      await recordPlanAcceptance(copy.id, coachId);
       await logThreadEvent({ userId: invokerId, actorId: invokerId, action: "plan_edited", threadId, detail: "via @dewey" });
     } else if (graph) {
       const copy = await createTemplate({
@@ -330,6 +333,7 @@ export async function runDeweyForThread(params: {
         body: `I've drafted a custom plan, "${copy.name}". The coach can edit or dismiss it.`,
         planId: copy.id,
       });
+      await recordPlanAcceptance(copy.id, coachId);
       await logThreadEvent({ userId: invokerId, actorId: invokerId, action: "plan_added", threadId, detail: "drafted by @dewey" });
     }
   }
