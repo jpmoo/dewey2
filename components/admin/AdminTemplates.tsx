@@ -165,8 +165,8 @@ export function AdminTemplates() {
       ) : (
         <div className="space-y-6">
           <Group
-            title="Draft Plans"
-            empty="No drafts yet. Start a new plan, then publish it when it's ready."
+            title="My Plans"
+            empty="No plans yet. Start a new plan, then publish it when it's ready."
             items={drafts}
             onOpen={(t) => setEditing(t.id)}
             renderActions={(t) => (
