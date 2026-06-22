@@ -22,6 +22,7 @@ These are structured AI conversations. The partner works through a problem, goal
 | Develop a Goal | Partner works toward a specific, measurable improvement goal |
 | Identify Root Cause | Partner surfaces and tests hypotheses about why a problem persists |
 | Define Conditions for Success | Partner articulates what solving the problem looks like concretely |
+| Project a Measured Outcome | Partner forecasts the expected measurable result — metric, target, and timeframe — with rationale |
 | Interrogate an Assumption | Partner examines a belief or mental model that may be limiting their approach |
 | Navigate a Stakeholder Situation | Partner maps stakeholders and develops an influence strategy |
 | Take a Perspective | Partner builds understanding of another person's viewpoint |
