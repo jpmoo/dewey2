@@ -138,12 +138,15 @@ export function buildPlanPrintHtml(
     .join("");
 
   // Page 1 — prefer the rendered canvas image (colors, arrows); fall back to the
-  // text overview if no image was captured (e.g. an empty canvas).
-  const page1 = diagram
-    ? `<section class="arc"><h1>${title}</h1><p class="sub">Coaching Arc</p>
-         <img class="diagram" src="${diagram}" alt="${title} — plan diagram" /></section>`
-    : `<section class="arc"><h1>${title}</h1><p class="sub">Coaching Arc</p>
-         <ol class="phases">${arc || '<li class="empty">This plan has no phases yet.</li>'}</ol></section>`;
+  // text overview ("chart") if no image was captured (e.g. an empty canvas). The
+  // content fills and is centered both ways within the page via the .fit box.
+  const page1Inner = diagram
+    ? `<img class="diagram" src="${diagram}" alt="${title} — plan diagram" />`
+    : `<ol class="phases">${arc || '<li class="empty">This plan has no phases yet.</li>'}</ol>`;
+  const page1 = `<section class="arc page">
+    <header><h1>${title}</h1><p class="sub">Coaching Arc</p></header>
+    <div class="fit">${page1Inner}</div>
+  </section>`;
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8" />
@@ -156,14 +159,18 @@ export function buildPlanPrintHtml(
   h1 { font-size: 22px; margin: 0 0 2px; }
   .sub { color: #666; font-size: 12px; margin: 0 0 14px; text-transform: uppercase; letter-spacing: .06em; }
   .pnum, .anum { font-weight: 700; }
-  /* Page 1 — rendered diagram (or text fallback) */
-  .arc { page-break-after: always; }
-  .diagram { display: block; width: auto; max-width: 100%; height: auto; max-height: 6.9in; margin: 0 auto; }
-  .arc .phases { list-style: none; padding: 0; margin: 0; column-width: 260px; column-gap: 28px; }
-  .arc .phase { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 14px; }
-  .arc .pname { font-size: 14px; font-weight: 600; border-bottom: 1px solid #ddd; padding-bottom: 3px; margin-bottom: 5px; }
-  .arc .acts { list-style: none; padding: 0 0 0 14px; margin: 0; }
-  .arc .acts li { font-size: 12.5px; margin: 2px 0; }
+  /* Page 1 — rendered diagram (or text fallback), centered and fit to the page.
+     The page box is sized just under the landscape printable area (10in x 7.5in)
+     so content never bleeds into the margins or spills onto a second page. */
+  .page { page-break-after: always; height: 7.3in; display: flex; flex-direction: column; }
+  .arc header { flex: 0 0 auto; text-align: center; margin-bottom: 8px; }
+  .fit { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .diagram { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .arc .phases { list-style: none; padding: 0; margin: 0; width: 100%; column-width: 320px; column-gap: 36px; }
+  .arc .phase { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 18px; }
+  .arc .pname { font-size: 17px; font-weight: 600; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-bottom: 6px; }
+  .arc .acts { list-style: none; padding: 0 0 0 16px; margin: 0; }
+  .arc .acts li { font-size: 15px; margin: 3px 0; }
   .arc .anum { color: #555; }
   .empty { color: #999; font-style: italic; }
   /* Page 2+ — detailed outline (two columns to use the landscape width) */
