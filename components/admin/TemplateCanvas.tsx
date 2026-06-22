@@ -958,12 +958,13 @@ function CanvasInner({
       }
       const html = buildPlanPrintHtml(name || template.name || "Coaching Plan", buildGraph(), {
         diagram,
+        description,
       });
       w.document.open();
       w.document.write(html);
       w.document.close();
     })();
-  }, [name, template.name, buildGraph, dialog, captureCanvasPng]);
+  }, [name, template.name, description, buildGraph, dialog, captureCanvasPng]);
 
   // Clear the whole canvas (activities, edges, and phases).
   const clearCanvas = useCallback(async () => {

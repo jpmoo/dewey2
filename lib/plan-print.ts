@@ -96,11 +96,13 @@ function structurePlan(graph: TemplateGraph): { phases: PrintPhase[] } {
 export function buildPlanPrintHtml(
   name: string,
   graph: TemplateGraph,
-  opts?: { diagram?: string | null }
+  opts?: { diagram?: string | null; description?: string | null }
 ): string {
   const { phases } = structurePlan(graph);
   const title = esc(name || "Coaching Plan");
   const diagram = opts?.diagram || null;
+  const desc = (opts?.description || "").trim();
+  const descHtml = desc ? `<p class="desc">${esc(desc)}</p>` : "";
 
   // Page 1 — the arc at a glance (text fallback when no diagram image).
   const arc = phases
@@ -144,7 +146,7 @@ export function buildPlanPrintHtml(
     ? `<img class="diagram" src="${diagram}" alt="${title} — plan diagram" />`
     : `<ol class="phases">${arc || '<li class="empty">This plan has no phases yet.</li>'}</ol>`;
   const page1 = `<section class="arc page">
-    <header><h1>${title}</h1><p class="sub">Coaching Arc</p></header>
+    <header><h1>${title}</h1>${descHtml}<p class="sub">Coaching Arc</p></header>
     <div class="fit">${page1Inner}</div>
   </section>`;
 
@@ -158,6 +160,9 @@ export function buildPlanPrintHtml(
          color: #1a1a1a; margin: 0; line-height: 1.4; }
   h1 { font-size: 22px; margin: 0 0 2px; }
   .sub { color: #666; font-size: 12px; margin: 0 0 14px; text-transform: uppercase; letter-spacing: .06em; }
+  .desc { color: #444; font-size: 13px; line-height: 1.45; margin: 4px 0 8px; }
+  .arc header .desc { margin-left: auto; margin-right: auto; max-width: 8.5in; }
+  .detail .desc { max-width: 9.5in; margin-bottom: 10px; }
   .pnum, .anum { font-weight: 700; }
   /* Page 1 — rendered diagram (or text fallback), centered and fit to the page.
      The page box is sized just under the landscape printable area (10in x 7.5in)
@@ -191,6 +196,7 @@ export function buildPlanPrintHtml(
   ${page1}
   <section class="detail">
     <h1>${title}</h1>
+    ${descHtml}
     <p class="sub">Detailed Outline</p>
     <div class="cols">${detail}</div>
   </section>
