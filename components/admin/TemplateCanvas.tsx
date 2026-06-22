@@ -15,6 +15,8 @@ import {
   ConnectionMode,
   addEdge,
   applyNodeChanges,
+  getNodesBounds,
+  getViewportForBounds,
   useNodesState,
   useEdgesState,
   useNodes,
@@ -32,6 +34,7 @@ import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
 import { buildPlanPrintHtml } from "@/lib/plan-print";
+import { toPng } from "html-to-image";
 import { getHelperLines, HelperLines } from "./helper-lines";
 
 // The v1 "Compliance notice" wording, shown when the screen flags a message.
@@ -315,7 +318,7 @@ function CanvasInner({
   const dialog = useDialog();
   const lockedSet = useMemo(() => new Set(lockedNodeIds), [lockedNodeIds]);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, getNodes } = useReactFlow();
 
   const [name, setName] = useState(template.name);
   const [phases, setPhases] = useState<TemplatePhase[]>(template.graph.phases ?? []);
@@ -826,21 +829,61 @@ function CanvasInner({
     onClose();
   }, [dirty, onClose, dialog]);
 
-  // Print → a self-contained PDF-ready document (arc on page 1, details after),
-  // opened in a new window that auto-invokes the browser's print dialog.
+  // Render the whole canvas (nodes, colors, edges/arrows, phase clouds) to a PNG,
+  // independent of the user's current pan/zoom — fits all nodes into a landscape
+  // frame. Returns null if there's nothing to capture.
+  const captureCanvasPng = useCallback(async (): Promise<string | null> => {
+    const viewport = wrapperRef.current?.querySelector<HTMLElement>(".react-flow__viewport");
+    const flowNodes = getNodes();
+    if (!viewport || flowNodes.length === 0) return null;
+    const bounds = getNodesBounds(flowNodes);
+    const imageWidth = 1600;
+    const imageHeight = 1100; // landscape
+    const { x, y, zoom } = getViewportForBounds(bounds, imageWidth, imageHeight, 0.2, 2, 0.12);
+    return toPng(viewport, {
+      backgroundColor: "#ffffff",
+      width: imageWidth,
+      height: imageHeight,
+      pixelRatio: 2,
+      style: {
+        width: `${imageWidth}px`,
+        height: `${imageHeight}px`,
+        transform: `translate(${x}px, ${y}px) scale(${zoom})`,
+      },
+    });
+  }, [getNodes]);
+
+  // Print → open a preview window with a self-contained, PDF-ready document: a
+  // landscape rendering of the arc (page 1) plus the detailed outline (page 2+).
+  // We open the window synchronously (so the pop-up isn't blocked) and fill it in
+  // once the image is captured. No print dialog is forced — the user prints from
+  // the preview when ready.
   const handlePrint = useCallback(() => {
-    const html = buildPlanPrintHtml(name || template.name || "Coaching Plan", buildGraph());
-    const w = window.open("", "_blank", "width=900,height=700");
+    const w = window.open("", "_blank", "width=1100,height=800");
     if (!w) {
-      dialog.alert("Allow pop-ups for this site to print or save the plan as a PDF.", {
+      dialog.alert("Allow pop-ups for this site to open the plan preview.", {
         title: "Pop-up blocked",
       });
       return;
     }
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
-  }, [name, template.name, buildGraph, dialog]);
+    w.document.write(
+      "<!doctype html><title>Preparing…</title><body style='font-family:system-ui,sans-serif;padding:2rem;color:#555'>Preparing your plan preview…</body>"
+    );
+    void (async () => {
+      let diagram: string | null = null;
+      try {
+        diagram = await captureCanvasPng();
+      } catch {
+        diagram = null;
+      }
+      const html = buildPlanPrintHtml(name || template.name || "Coaching Plan", buildGraph(), {
+        diagram,
+      });
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    })();
+  }, [name, template.name, buildGraph, dialog, captureCanvasPng]);
 
   // Clear the whole canvas (activities, edges, and phases).
   const clearCanvas = useCallback(async () => {

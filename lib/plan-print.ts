@@ -93,11 +93,16 @@ function structurePlan(graph: TemplateGraph): { phases: PrintPhase[] } {
   return { phases };
 }
 
-export function buildPlanPrintHtml(name: string, graph: TemplateGraph): string {
+export function buildPlanPrintHtml(
+  name: string,
+  graph: TemplateGraph,
+  opts?: { diagram?: string | null }
+): string {
   const { phases } = structurePlan(graph);
   const title = esc(name || "Coaching Plan");
+  const diagram = opts?.diagram || null;
 
-  // Page 1 — the arc at a glance.
+  // Page 1 — the arc at a glance (text fallback when no diagram image).
   const arc = phases
     .map((p, pi) => {
       const acts = p.activities
@@ -132,54 +137,55 @@ export function buildPlanPrintHtml(name: string, graph: TemplateGraph): string {
     })
     .join("");
 
+  // Page 1 — prefer the rendered canvas image (colors, arrows); fall back to the
+  // text overview if no image was captured (e.g. an empty canvas).
+  const page1 = diagram
+    ? `<section class="arc"><h1>${title}</h1><p class="sub">Coaching Arc</p>
+         <img class="diagram" src="${diagram}" alt="${title} — plan diagram" /></section>`
+    : `<section class="arc"><h1>${title}</h1><p class="sub">Coaching Arc</p>
+         <ol class="phases">${arc || '<li class="empty">This plan has no phases yet.</li>'}</ol></section>`;
+
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8" />
 <title>${title}</title>
 <style>
-  @page { size: letter; margin: 0.6in; }
+  @page { size: letter landscape; margin: 0.5in; }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
          color: #1a1a1a; margin: 0; line-height: 1.4; }
   h1 { font-size: 22px; margin: 0 0 2px; }
-  .sub { color: #666; font-size: 12px; margin: 0 0 18px; text-transform: uppercase; letter-spacing: .06em; }
+  .sub { color: #666; font-size: 12px; margin: 0 0 14px; text-transform: uppercase; letter-spacing: .06em; }
   .pnum, .anum { font-weight: 700; }
-  /* Page 1 — arc overview */
-  .arc .phases { list-style: none; padding: 0; margin: 0; column-width: 240px; column-gap: 28px; }
+  /* Page 1 — rendered diagram (or text fallback) */
+  .arc { page-break-after: always; }
+  .diagram { display: block; width: 100%; max-height: 6.6in; object-fit: contain; margin: 0 auto; }
+  .arc .phases { list-style: none; padding: 0; margin: 0; column-width: 260px; column-gap: 28px; }
   .arc .phase { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 14px; }
   .arc .pname { font-size: 14px; font-weight: 600; border-bottom: 1px solid #ddd; padding-bottom: 3px; margin-bottom: 5px; }
   .arc .acts { list-style: none; padding: 0 0 0 14px; margin: 0; }
   .arc .acts li { font-size: 12.5px; margin: 2px 0; }
   .arc .anum { color: #555; }
   .empty { color: #999; font-style: italic; }
-  /* Page 2+ — detailed outline */
+  /* Page 2+ — detailed outline (two columns to use the landscape width) */
   .detail { page-break-before: always; }
-  .detail > h1 { margin-bottom: 16px; }
-  .dphase { margin: 0 0 18px; }
+  .detail > h1 { margin-bottom: 2px; }
+  .detail .cols { column-width: 340px; column-gap: 32px; }
+  .dphase { margin: 0 0 16px; break-inside: avoid; -webkit-column-break-inside: avoid; }
   .dphase h2 { font-size: 16px; margin: 0 0 4px; padding-bottom: 3px; border-bottom: 2px solid #1a1a1a; }
   .exit { font-size: 12px; color: #444; background: #f5f5f5; padding: 6px 8px; border-radius: 4px; margin: 6px 0 10px; }
-  .dact { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 12px; padding-left: 12px; border-left: 3px solid #ccc; }
+  .dact { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 10px; padding-left: 12px; border-left: 3px solid #ccc; }
   .dact h3 { font-size: 13.5px; margin: 0 0 2px; }
   .dact .meta { font-size: 11px; color: #777; margin: 0 0 4px; text-transform: uppercase; letter-spacing: .04em; }
   .dact p { font-size: 12.5px; margin: 3px 0; }
   .artifact { color: #333; }
-  @media screen { body { max-width: 8.5in; margin: 0 auto; padding: 0.6in; } }
+  @media screen { body { max-width: 11in; margin: 0 auto; padding: 0.5in; } }
 </style></head>
 <body>
-  <section class="arc">
-    <h1>${title}</h1>
-    <p class="sub">Coaching Arc</p>
-    <ol class="phases">${arc || '<li class="empty">This plan has no phases yet.</li>'}</ol>
-  </section>
+  ${page1}
   <section class="detail">
     <h1>${title}</h1>
     <p class="sub">Detailed Outline</p>
-    ${detail}
+    <div class="cols">${detail}</div>
   </section>
-  <script>
-    window.addEventListener("load", function () {
-      setTimeout(function () { window.focus(); window.print(); }, 200);
-    });
-    window.addEventListener("afterprint", function () { window.close(); });
-  </script>
 </body></html>`;
 }
