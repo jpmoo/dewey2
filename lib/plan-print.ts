@@ -158,7 +158,7 @@ export function buildPlanPrintHtml(
   .pnum, .anum { font-weight: 700; }
   /* Page 1 — rendered diagram (or text fallback) */
   .arc { page-break-after: always; }
-  .diagram { display: block; width: 100%; max-height: 6.6in; object-fit: contain; margin: 0 auto; }
+  .diagram { display: block; width: auto; max-width: 100%; height: auto; max-height: 6.9in; margin: 0 auto; }
   .arc .phases { list-style: none; padding: 0; margin: 0; column-width: 260px; column-gap: 28px; }
   .arc .phase { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 14px; }
   .arc .pname { font-size: 14px; font-weight: 600; border-bottom: 1px solid #ddd; padding-bottom: 3px; margin-bottom: 5px; }

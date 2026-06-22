@@ -135,7 +135,7 @@ function PhaseClouds({
   const nodes = useNodes();
   const clouds = useMemo(() => {
     return phases
-      .map((p) => {
+      .map((p, idx) => {
         const members = nodes.filter(
           (n) => (n.data as { phaseId?: string | null }).phaseId === p.id
         );
@@ -155,6 +155,7 @@ function PhaseClouds({
         const color = p.color ?? "#2563eb";
         return {
           id: p.id,
+          number: idx + 1,
           name: p.name,
           exitConditions: p.exitConditions ?? "",
           color,
@@ -208,7 +209,7 @@ function PhaseClouds({
                 pointerEvents: onEditPhase ? "auto" : "none",
               }}
             >
-              {c.name}
+              {c.number}. {c.name}
             </span>
           </div>
         );
@@ -231,7 +232,25 @@ type ActivityNodeData = {
   progress?: "completed" | "current" | "upcoming";
   /** Read-only preview: the node is clickable for details (show a pointer cursor). */
   clickable?: boolean;
+  /** Order letter within its phase (a, b, c…), shown as a badge and in the print export. */
+  letter?: string;
 };
+
+// Spreadsheet-style letters: a..z, aa, ab… (matches lib/plan-print).
+function orderLetter(i: number): string {
+  let s = "";
+  let n = i + 1;
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(97 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+// Explicit edge stroke so connections render in exported images (html-to-image
+// doesn't carry React Flow's CSS-variable edge color).
+const EDGE_STYLE = { stroke: "#94a3b8", strokeWidth: 1.5 } as const;
 
 let idCounter = 0;
 function newId(prefix: string): string {
@@ -280,7 +299,14 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
       <Handle type="source" position={Position.Right} id="right" />
       <div className="h-1 rounded-t" style={{ background: catColor }} />
       <div className="px-2 py-1.5">
-        <div className="break-words font-medium leading-tight">{data.label}</div>
+        <div className="break-words font-medium leading-tight">
+          {data.letter && (
+            <span className="mr-1 font-bold" style={{ color: data.phaseColor || catColor }}>
+              {data.letter}.
+            </span>
+          )}
+          {data.label}
+        </div>
         <div className="mt-0.5 flex items-center gap-1">
           <span className={`text-[10px] ${isCurrent ? "text-green-800" : "text-dewey-mute"}`}>
             {GATING_LABEL[data.gating]}
@@ -422,14 +448,62 @@ function CanvasInner({
   // one of the two still shows handles so the missing direction can be drawn.
   const outSources = useMemo(() => new Set(edges.map((e) => e.source)), [edges]);
   const inTargets = useMemo(() => new Set(edges.map((e) => e.target)), [edges]);
+
+  // Flow order (entry → next…), so phases/activities are numbered/lettered the
+  // same way on the canvas, in the exported image, and in the print outline.
+  const flowOrderIndex = useMemo(() => {
+    const order = new Map<string, number>();
+    const incoming = new Set(edges.map((e) => e.target));
+    let id: string | null = (nodes.find((n) => !incoming.has(n.id)) ?? nodes[0])?.id ?? null;
+    let i = 0;
+    const seen = new Set<string>();
+    while (id && !seen.has(id)) {
+      seen.add(id);
+      order.set(id, i++);
+      id = edges.find((e) => e.source === id)?.target ?? null;
+    }
+    for (const n of nodes) if (!order.has(n.id)) order.set(n.id, i++);
+    return order;
+  }, [nodes, edges]);
+
+  // Per-phase activity letter (a, b, c… reset each phase), in flow order.
+  const nodeLetter = useMemo(() => {
+    const m = new Map<string, string>();
+    const counts = new Map<string, number>();
+    const ordered = [...nodes].sort(
+      (a, b) => (flowOrderIndex.get(a.id) ?? 0) - (flowOrderIndex.get(b.id) ?? 0)
+    );
+    for (const n of ordered) {
+      const pid = n.data.phaseId ?? null;
+      if (!pid) continue;
+      const idx = counts.get(pid) ?? 0;
+      counts.set(pid, idx + 1);
+      m.set(n.id, orderLetter(idx));
+    }
+    return m;
+  }, [nodes, flowOrderIndex]);
+
   const flowNodes = useMemo(
     () =>
-      nodes.map((n) =>
-        outSources.has(n.id) && inTargets.has(n.id)
-          ? { ...n, className: "fully-connected" }
-          : n
-      ),
-    [nodes, outSources, inTargets]
+      nodes.map((n) => {
+        const letter = nodeLetter.get(n.id);
+        const data = letter === n.data.letter ? n.data : { ...n.data, letter };
+        return outSources.has(n.id) && inTargets.has(n.id)
+          ? { ...n, data, className: "fully-connected" }
+          : { ...n, data };
+      }),
+    [nodes, outSources, inTargets, nodeLetter]
+  );
+
+  // Edges with an explicit stroke + arrow so they survive image export.
+  const styledEdges = useMemo(
+    () =>
+      edges.map((e) => ({
+        ...e,
+        markerEnd: e.markerEnd ?? ARROW,
+        style: { ...EDGE_STYLE, ...(e.style ?? {}) },
+      })),
+    [edges]
   );
   const onConnect = useCallback(
     (c: Connection) => {
@@ -837,9 +911,15 @@ function CanvasInner({
     const flowNodes = getNodes();
     if (!viewport || flowNodes.length === 0) return null;
     const bounds = getNodesBounds(flowNodes);
-    const imageWidth = 1600;
-    const imageHeight = 1100; // landscape
-    const { x, y, zoom } = getViewportForBounds(bounds, imageWidth, imageHeight, 0.2, 2, 0.12);
+    // Size the capture frame to the plan's own aspect ratio so the image fills
+    // the page with minimal whitespace (clamped to keep extreme shapes sane).
+    const ratio =
+      bounds.width > 0 && bounds.height > 0
+        ? Math.min(Math.max(bounds.width / bounds.height, 0.6), 3.2)
+        : 1.45;
+    const imageHeight = 1200;
+    const imageWidth = Math.round(imageHeight * ratio);
+    const { x, y, zoom } = getViewportForBounds(bounds, imageWidth, imageHeight, 0.2, 4, "40px");
     return toPng(viewport, {
       backgroundColor: "#ffffff",
       width: imageWidth,
@@ -1039,7 +1119,7 @@ function CanvasInner({
         >
           <ReactFlow
             nodes={flowNodes}
-            edges={edges}
+            edges={styledEdges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
