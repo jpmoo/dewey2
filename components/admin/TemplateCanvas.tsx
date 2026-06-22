@@ -31,6 +31,7 @@ import ReactMarkdown from "react-markdown";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
+import { buildPlanPrintHtml } from "@/lib/plan-print";
 import { getHelperLines, HelperLines } from "./helper-lines";
 
 // The v1 "Compliance notice" wording, shown when the screen flags a message.
@@ -825,6 +826,22 @@ function CanvasInner({
     onClose();
   }, [dirty, onClose, dialog]);
 
+  // Print → a self-contained PDF-ready document (arc on page 1, details after),
+  // opened in a new window that auto-invokes the browser's print dialog.
+  const handlePrint = useCallback(() => {
+    const html = buildPlanPrintHtml(name || template.name || "Coaching Plan", buildGraph());
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) {
+      dialog.alert("Allow pop-ups for this site to print or save the plan as a PDF.", {
+        title: "Pop-up blocked",
+      });
+      return;
+    }
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }, [name, template.name, buildGraph, dialog]);
+
   // Clear the whole canvas (activities, edges, and phases).
   const clearCanvas = useCallback(async () => {
     if (
@@ -903,6 +920,14 @@ function CanvasInner({
           ) : savedAt ? (
             <span className="text-xs text-dewey-mute">Saved {savedAt}</span>
           ) : null}
+          <button
+            type="button"
+            className="dewey-btn-secondary w-auto"
+            onClick={handlePrint}
+            title="Print or save this plan as a PDF"
+          >
+            <span aria-hidden>🖨️</span> Print
+          </button>
           <button
             type="button"
             className="dewey-btn-primary w-auto"

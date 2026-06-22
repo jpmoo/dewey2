@@ -9,6 +9,7 @@ import {
   sanitizeProposedGraph,
   extractJsonObject,
   GRAPH_MARKER,
+  normalizeLeadInColon,
 } from "@/lib/plan-ai";
 import {
   appendMessage,
@@ -209,7 +210,7 @@ export async function POST(request: NextRequest) {
             if (prose.length > sentLen) {
               // Normalize a dangling lead-in colon to an ellipsis (we ask the
               // model not to use a colon, but be safe).
-              const chunk = prose.slice(sentLen).replace(/[:：]\s*$/, "…");
+              const chunk = normalizeLeadInColon(prose.slice(sentLen));
               if (chunk) send(controller, { type: "text", text: chunk });
               sentLen = prose.length;
             }
@@ -232,7 +233,7 @@ export async function POST(request: NextRequest) {
         }
         let reply = (mi !== -1 ? full.slice(0, mi) : full).trim();
         // When a graph follows, normalize a trailing colon to an ellipsis.
-        if (mi !== -1) reply = reply.replace(/[:：]\s*$/, "…").trim();
+        if (mi !== -1) reply = normalizeLeadInColon(reply).trim();
         const proposedGraph =
           mi !== -1 ? sanitizeProposedGraph(extractJsonObject(full.slice(mi + GRAPH_MARKER.length))) : null;
 

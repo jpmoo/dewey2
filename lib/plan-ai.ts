@@ -18,6 +18,16 @@ export const PHASE_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b
 // Marker separating the conversational reply from the proposed graph JSON.
 export const GRAPH_MARKER = "===GRAPH===";
 
+/**
+ * A plan lead-in should end with an ellipsis, not a colon ("Here's the arc I'd
+ * build…"). The model is told this, but normalize as a safety net. Handles a
+ * colon that's wrapped in trailing markdown emphasis/whitespace too — e.g.
+ * "**Here's the arc I'd build:**" → "**Here's the arc I'd build…**".
+ */
+export function normalizeLeadInColon(text: string): string {
+  return text.replace(/[:：](\s*[*_~`]*\s*)$/, "…$1");
+}
+
 // Activity catalog WITH default gating — the richer form the canvas always used.
 const CATALOG_WITH_GATING = ACTIVITY_TYPES.map(
   (a) => `- ${a.key} — ${a.label} (category: ${a.category}, default gating: ${a.defaultGating})`

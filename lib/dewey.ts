@@ -24,6 +24,7 @@ import {
   sanitizeProposedGraph,
   extractJsonObject,
   GRAPH_MARKER,
+  normalizeLeadInColon,
 } from "@/lib/plan-ai";
 import type { TemplateGraph } from "@/lib/templates";
 
@@ -244,7 +245,7 @@ export async function runDeweyForThread(params: {
     }
   }
   // A plan lead-in should end with an ellipsis, not a colon — normalize either way.
-  prose = prose.replace(/[:：]\s*$/, "…").trim() || "Here you go.";
+  prose = normalizeLeadInColon(prose).trim() || "Here you go.";
 
   // If the model emitted a plan directive but we couldn't build a plan from it,
   // tell the coach instead of leaving a bare "Here's a plan" with nothing.
