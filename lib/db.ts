@@ -1420,12 +1420,14 @@ export async function reactivateThreadPlan(
 export async function userManagesThreadPlan(planId: number, userId: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
+  // A system admin manages any partnership plan (oversight — they aren't a thread
+  // participant); a coach manages it when they're a participant of its thread.
   const res = await pool.query(
     `SELECT 1 FROM coaching_templates ct
-       JOIN thread_participants p ON p.thread_id = ct.thread_id AND p.user_id = $2
-       JOIN users u ON u.id = p.user_id
+       JOIN users u ON u.id = $2
+       LEFT JOIN thread_participants p ON p.thread_id = ct.thread_id AND p.user_id = $2
       WHERE ct.id = $1 AND ct.scope = 'partnership' AND ct.deleted_at IS NULL
-        AND u.system_role IN ('coach', 'admin')
+        AND (u.system_role = 'admin' OR (u.system_role = 'coach' AND p.user_id IS NOT NULL))
       LIMIT 1`,
     [planId, userId]
   );
