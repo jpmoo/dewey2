@@ -143,7 +143,7 @@ export function SetupForm() {
         />
       </div>
       <button type="submit" disabled={loading} className="dewey-btn-primary">
-        {loading ? "Creating…" : "Create admin account"}
+        <span aria-hidden>➕</span> {loading ? "Creating…" : "Create admin account"}
       </button>
     </form>
   );

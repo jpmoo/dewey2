@@ -73,11 +73,11 @@ code {
     @apply hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
-  /* Secondary action: outlined pill. Pills are the default button shape across
-     the app; primary/Save buttons stay square and bigger. */
+  /* Secondary action: outlined accent pill — the canonical pill used across the
+     app (Close, Cancel, Print, etc.). Primary stays the filled high-contrast pill. */
   .dewey-btn-secondary {
-    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-sm border border-dewey-border rounded-full bg-dewey-surface text-dewey-ink cursor-pointer;
-    @apply hover:bg-dewey-surface-2 focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 text-sm border border-dewey-accent/40 rounded-full bg-dewey-accent/5 text-dewey-accent cursor-pointer;
+    @apply transition-colors hover:bg-dewey-accent/10 focus:outline-none focus:ring-2 focus:ring-dewey-accent/20 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .dewey-input {

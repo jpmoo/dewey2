@@ -192,12 +192,12 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
     try {
       await apiFetch("/api/messages/threads", {
         method: "POST",
-        body: { recipientIds: [partner.id], message: desc.trim() },
+        body: { recipientIds: [partner.id], message: desc.trim(), forceNew: true },
       });
       onClose();
       await dialog.alert(
-        `Message sent to ${partner.full_name}. Open it in your Message Center to chat and add a plan.`,
-        { title: "Conversation started" }
+        `Message thread created with ${partner.full_name}. Open it in your Message Center to chat and add a plan.`,
+        { title: "Message thread created" }
       );
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed to start the conversation");
@@ -240,28 +240,28 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
         <div className="mt-5 border-t border-dewey-border pt-4">
           {starting ? (
             <div className="space-y-2">
-              <label className="dewey-label">Message</label>
+              <label className="dewey-label">First message</label>
               <textarea
                 className="dewey-input min-h-[80px]"
                 value={desc}
                 onChange={(e) => setDesc(e.target.value)}
-                placeholder={`Start a conversation with ${partner.full_name.split(" ")[0]}…`}
+                placeholder={`Start a new message thread with ${partner.full_name.split(" ")[0]}…`}
                 autoFocus
               />
               <p className="text-xs text-dewey-mute">
-                Opens a conversation in your Message Center, where you can chat and add a plan.
+                Creates a new message thread in your Message Center, where you can chat and add a plan.
               </p>
               {err && <p className="text-sm text-red-600">{err}</p>}
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  className="dewey-btn-secondary"
+                  className="dewey-btn-secondary px-5 py-2.5"
                   onClick={() => {
                     setStarting(false);
                     setErr(null);
                   }}
                 >
-                  Cancel
+                  <span aria-hidden>✕</span> Cancel
                 </button>
                 <button
                   type="button"
@@ -269,7 +269,7 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
                   onClick={startConversation}
                   disabled={sending || desc.trim().length < 1}
                 >
-                  {sending ? "Sending…" : "Send message"}
+                  <span aria-hidden>✉️</span> {sending ? "Creating…" : "Create message thread"}
                 </button>
               </div>
             </div>
@@ -280,10 +280,10 @@ function PartnerModal({ partner, onClose }: { partner: Partner; onClose: () => v
                 className="dewey-btn-primary w-auto"
                 onClick={() => setStarting(true)}
               >
-                Message {partner.full_name.split(" ")[0]}
+                <span aria-hidden>✉️</span> Create message thread
               </button>
-              <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-                Close
+              <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+                <span aria-hidden>✕</span> Close
               </button>
             </div>
           )}

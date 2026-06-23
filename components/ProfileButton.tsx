@@ -256,8 +256,8 @@ function ProfileModal({
         )}
 
         <div className="mt-6 flex justify-end gap-2">
-          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-            Cancel
+          <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+            <span aria-hidden>✕</span> Cancel
           </button>
           <button
             type="button"
@@ -265,7 +265,7 @@ function ProfileModal({
             onClick={save}
             disabled={saving || loading}
           >
-            {saving ? "Saving…" : "Save"}
+            <span aria-hidden>💾</span> {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>
@@ -414,8 +414,8 @@ function CropModal({
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" className="dewey-btn-secondary" onClick={onCancel}>
-            Cancel
+          <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onCancel}>
+            <span aria-hidden>✕</span> Cancel
           </button>
           <button
             type="button"
@@ -423,7 +423,7 @@ function CropModal({
             onClick={save}
             disabled={!img}
           >
-            Save photo
+            <span aria-hidden>💾</span> Save photo
           </button>
         </div>
       </div>

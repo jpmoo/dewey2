@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
 import { getMessageRecipients } from "@/lib/db";
 import { getSystemSettings } from "@/lib/settings";
-import { findOrCreateThread, listThreadsForUser, logThreadEvent, postMessage } from "@/lib/messages";
+import { createThread, findOrCreateThread, listThreadsForUser, logThreadEvent, postMessage } from "@/lib/messages";
 
 /** Threads the user participates in. Admins see every thread (oversight). */
 export async function GET(request: NextRequest) {
@@ -53,7 +53,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "You can't message one of those users" }, { status: 403 });
   }
 
-  const threadId = await findOrCreateThread(meId, recipientIds);
+  // forceNew: always spin up a fresh thread (e.g. "Create message thread" from the
+  // partner directory) rather than reusing the existing direct thread.
+  const threadId = body.forceNew
+    ? await createThread({ kind: "direct", createdBy: meId, participantIds: recipientIds })
+    : await findOrCreateThread(meId, recipientIds);
   await postMessage({ threadId, senderId: meId, body: message });
   await logThreadEvent({ userId: meId, actorId: meId, action: "message_sent", threadId });
   return NextResponse.json({ ok: true, threadId });

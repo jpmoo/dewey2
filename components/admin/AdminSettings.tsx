@@ -256,7 +256,7 @@ export function AdminSettings() {
               disabled={modelsLoading || !ollamaUrl.trim()}
               title="Fetch the installed model list from this server"
             >
-              {modelsLoading ? "Testing…" : "Test / Refresh"}
+              <span aria-hidden>🔌</span> {modelsLoading ? "Testing…" : "Test / Refresh"}
             </button>
           </div>
           {modelsError && <p className="text-xs text-red-600 mt-1">{modelsError}</p>}
@@ -416,7 +416,7 @@ export function AdminSettings() {
               disabled={ragCollLoading || !ragUrl.trim()}
               title="Connect to RAGDoll and list its collections"
             >
-              {ragCollLoading ? "Connecting…" : "Test / load collections"}
+              <span aria-hidden>🔌</span> {ragCollLoading ? "Connecting…" : "Test / load collections"}
             </button>
           </div>
           {ragCollError && <p className="text-xs text-red-600 mb-1">{ragCollError}</p>}
@@ -498,7 +498,7 @@ export function AdminSettings() {
           onClick={save}
           disabled={saving}
         >
-          {saving ? "Saving…" : "Save settings"}
+          <span aria-hidden>💾</span> {saving ? "Saving…" : "Save settings"}
         </button>
         {message && <span className="text-sm text-dewey-mute">{message}</span>}
       </div>

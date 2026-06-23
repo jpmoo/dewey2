@@ -1496,15 +1496,15 @@ function PhaseEditModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-            Cancel
+          <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+            <span aria-hidden>✕</span> Cancel
           </button>
           <button
             type="button"
             className="dewey-btn-primary w-auto"
             onClick={() => onSave({ name: name.trim() || phase.name, exitConditions })}
           >
-            Done
+            <span aria-hidden>✓</span> Done
           </button>
         </div>
       </div>
@@ -1583,15 +1583,15 @@ function NodeEditModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-            Cancel
+          <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+            <span aria-hidden>✕</span> Cancel
           </button>
           <button
             type="button"
             className="dewey-btn-primary w-auto"
             onClick={() => onSave({ gating, instructions, artifact })}
           >
-            Done
+            <span aria-hidden>✓</span> Done
           </button>
         </div>
       </div>
@@ -1930,7 +1930,7 @@ function CanvasAssistant({
               onClick={send}
               disabled={loading || !input.trim()}
             >
-              {loading ? "Thinking…" : "Send"}
+              <span aria-hidden>➤</span> {loading ? "Thinking…" : "Send"}
             </button>
           </div>
         </div>
@@ -2025,17 +2025,17 @@ function PreviewModal({
           </ReactFlowProvider>
         </div>
         <div className="flex justify-end gap-2 px-4 py-2 border-t border-dewey-border">
-          <button type="button" className="dewey-btn-secondary" onClick={onDiscard}>
-            Discard
+          <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onDiscard}>
+            <span aria-hidden>🗑️</span> Discard
           </button>
           {canReplace ? (
             <button
               type="button"
-              className="dewey-btn-secondary"
+              className="dewey-btn-secondary px-5 py-2.5"
               onClick={onApply}
               title="Replace everything on the canvas"
             >
-              Replace canvas
+              <span aria-hidden>♻️</span> Replace canvas
             </button>
           ) : (
             <span className="self-center text-xs text-dewey-mute">
@@ -2048,7 +2048,7 @@ function PreviewModal({
             onClick={onAdd}
             title="Append to the current canvas"
           >
-            Add to canvas
+            <span aria-hidden>➕</span> Add to canvas
           </button>
         </div>
       </div>
@@ -2112,8 +2112,8 @@ export function TemplateCanvas({
     return (
       <div className="fixed inset-0 z-50 bg-dewey-cream flex flex-col items-center justify-center gap-3">
         <p className="text-red-600">{error}</p>
-        <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-          Close
+        <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+          <span aria-hidden>✕</span> Close
         </button>
       </div>
     );
@@ -2268,8 +2268,8 @@ export function TemplateReadOnly({
     return (
       <div className="fixed inset-0 z-50 bg-dewey-cream flex flex-col items-center justify-center gap-3">
         <p className="text-red-600">{error}</p>
-        <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-          Close
+        <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+          <span aria-hidden>✕</span> Close
         </button>
       </div>
     );
@@ -2306,11 +2306,11 @@ export function TemplateReadOnly({
               onClick={onDuplicate}
               disabled={duplicating}
             >
-              {duplicating ? "Duplicating…" : "Duplicate to edit"}
+              <span aria-hidden>📋</span> {duplicating ? "Duplicating…" : "Duplicate to edit"}
             </button>
           )}
-          <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-            Close
+          <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+            <span aria-hidden>✕</span> Close
           </button>
         </div>
       </div>

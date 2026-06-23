@@ -85,7 +85,7 @@ export function CelebrationGate() {
             className="dewey-btn-primary mt-4 w-auto"
             onClick={() => setItems(null)}
           >
-            Nice!
+            <span aria-hidden>🎉</span> Nice!
           </button>
         </div>
       </div>

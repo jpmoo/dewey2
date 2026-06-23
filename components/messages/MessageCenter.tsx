@@ -537,8 +537,8 @@ function ComposeModal({
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-              Cancel
+            <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+              <span aria-hidden>✕</span> Cancel
             </button>
             <button
               type="button"
@@ -546,7 +546,7 @@ function ComposeModal({
               onClick={send}
               disabled={sending || loading || selected.length === 0}
             >
-              {sending ? "Sending…" : "Send"}
+              <span aria-hidden>✉️</span> {sending ? "Sending…" : "Send"}
             </button>
           </div>
         </div>
@@ -1975,7 +1975,7 @@ function Composer({
           onClick={send}
           disabled={sending}
         >
-          {sending ? "Sending…" : "Send"}
+          <span aria-hidden>✉️</span> {sending ? "Sending…" : "Send"}
         </button>
       </div>
       {writing && (
@@ -2137,11 +2137,11 @@ function DocumentEditorModal({
           className="chat-md min-h-[240px] flex-1 overflow-y-auto bg-white px-4 py-3 text-sm text-black focus:outline-none [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6"
         />
         <div className="flex justify-end gap-2 border-t border-dewey-border px-4 py-3">
-          <button type="button" className="dewey-btn-secondary w-auto" onClick={onClose}>
-            Cancel
+          <button type="button" className="dewey-btn-secondary w-auto px-5 py-2.5" onClick={onClose}>
+            <span aria-hidden>✕</span> Cancel
           </button>
           <button type="button" className="dewey-btn-primary w-auto" onClick={attach}>
-            Attach document
+            <span aria-hidden>📎</span> Attach document
           </button>
         </div>
       </div>
@@ -2482,7 +2482,7 @@ function ReviewModal({
                     onClick={ask}
                     disabled={asking}
                   >
-                    Ask
+                    <span aria-hidden>💬</span> Ask
                   </button>
                 </div>
               </section>
@@ -2502,11 +2502,11 @@ function ReviewModal({
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  className="dewey-btn-secondary w-auto"
+                  className="dewey-btn-secondary w-auto px-5 py-2.5"
                   onClick={() => setReturning(false)}
                   disabled={busy}
                 >
-                  Cancel
+                  <span aria-hidden>✕</span> Cancel
                 </button>
                 <button
                   type="button"
@@ -2514,7 +2514,7 @@ function ReviewModal({
                   onClick={() => decide("return")}
                   disabled={busy}
                 >
-                  {busy ? "Returning…" : "Return with feedback"}
+                  <span aria-hidden>↩️</span> {busy ? "Returning…" : "Return with feedback"}
                 </button>
               </div>
             </div>

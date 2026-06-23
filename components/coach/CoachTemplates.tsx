@@ -281,7 +281,7 @@ function ShareModal({
           </p>
           <div className="flex justify-end">
             <button type="button" className="dewey-btn-primary w-auto" onClick={onClose}>
-              Done
+              <span aria-hidden>✓</span> Done
             </button>
           </div>
         </div>
@@ -317,8 +317,8 @@ function ShareModal({
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-              Cancel
+            <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+              <span aria-hidden>✕</span> Cancel
             </button>
             <button
               type="button"
@@ -326,7 +326,7 @@ function ShareModal({
               onClick={send}
               disabled={sending || coaches.length === 0}
             >
-              {sending ? "Sharing…" : "Share"}
+              <span aria-hidden>📤</span> {sending ? "Sharing…" : "Share"}
             </button>
           </div>
         </div>
@@ -373,7 +373,7 @@ function SubmitModal({
           </p>
           <div className="flex justify-end">
             <button type="button" className="dewey-btn-primary w-auto" onClick={onClose}>
-              Done
+              <span aria-hidden>✓</span> Done
             </button>
           </div>
         </div>
@@ -394,8 +394,8 @@ function SubmitModal({
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" className="dewey-btn-secondary" onClick={onClose}>
-              Cancel
+            <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
+              <span aria-hidden>✕</span> Cancel
             </button>
             <button
               type="button"
@@ -403,7 +403,7 @@ function SubmitModal({
               onClick={send}
               disabled={sending}
             >
-              {sending ? "Submitting…" : "Submit"}
+              <span aria-hidden>📤</span> {sending ? "Submitting…" : "Submit"}
             </button>
           </div>
         </div>

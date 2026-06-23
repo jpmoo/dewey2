@@ -44,9 +44,9 @@ export function ImpersonationBanner() {
         type="button"
         onClick={returnToAdmin}
         disabled={leaving}
-        className="px-3 py-1 rounded-md bg-amber-950 text-amber-50 hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-950 px-3.5 py-1 text-amber-50 hover:opacity-90 disabled:opacity-50"
       >
-        {leaving ? "Returning…" : "Return to admin"}
+        <span aria-hidden>↩︎</span> {leaving ? "Returning…" : "Return to admin"}
       </button>
     </div>
   );

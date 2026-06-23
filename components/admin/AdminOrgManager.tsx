@@ -180,7 +180,7 @@ export function AdminOrgManager() {
                   onClick={() => addSchool(d.id)}
                   disabled={busy || !(schoolDrafts[d.id] ?? "").trim()}
                 >
-                  Add
+                  <span aria-hidden>➕</span> Add
                 </button>
               </div>
             </div>
@@ -200,7 +200,7 @@ export function AdminOrgManager() {
               onClick={addDistrict}
               disabled={busy || !newDistrict.trim()}
             >
-              Add district
+              <span aria-hidden>➕</span> Add district
             </button>
           </div>
         </div>

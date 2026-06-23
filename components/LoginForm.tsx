@@ -64,7 +64,7 @@ export function LoginForm() {
         />
       </div>
       <button type="submit" disabled={loading} className="dewey-btn-primary">
-        {loading ? "Signing in…" : "Sign in"}
+        <span aria-hidden>🔑</span> {loading ? "Signing in…" : "Sign in"}
       </button>
     </form>
   );

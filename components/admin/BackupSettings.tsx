@@ -103,7 +103,7 @@ export function BackupSettings() {
           onClick={saveRetention}
           disabled={saving}
         >
-          {saving ? "Saving…" : "Save"}
+          <span aria-hidden>💾</span> {saving ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
@@ -111,7 +111,7 @@ export function BackupSettings() {
           onClick={runNow}
           disabled={running}
         >
-          {running ? "Backing up…" : "Back up now"}
+          <span aria-hidden>🗄️</span> {running ? "Backing up…" : "Back up now"}
         </button>
       </div>
 
