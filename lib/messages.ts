@@ -199,10 +199,15 @@ export async function setThreadArchived(
   }
 }
 
-/** Archive/unarchive a thread for EVERY participant (admin oversight action). */
+/**
+ * Archive/unarchive a thread for EVERY participant — archiving closes the
+ * conversation for everyone. `actorId` is also archived (so a non-participant
+ * admin's own oversight view is closed too).
+ */
 export async function setThreadArchivedForAll(
   threadId: number,
-  archived: boolean
+  archived: boolean,
+  actorId?: number
 ): Promise<void> {
   const pool = getPool();
   await ensureSchema();
@@ -213,6 +218,12 @@ export async function setThreadArchivedForAll(
        ON CONFLICT DO NOTHING`,
       [threadId]
     );
+    if (actorId != null) {
+      await pool.query(
+        `INSERT INTO thread_archived (thread_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [threadId, actorId]
+      );
+    }
   } else {
     await pool.query("DELETE FROM thread_archived WHERE thread_id = $1", [threadId]);
   }
