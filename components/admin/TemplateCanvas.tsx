@@ -1421,6 +1421,12 @@ function CanvasInner({
               onChange={(e) => setDescDraft(e.target.value)}
               placeholder={descLoading ? "Drafting a description…" : "Describe this plan…"}
             />
+            {template.scope === "partnership" && (
+              <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                ⚠️ Saving sends this plan back to everyone in the message thread for re-approval —
+                it won't be active again until each participant re-accepts it.
+              </p>
+            )}
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
