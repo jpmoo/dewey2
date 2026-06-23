@@ -765,6 +765,11 @@ export async function getCoachPendingApprovals(coachId: number): Promise<Pending
        LEFT JOIN users pu ON pu.id = s.partner_id
       WHERE s.status = 'pending' AND ct.deleted_at IS NULL
         AND ct.accepted_at IS NOT NULL AND ct.outcome IS NULL AND ct.deactivated_at IS NULL
+        -- An archived (closed) conversation drops off the dashboard until reopened.
+        AND NOT EXISTS (
+          SELECT 1 FROM thread_archived a WHERE a.thread_id = ct.thread_id AND a.user_id = $1
+        )
+        AND NOT (t.kind = 'partnership' AND COALESCE(t.status, 'open') IN ('done', 'abandoned'))
       ORDER BY s.created_at ASC`,
     [coachId]
   );
@@ -833,17 +838,22 @@ export async function getRecentCelebrations(
 ): Promise<Celebration[]> {
   const pool = getPool();
   await ensureSchema();
-  const join = isAdmin
-    ? ""
-    : "JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1";
+  // Celebrations belong to the partner doing the work — coaches and admins never
+  // get fireworks when a partner completes something.
+  if (isAdmin) return [];
   const res = await pool.query(
     `SELECT m.id, m.body, m.event, m.created_at, t.id AS thread_id, t.subject
        FROM messages m
        JOIN message_threads t ON t.id = m.thread_id AND t.deleted_at IS NULL
-       ${join}
+       JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
+       JOIN users u ON u.id = $1 AND u.system_role NOT IN ('coach', 'admin')
       WHERE m.deleted_at IS NULL AND m.event IN ('advance', 'finish')
         AND m.created_at > NOW() - INTERVAL '14 days'
-        AND (m.audience IS NULL OR $1 = ANY(m.audience) OR ${isAdmin ? "TRUE" : "FALSE"})
+        AND (m.audience IS NULL OR $1 = ANY(m.audience))
+        -- Archived/closed conversations don't fire celebrations until reopened.
+        AND NOT EXISTS (
+          SELECT 1 FROM thread_archived a WHERE a.thread_id = t.id AND a.user_id = $1
+        )
         AND NOT EXISTS (
           SELECT 1 FROM celebration_seen cs WHERE cs.message_id = m.id AND cs.user_id = $1
         )

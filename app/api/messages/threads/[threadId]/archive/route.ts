@@ -4,7 +4,6 @@ import {
   canAccessThread,
   logThreadEvent,
   setThreadArchived,
-  setThreadArchivedForAll,
 } from "@/lib/messages";
 import { threadHasLivePlan } from "@/lib/db";
 
@@ -38,12 +37,10 @@ export async function POST(
     );
   }
 
-  // An admin archives for everyone (oversight); others only their own view.
-  if (session.user.system_role === "admin") {
-    await setThreadArchivedForAll(id, archived);
-  } else {
-    await setThreadArchived(id, userId, archived);
-  }
+  // Archive affects only the actor's own view (admins included — an admin isn't a
+  // thread participant, so this is what makes a closed conversation leave their
+  // active list and stop surfacing on the dashboard).
+  await setThreadArchived(id, userId, archived);
   await logThreadEvent({
     userId,
     actorId: userId,
