@@ -1594,6 +1594,30 @@ export async function editThreadPlan(
   return { ok: true };
 }
 
+/**
+ * Cancel ALL progress on an active plan: delete every submission (which cascades
+ * its review consults), and reset the current-activity pointer back to the entry.
+ * After this nothing is "completed", so the whole plan becomes editable again.
+ * Coach/admin who manages the thread only. Returns false if nothing applied.
+ */
+export async function resetPlanProgress(planId: number, userId: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (!plan || plan.deleted_at || plan.scope !== "partnership" || plan.deactivated_at) {
+    return false;
+  }
+  if (!(await userManagesThreadPlan(planId, userId))) return false;
+  await pool.query("DELETE FROM activity_submissions WHERE plan_id = $1", [planId]);
+  await pool.query(
+    `UPDATE coaching_templates
+        SET current_node_id = $2, outcome = NULL, updated_at = NOW()
+      WHERE id = $1`,
+    [planId, recomputeCurrent(plan.graph, new Set())]
+  );
+  return true;
+}
+
 /** Approved submissions for every node in a phase (history shown to the coach). */
 export async function getPhaseApprovedSubmissions(
   planId: number,

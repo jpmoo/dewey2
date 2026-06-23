@@ -342,7 +342,9 @@ function CanvasInner({
   lockedNodeIds?: string[];
 }) {
   const dialog = useDialog();
-  const lockedSet = useMemo(() => new Set(lockedNodeIds), [lockedNodeIds]);
+  // Completed (approved) activity ids, locked from editing. Stateful so "Reset
+  // progress" can unlock everything in place after cancelling progress.
+  const [lockedSet, setLockedSet] = useState<Set<string>>(() => new Set(lockedNodeIds));
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition, getNodes } = useReactFlow();
 
@@ -381,6 +383,8 @@ function CanvasInner({
           type: "activity",
           position: n.position,
           deletable: !locked,
+          // Completed activities are fully frozen — no delete, no drag/move.
+          draggable: !locked,
           data: {
             activityKey: n.activityKey,
             label: n.label,
@@ -580,8 +584,9 @@ function CanvasInner({
 
   // Remove the selected activities from whatever phase they're in.
   const removeSelectedFromPhase = useCallback(() => {
+    // Completed activities can't be removed from their phase.
     const ids = new Set(
-      nodes.filter((n) => n.selected && n.data.phaseId).map((n) => n.id)
+      nodes.filter((n) => n.selected && n.data.phaseId && !lockedSet.has(n.id)).map((n) => n.id)
     );
     if (ids.size === 0) return;
     setNodes((nds) =>
@@ -591,12 +596,13 @@ function CanvasInner({
           : n
       )
     );
-  }, [nodes, setNodes]);
+  }, [nodes, setNodes, lockedSet]);
 
   // ---- Grouping: create a new phase, or add unphased nodes to an existing one ----
   // Disallowed when the selection spans more than one phase.
   const handleGroup = useCallback(() => {
-    const selected = nodes.filter((n) => n.selected);
+    // Completed activities can't be re-grouped/re-phased.
+    const selected = nodes.filter((n) => n.selected && !lockedSet.has(n.id));
     if (selected.length === 0) return;
     const phaseIds = Array.from(
       new Set(selected.map((n) => n.data.phaseId).filter(Boolean) as string[])
@@ -645,7 +651,7 @@ function CanvasInner({
           : n
       )
     );
-  }, [nodes, phases, setNodes]);
+  }, [nodes, phases, setNodes, lockedSet]);
 
   const renamePhase = useCallback(
     (phaseId: string, nextName: string) => {
@@ -966,6 +972,38 @@ function CanvasInner({
     })();
   }, [name, template.name, description, buildGraph, dialog, captureCanvasPng]);
 
+  // Reset all progress: cancels every submission server-side, then unlocks all
+  // activities in place so the whole plan can be edited. Only when there's progress.
+  const handleResetProgress = useCallback(async () => {
+    if (lockedSet.size === 0 || savedId == null) return;
+    if (
+      !(await dialog.confirm(
+        "Reset this plan's progress? This permanently cancels every completed and submitted activity for the partner, so you can edit the entire plan. This can't be undone.",
+        { title: "Reset progress", confirmText: "Reset progress", danger: true }
+      ))
+    )
+      return;
+    try {
+      const res = await fetch(pathWithBase(`${templatesBase}/${savedId}/reset-progress`), {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error();
+      // Unlock everything in place.
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          deletable: true,
+          draggable: true,
+          data: { ...n.data, progress: undefined },
+        }))
+      );
+      setEdges((eds) => eds.map((e) => ({ ...e, deletable: true })));
+      setLockedSet(new Set());
+    } catch {
+      dialog.alert("Couldn't reset the plan's progress.");
+    }
+  }, [lockedSet, savedId, templatesBase, dialog, setNodes, setEdges]);
+
   // Clear the whole canvas (activities, edges, and phases).
   const clearCanvas = useCallback(async () => {
     if (
@@ -1000,7 +1038,7 @@ function CanvasInner({
     : selectedNodes.length === 0
     ? "Select activities first (box-select or shift-click)"
     : undefined;
-  const someSelectedInPhase = selectedNodes.some((n) => n.data.phaseId);
+  const someSelectedInPhase = selectedNodes.some((n) => n.data.phaseId && !lockedSet.has(n.id));
 
   const editingNode = editingNodeId ? nodes.find((n) => n.id === editingNodeId) : null;
   const editingPhase = editingPhaseId ? phases.find((p) => p.id === editingPhaseId) : null;
@@ -1067,9 +1105,20 @@ function CanvasInner({
       </div>
 
       {lockedSet.size > 0 && (
-        <div className="border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
-          🔒 Completed activities are locked. Saving sends the revised plan back to everyone to
-          re-accept; the partner resumes at the next unfinished activity.
+        <div className="flex items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-1.5 text-xs text-amber-900">
+          <span className="flex-1">
+            🔒 Completed activities are locked. You can add new activities and edit the
+            not-yet-completed ones; saving sends the revised plan back to everyone to re-accept,
+            and the partner resumes at the next unfinished activity.
+          </span>
+          <button
+            type="button"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-1 text-amber-800 hover:bg-amber-100"
+            onClick={handleResetProgress}
+            title="Cancel all progress so the whole plan can be edited"
+          >
+            <span aria-hidden>↺</span> Reset progress
+          </button>
         </div>
       )}
 
@@ -1255,6 +1304,7 @@ function CanvasInner({
         onApply={applyGraph}
         onAdd={addGraph}
         templateId={savedId}
+        canReplace={lockedSet.size === 0}
       />
 
       {editingNode && (
@@ -1496,12 +1546,15 @@ function CanvasAssistant({
   onApply,
   onAdd,
   templateId,
+  canReplace = true,
 }: {
   buildGraph: () => TemplateGraph;
   onApply: (g: TemplateGraph) => void;
   onAdd: (g: TemplateGraph) => void;
   /** The saved plan id (null until first save), used to persist/restore the transcript. */
   templateId: number | null;
+  /** When false (plan has progress), the AI can only add — not replace the canvas. */
+  canReplace?: boolean;
 }) {
   const dialog = useDialog();
   const [open, setOpen] = useState(true);
@@ -1781,6 +1834,7 @@ function CanvasAssistant({
           {previewing && proposed && (
             <PreviewModal
               graph={proposed}
+              canReplace={canReplace}
               onAdd={() => {
                 onAdd(proposed);
                 setProposed(null);
@@ -1826,11 +1880,13 @@ function CanvasAssistant({
 
 function PreviewModal({
   graph,
+  canReplace = true,
   onAdd,
   onApply,
   onDiscard,
 }: {
   graph: TemplateGraph;
+  canReplace?: boolean;
   onAdd: () => void;
   onApply: () => void;
   onDiscard: () => void;
@@ -1909,14 +1965,20 @@ function PreviewModal({
           <button type="button" className="dewey-btn-secondary" onClick={onDiscard}>
             Discard
           </button>
-          <button
-            type="button"
-            className="dewey-btn-secondary"
-            onClick={onApply}
-            title="Replace everything on the canvas"
-          >
-            Replace canvas
-          </button>
+          {canReplace ? (
+            <button
+              type="button"
+              className="dewey-btn-secondary"
+              onClick={onApply}
+              title="Replace everything on the canvas"
+            >
+              Replace canvas
+            </button>
+          ) : (
+            <span className="self-center text-xs text-dewey-mute">
+              Replace is disabled — this plan has progress. Reset progress to replace it.
+            </span>
+          )}
           <button
             type="button"
             className="dewey-btn-primary w-auto"
