@@ -1851,37 +1851,6 @@ export async function recordPlanAcceptance(
 }
 
 /**
- * Unlock a fully-accepted plan so its owner can edit/dismiss/replace it again.
- * RESTARTS it: clears acceptances + the current-activity pointer. Returns the
- * updated plan, or null if it isn't an accepted plan owned by this coach.
- */
-export async function unlockPartnershipPlan(
-  planId: number,
-  coachId: number
-): Promise<CoachingTemplate | null> {
-  const pool = getPool();
-  await ensureSchema();
-  const plan = await getTemplate(planId);
-  if (
-    !plan ||
-    plan.deleted_at ||
-    plan.scope !== "partnership" ||
-    !plan.accepted_at ||
-    !(await userManagesThreadPlan(planId, coachId))
-  ) {
-    return null;
-  }
-  await clearPlanAcceptances(planId);
-  await pool.query(
-    `UPDATE coaching_templates
-        SET accepted_at = NULL, current_node_id = NULL, updated_at = NOW()
-      WHERE id = $1`,
-    [planId]
-  );
-  return getTemplate(planId);
-}
-
-/**
  * Revise an embedded plan in place (e.g. @dewey adjusting it on request).
  * Replaces the graph and resets acceptance (clears all acceptances) so everyone
  * re-accepts the revised plan. Returns the updated plan, or null if not owned by

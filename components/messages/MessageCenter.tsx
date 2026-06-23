@@ -1011,7 +1011,7 @@ export function ThreadPane({
     async (messageId: number) => {
       if (
         !(await dialog.confirm(
-          "Accept this plan? Once every participant has accepted, it locks in as the active plan — it can't be edited or replaced without unlocking, which restarts it from the beginning.",
+          "Accept this plan? Once every participant has accepted, it becomes the active plan. The owner can still edit the not-yet-completed parts later — those changes go back for a quick re-acceptance, and completed work is kept.",
           { title: "Accept plan", confirmText: "Accept" }
         ))
       )
@@ -1026,30 +1026,6 @@ export function ThreadPane({
         fetchThread(false);
       } catch {
         dialog.alert("Couldn't accept the plan.");
-      }
-    },
-    [dialog, threadId, fetchThread]
-  );
-
-  const unlockPlan = useCallback(
-    async (messageId: number) => {
-      if (
-        !(await dialog.confirm(
-          "Unlock this plan? You'll be able to edit or replace it again, but accepting restarts the plan from the beginning.",
-          { title: "Unlock plan", confirmText: "Unlock" }
-        ))
-      )
-        return;
-      try {
-        const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/unlock-plan`), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messageId }),
-        });
-        if (!res.ok) throw new Error();
-        fetchThread(false);
-      } catch {
-        dialog.alert("Couldn't unlock the plan.");
       }
     },
     [dialog, threadId, fetchThread]
@@ -1297,7 +1273,6 @@ export function ThreadPane({
                     setViewPlanId(planId);
                   }}
                   onAcceptPlan={acceptPlan}
-                  onUnlockPlan={unlockPlan}
                   onSetOutcome={setPlanOutcome}
                   onEditPlan={editPlan}
                   onCopyPlan={copyPlan}
@@ -1448,7 +1423,6 @@ function MessageBubble({
   onPreview,
   onViewPlan,
   onAcceptPlan,
-  onUnlockPlan,
   onSetOutcome,
   onEditPlan,
   onCopyPlan,
@@ -1468,7 +1442,6 @@ function MessageBubble({
   onPreview: (a: AttachmentMeta) => void;
   onViewPlan: (planId: number) => void;
   onAcceptPlan: (messageId: number) => void;
-  onUnlockPlan: (messageId: number) => void;
   onSetOutcome: (messageId: number, outcome: "finished" | "abandoned" | "active") => void;
   onEditPlan: (planId: number) => void;
   onCopyPlan: (planId: number) => void;
@@ -1574,7 +1547,7 @@ function MessageBubble({
                     </span>
                   ) : m.plan_accepted ? (
                     <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-medium text-green-800">
-                      Active and Locked
+                      Active
                     </span>
                   ) : (
                     acceptedCount > 0 && (
@@ -1605,12 +1578,11 @@ function MessageBubble({
                   </>
                 )
               ) : m.plan_accepted ? (
-                // Active + locked. Owner can edit the not-done parts in place (the
-                // plan goes back for re-acceptance), or unlock/complete/abandon.
+                // Active. Owner can edit the not-done parts in place (the plan goes
+                // back for re-acceptance, progress preserved), or complete/abandon.
                 canManagePlan && (
                   <>
                     <PlanPill icon="✏️" label="Edit" onClick={() => onEditPlan(m.plan_id as number)} />
-                    <PlanPill icon="🔓" label="Unlock" onClick={() => onUnlockPlan(m.id)} />
                     <PlanPill icon="🏁" label="Complete" onClick={() => onSetOutcome(m.id, "finished")} />
                     <PlanPill icon="🚫" label="Abandon" onClick={() => onSetOutcome(m.id, "abandoned")} />
                   </>
