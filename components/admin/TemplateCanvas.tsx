@@ -1153,10 +1153,10 @@ function CanvasInner({
             onClick={openSaveDialog}
             disabled={saving}
           >
-            {saving ? "Saving…" : "Save"}
+            <span aria-hidden>💾</span> {saving ? "Saving…" : "Save"}
           </button>
           <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={handleClose}>
-            Close
+            <span aria-hidden>✕</span> Close
           </button>
         </div>
       </div>
@@ -1434,7 +1434,7 @@ function CanvasInner({
                 onClick={() => setSaveOpen(false)}
                 disabled={saving}
               >
-                Cancel
+                <span aria-hidden>✕</span> Cancel
               </button>
               <button
                 type="button"
@@ -1442,7 +1442,7 @@ function CanvasInner({
                 onClick={persist}
                 disabled={saving || !name.trim()}
               >
-                {saving ? "Saving…" : "Save plan"}
+                <span aria-hidden>💾</span> {saving ? "Saving…" : "Save plan"}
               </button>
             </div>
           </div>
