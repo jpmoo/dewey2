@@ -378,7 +378,7 @@ export async function addUserToThread(
   );
   if (!part.rows[0]) return { ok: false, pending: false, error: "Not a participant" };
   if (t.kind === "partnership" && t.created_by !== requesterId)
-    return { ok: false, pending: false, error: "Only the coach can add to a partnership" };
+    return { ok: false, pending: false, error: "Only the coach can add to a message thread" };
 
   const already = await pool.query(
     "SELECT 1 FROM thread_participants WHERE thread_id = $1 AND user_id = $2",
@@ -499,7 +499,7 @@ export async function getPartnershipsForUser(userId: number): Promise<Partnershi
     out.push({
       thread_id: t.id as number,
       created_at: toIso(t.created_at),
-      subject: (t.subject as string) || "Partnership",
+      subject: (t.subject as string) || "Message thread",
       status: (t.status ?? null) as ThreadStatus,
       members: members.rows.map((m) => ({
         id: m.id as number,
@@ -517,7 +517,7 @@ export async function getPartnershipsForUser(userId: number): Promise<Partnershi
  */
 async function namePartnership(description: string): Promise<string> {
   const text = description.trim();
-  if (!text) return "Partnership";
+  if (!text) return "Message thread";
   try {
     const raw = await summarizeWithComplianceModel(
       `Give a short, specific title (3-6 words, no quotes, no trailing punctuation) for a coaching partnership described as:\n\n${text}`
@@ -527,7 +527,7 @@ async function namePartnership(description: string): Promise<string> {
   } catch {
     // fall through to default
   }
-  return "Partnership";
+  return "Message thread";
 }
 
 /** Create a partnership thread: coach is auto-accepted, partners are invited. */

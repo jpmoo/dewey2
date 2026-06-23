@@ -790,10 +790,10 @@ export function ThreadPane({
 
   const renameThread = async () => {
     const current = thread?.subject ?? "";
-    const next = await dialog.prompt("Rename this partnership", {
+    const next = await dialog.prompt("Rename this message thread", {
       title: "Rename",
       defaultValue: current,
-      placeholder: "Partnership name",
+      placeholder: "Message thread name",
       confirmText: "Save",
     });
     if (next == null || !next.trim() || next.trim() === current) return;
@@ -1034,7 +1034,7 @@ export function ThreadPane({
   const editPlan = useCallback(
     async (planId: number) => {
       if (
-        !(await dialog.confirm("Edit this plan? Your changes update the partnership's copy.", {
+        !(await dialog.confirm("Edit this plan? Your changes update the message thread's copy.", {
           title: "Edit plan",
           confirmText: "Edit",
         }))
@@ -2595,7 +2595,7 @@ function AddPlanModal({
   const global = plans.filter((p) => p.scope === "global");
 
   return (
-    <PlanShell title="Add a plan to this partnership" onClose={onClose}>
+    <PlanShell title="Add a plan to this message thread" onClose={onClose}>
       <p className="mb-3 text-sm text-dewey-mute">
         A copy is embedded in the chat for everyone. It won&apos;t appear in your plan list.
       </p>

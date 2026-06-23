@@ -319,7 +319,7 @@ export async function runDeweyForThread(params: {
     } else if (graph) {
       const copy = await createTemplate({
         name: "Plan from @dewey",
-        description: "Drafted by @dewey in a partnership conversation.",
+        description: "Drafted by @dewey in a message thread conversation.",
         graph,
         createdBy: coachId,
         scope: "partnership",
