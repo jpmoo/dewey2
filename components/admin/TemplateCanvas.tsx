@@ -1141,7 +1141,7 @@ function CanvasInner({
           ) : null}
           <button
             type="button"
-            className="dewey-btn-secondary w-auto"
+            className="dewey-btn-secondary w-auto px-5 py-2.5"
             onClick={handlePrint}
             title="Print or save this plan as a PDF"
           >
@@ -1155,7 +1155,7 @@ function CanvasInner({
           >
             {saving ? "Saving…" : "Save"}
           </button>
-          <button type="button" className="dewey-btn-secondary" onClick={handleClose}>
+          <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={handleClose}>
             Close
           </button>
         </div>
@@ -1430,7 +1430,7 @@ function CanvasInner({
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                className="dewey-btn-secondary"
+                className="dewey-btn-secondary px-5 py-2.5"
                 onClick={() => setSaveOpen(false)}
                 disabled={saving}
               >

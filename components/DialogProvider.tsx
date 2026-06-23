@@ -192,7 +192,7 @@ function DialogModal({
 
         <div className="mt-5 flex justify-end gap-2">
           {showCancel && (
-            <button type="button" className="dewey-btn-secondary" onClick={onCancel}>
+            <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onCancel}>
               {cancelText}
             </button>
           )}
@@ -200,7 +200,7 @@ function DialogModal({
             type="button"
             className={
               danger
-                ? "rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                ? "inline-flex items-center justify-center rounded-full bg-red-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-red-700"
                 : "dewey-btn-primary w-auto"
             }
             onClick={onAccept}
