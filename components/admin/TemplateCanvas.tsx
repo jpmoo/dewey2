@@ -126,13 +126,18 @@ function PhaseClouds({
   phases,
   onEditPhase,
   onPhaseInfo,
+  onMovePhase,
 }: {
   phases: TemplatePhase[];
   onEditPhase?: (id: string) => void;
   /** Read-only: click the phase label to see its details. */
   onPhaseInfo?: (id: string) => void;
+  /** Editor: drag the cloud to move the phase and all its activities (flow-space delta). */
+  onMovePhase?: (id: string, dx: number, dy: number) => void;
 }) {
   const nodes = useNodes();
+  const { getViewport } = useReactFlow();
+  const dragRef = useRef<{ x: number; y: number } | null>(null);
   const clouds = useMemo(() => {
     return phases
       .map((p, idx) => {
@@ -176,11 +181,42 @@ function PhaseClouds({
         // Editor: keep the cloud click-through so nodes stay draggable; only the
         // label double-click edits exit conditions.
         const tip = `Phase: ${c.name}${c.exitConditions ? `\n\nExit conditions: ${c.exitConditions}` : ""}\n\nClick for details`;
+        const interactive = !!onPhaseInfo || !!onMovePhase;
         return (
           <div
             key={c.id}
             onClick={onPhaseInfo ? () => onPhaseInfo(c.id) : undefined}
-            title={onPhaseInfo ? tip : undefined}
+            onPointerDown={
+              onMovePhase
+                ? (e) => {
+                    if (e.button !== 0) return; // left-drag moves the phase
+                    e.stopPropagation();
+                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                    dragRef.current = { x: e.clientX, y: e.clientY };
+                  }
+                : undefined
+            }
+            onPointerMove={
+              onMovePhase
+                ? (e) => {
+                    if (!dragRef.current) return;
+                    const zoom = getViewport().zoom || 1;
+                    const dx = (e.clientX - dragRef.current.x) / zoom;
+                    const dy = (e.clientY - dragRef.current.y) / zoom;
+                    dragRef.current = { x: e.clientX, y: e.clientY };
+                    onMovePhase(c.id, dx, dy);
+                  }
+                : undefined
+            }
+            onPointerUp={
+              onMovePhase
+                ? (e) => {
+                    dragRef.current = null;
+                    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+                  }
+                : undefined
+            }
+            title={onPhaseInfo ? tip : onMovePhase ? "Drag to move this phase and its activities" : undefined}
             style={{
               position: "absolute",
               transform: `translate(${c.x}px, ${c.y}px)`,
@@ -191,8 +227,9 @@ function PhaseClouds({
               borderRadius: 36,
               boxShadow: `0 2px 18px ${rgba(c.color, 0.12)}`,
               zIndex: -1,
-              pointerEvents: onPhaseInfo ? "auto" : "none",
-              cursor: onPhaseInfo ? "pointer" : "default",
+              pointerEvents: interactive ? "auto" : "none",
+              cursor: onMovePhase ? "grab" : onPhaseInfo ? "pointer" : "default",
+              touchAction: onMovePhase ? "none" : undefined,
             }}
           >
             <span
@@ -383,8 +420,10 @@ function CanvasInner({
           type: "activity",
           position: n.position,
           deletable: !locked,
-          // Completed activities are fully frozen — no delete, no drag/move.
+          // Completed activities are fully frozen — no delete, no drag/move, and
+          // no new arrows in or out (connectable off).
           draggable: !locked,
+          connectable: !locked,
           data: {
             activityKey: n.activityKey,
             label: n.label,
@@ -405,8 +444,8 @@ function CanvasInner({
   const initialEdges: Edge[] = useMemo(() => {
     const posById = new Map((template.graph.nodes ?? []).map((n) => [n.id, n.position]));
     return toFlowEdges(template.graph.edges ?? [], posById).map((e) =>
-      // An edge between two completed activities is locked (preserves their order).
-      lockedSet.has(e.source) && lockedSet.has(e.target) ? { ...e, deletable: false } : e
+      // Any arrow touching a completed activity is locked — its connections can't change.
+      lockedSet.has(e.source) || lockedSet.has(e.target) ? { ...e, deletable: false } : e
     );
   }, [template, lockedSet]);
 
@@ -518,6 +557,8 @@ function CanvasInner({
         [sourceHandle, targetHandle] = [targetHandle, sourceHandle];
       }
       if (!source || !target || source === target) return;
+      // No new arrows in or out of a completed activity.
+      if (lockedSet.has(source) || lockedSet.has(target)) return;
       setEdges((eds) => {
         // At most one outgoing per source and one incoming per target.
         if (eds.some((e) => e.source === source)) return eds;
@@ -528,7 +569,7 @@ function CanvasInner({
         );
       });
     },
-    [setEdges]
+    [setEdges, lockedSet]
   );
 
   // ---- Add activity (drag from palette, or click to drop at center) ----
@@ -597,6 +638,21 @@ function CanvasInner({
       )
     );
   }, [nodes, setNodes, lockedSet]);
+
+  // Drag a phase: shift every activity in it by the given flow-space delta (so the
+  // whole phase and its contents move together).
+  const movePhaseBy = useCallback(
+    (phaseId: string, dx: number, dy: number) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.data.phaseId === phaseId
+            ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }
+            : n
+        )
+      );
+    },
+    [setNodes]
+  );
 
   // ---- Grouping: create a new phase, or add unphased nodes to an existing one ----
   // Disallowed when the selection spans more than one phase.
@@ -994,6 +1050,7 @@ function CanvasInner({
           ...n,
           deletable: true,
           draggable: true,
+          connectable: true,
           data: { ...n.data, progress: undefined },
         }))
       );
@@ -1190,7 +1247,7 @@ function CanvasInner({
             fitViewOptions={{ padding: 0.2, maxZoom: 0.85 }}
             proOptions={{ hideAttribution: true }}
           >
-            <PhaseClouds phases={phases} onEditPhase={setEditingPhaseId} />
+            <PhaseClouds phases={phases} onEditPhase={setEditingPhaseId} onMovePhase={movePhaseBy} />
             <Background />
             <HelperLines horizontal={helperLineH} vertical={helperLineV} />
             <Controls fitViewOptions={{ padding: 0.2, maxZoom: 0.85 }}>
