@@ -329,18 +329,21 @@ export async function getProgressReport(
 
   const users = await visibleUsersInBuilding(viewer, buildingId);
   const convMap = await conversationsFor(users.map((u) => u.id));
-  const partners: PartnerProgress[] = users.map((u) => {
-    const conversations = convMap.get(u.id) ?? [];
-    return {
-      userId: u.id,
-      fullName: u.full_name,
-      username: u.username,
-      role: u.system_role,
-      overall: overallDot(conversations),
-      allComplete: conversations.length > 0 && conversations.every((c) => c.complete),
-      conversations,
-    };
-  });
+  const partners: PartnerProgress[] = users
+    // Only list people who have at least one unarchived conversation.
+    .filter((u) => (convMap.get(u.id) ?? []).length > 0)
+    .map((u) => {
+      const conversations = convMap.get(u.id) ?? [];
+      return {
+        userId: u.id,
+        fullName: u.full_name,
+        username: u.username,
+        role: u.system_role,
+        overall: overallDot(conversations),
+        allComplete: conversations.length > 0 && conversations.every((c) => c.complete),
+        conversations,
+      };
+    });
   return { canAccess: true, buildings, buildingId, partners };
 }
 
