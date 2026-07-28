@@ -5,16 +5,18 @@ import { CoachDashboard } from "./CoachDashboard";
 import { CoachDirectory } from "./CoachDirectory";
 import { CoachTemplates } from "./CoachTemplates";
 import { MessageCenter } from "@/components/messages/MessageCenter";
+import { ProgressReport } from "@/components/ProgressReport";
 import { useUnreadCount } from "@/components/messages/useUnreadCount";
 import { useCoachDashboard } from "./usePendingApprovals";
 
-type Tab = "dashboard" | "messages" | "directory" | "canvas";
+type Tab = "dashboard" | "messages" | "directory" | "canvas" | "progress";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "messages", label: "Message Center" },
   { id: "directory", label: "Partner Directory" },
   { id: "canvas", label: "Coaching Canvas" },
+  { id: "progress", label: "Progress" },
 ];
 
 /** Tabbed shell for the coach workspace. Panels mount only when active. */
@@ -69,6 +71,7 @@ export function CoachTabs() {
       {tab === "messages" && <MessageCenter openThreadId={openThreadId} />}
       {tab === "directory" && <CoachDirectory />}
       {tab === "canvas" && <CoachTemplates />}
+      {tab === "progress" && <ProgressReport />}
     </div>
   );
 }

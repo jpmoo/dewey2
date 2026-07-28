@@ -26,6 +26,9 @@ export default async function HomePage() {
       redirect("/admin");
     case "coach":
       redirect("/coach");
+    case "site_leader":
+    case "deputy_site_leader":
+      redirect("/leader");
     default:
       redirect("/partner");
   }

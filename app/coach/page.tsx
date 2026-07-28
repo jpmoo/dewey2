@@ -20,6 +20,9 @@ export default async function CoachPage() {
   if (session.user.system_role === "admin") redirect("/admin");
   // Partners have their own workspace.
   if (session.user.system_role === "partner") redirect("/partner");
+  // Site / Deputy Site Leaders have the leader workspace.
+  if (session.user.system_role === "site_leader" || session.user.system_role === "deputy_site_leader")
+    redirect("/leader");
 
   return (
     <div className="min-h-screen bg-dewey-cream text-dewey-ink flex flex-col">
