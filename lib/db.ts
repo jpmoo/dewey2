@@ -9,7 +9,12 @@ import { nextNodeId, isLastInPhase, phaseIdOfNode, recomputeCurrent } from "@/li
 // Types
 // ============================================================
 
-export type SystemRole = "admin" | "coach" | "partner";
+export type SystemRole = "admin" | "coach" | "partner" | "site_leader" | "deputy_site_leader";
+
+/** Roles that are coached like a partner (partner + school-leadership roles). */
+export const PARTNER_ROLES: SystemRole[] = ["partner", "site_leader", "deputy_site_leader"];
+/** Roles with access to a school's Progress report. */
+export const PROGRESS_ROLES: SystemRole[] = ["admin", "coach", "site_leader", "deputy_site_leader"];
 
 export interface District {
   id: number;
@@ -107,7 +112,7 @@ export function ensureSchema(): Promise<void> {
           nickname       TEXT,
           email          TEXT,
           system_role    TEXT NOT NULL DEFAULT 'partner'
-                           CHECK (system_role IN ('admin', 'coach', 'partner')),
+                           CHECK (system_role IN ('admin', 'coach', 'partner', 'site_leader', 'deputy_site_leader')),
           district_id    INTEGER REFERENCES districts (id) ON DELETE SET NULL,
           school_id      INTEGER REFERENCES schools (id) ON DELETE SET NULL,
           role           TEXT,
@@ -223,6 +228,10 @@ export function ensureSchema(): Promise<void> {
         -- from the audit log. Usernames stay reserved while a deleted account
         -- holds them so a restore can't collide.
         ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+        -- Widen the system_role check to include the school-leadership roles.
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_system_role_check;
+        ALTER TABLE users ADD CONSTRAINT users_system_role_check
+          CHECK (system_role IN ('admin', 'coach', 'partner', 'site_leader', 'deputy_site_leader'));
         ALTER TABLE districts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         ALTER TABLE schools ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         ALTER TABLE coaching_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
@@ -904,7 +913,8 @@ export async function getCoachDirectory(coach: {
   }
 
   const coachBuildings = await getUserSchoolIds(coach.id);
-  const rows = await getDistrictUsersWithBuildings(coach.district_id, coach.id, ["partner"]);
+  // Coaches can coach partners and school leaders alike.
+  const rows = await getDistrictUsersWithBuildings(coach.district_id, coach.id, PARTNER_ROLES);
 
   const coachSet = new Set(coachBuildings);
   const visible = rows.filter((r) => r.school_ids.some((sid) => coachSet.has(sid)));
@@ -1032,13 +1042,13 @@ export async function getMessageRecipients(
   // Everyone can message an admin.
   for (const a of await getAdminRecipients(meId)) out.set(a.id, a);
 
-  const perms: RoleMessagePerms | undefined =
-    me.system_role === "coach" || me.system_role === "partner"
-      ? permissions[me.system_role]
-      : undefined;
+  // Leadership roles use the "partner" permission set (they're coached like one).
+  const permRole: "coach" | "partner" | null =
+    me.system_role === "coach" ? "coach" : PARTNER_ROLES.includes(me.system_role) ? "partner" : null;
+  const perms: RoleMessagePerms | undefined = permRole ? permissions[permRole] : undefined;
   if (perms && me.district_id != null) {
     const myBuildings = new Set(me.school_ids);
-    const rows = await getDistrictUsersWithBuildings(me.district_id, meId, ["coach", "partner"]);
+    const rows = await getDistrictUsersWithBuildings(me.district_id, meId, ["coach", ...PARTNER_ROLES]);
     for (const r of rows) {
       const role = r.system_role === "coach" ? "coach" : "partner";
       const districtAllowed = perms[`${role}_district`];

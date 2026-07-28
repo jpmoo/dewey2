@@ -18,7 +18,16 @@ const ThreadViewer = dynamic(
   { ssr: false }
 );
 
-type SystemRole = "admin" | "coach" | "partner";
+type SystemRole = "admin" | "coach" | "partner" | "site_leader" | "deputy_site_leader";
+
+/** Human labels for the system roles. */
+const ROLE_LABEL: Record<SystemRole, string> = {
+  admin: "Admin",
+  coach: "Coach",
+  partner: "Partner",
+  site_leader: "Site Leader",
+  deputy_site_leader: "Deputy Site Leader",
+};
 
 type User = {
   id: number;
@@ -43,9 +52,11 @@ const ROLE_BADGE: Record<SystemRole, string> = {
   admin: "bg-amber-100 text-amber-800",
   coach: "bg-blue-100 text-blue-800",
   partner: "bg-green-100 text-green-800",
+  site_leader: "bg-purple-100 text-purple-800",
+  deputy_site_leader: "bg-indigo-100 text-indigo-800",
 };
 
-const ROLES: SystemRole[] = ["admin", "coach", "partner"];
+const ROLES: SystemRole[] = ["admin", "coach", "partner", "site_leader", "deputy_site_leader"];
 
 type LogEntityType = "template" | "message" | "user" | "district" | "school";
 
@@ -312,7 +323,7 @@ export function AdminUserManager() {
               >
                 <option value="all">All roles</option>
                 {ROLES.map((r) => (
-                  <option key={r} value={r}>{r}</option>
+                  <option key={r} value={r}>{ROLE_LABEL[r]}</option>
                 ))}
               </select>
             </div>
@@ -372,7 +383,7 @@ export function AdminUserManager() {
                   </button>
                 )}
                 <span className={`text-xs px-2 py-0.5 rounded ${ROLE_BADGE[u.system_role]}`}>
-                  {u.system_role}
+                  {ROLE_LABEL[u.system_role]}
                 </span>
               </div>
             </li>
@@ -640,7 +651,7 @@ function UserCreateModal({
               onChange={(e) => setSystemRole(e.target.value as SystemRole)}
             >
               {ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
+                <option key={r} value={r}>{ROLE_LABEL[r]}</option>
               ))}
             </select>
           </div>
@@ -877,7 +888,7 @@ function UserEditModal({
               onChange={(e) => setSystemRole(e.target.value as SystemRole)}
             >
               {ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
+                <option key={r} value={r}>{ROLE_LABEL[r]}</option>
               ))}
             </select>
           </div>

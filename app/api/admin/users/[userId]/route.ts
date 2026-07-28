@@ -9,7 +9,7 @@ import {
 } from "@/lib/db";
 import type { SystemRole, UpdateUserParams } from "@/lib/db";
 
-const ROLES: SystemRole[] = ["admin", "coach", "partner"];
+const ROLES: SystemRole[] = ["admin", "coach", "partner", "site_leader", "deputy_site_leader"];
 
 function parseId(userId: string): number | null {
   const id = parseInt(userId, 10);
