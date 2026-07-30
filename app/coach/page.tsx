@@ -41,7 +41,7 @@ export default async function CoachPage() {
           <SignOutButton />
         </div>
       </header>
-      <main className="flex-1 px-6 py-6 max-w-3xl w-full mx-auto">
+      <main className="w-full flex-1 px-6 py-6">
         <CoachTabs />
       </main>
       <CelebrationGate />

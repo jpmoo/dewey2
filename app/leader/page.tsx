@@ -40,7 +40,7 @@ export default async function LeaderPage() {
           <SignOutButton />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-6">
+      <main className="w-full flex-1 px-6 py-6">
         <LeaderTabs />
       </main>
       <CelebrationGate />
