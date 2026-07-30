@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { authOptions, googleEnabled } from "@/lib/auth";
 import { hasAdmin } from "@/lib/db";
 import { LoginForm } from "@/components/LoginForm";
 import { Logo } from "@/components/Logo";
@@ -26,7 +26,7 @@ export default async function LoginPage() {
           <Logo size={88} className="mx-auto mb-4" />
           <p className="text-sm text-dewey-mute">Sign in to your account.</p>
         </div>
-        <LoginForm />
+        <LoginForm googleEnabled={googleEnabled} />
       </div>
     </main>
   );

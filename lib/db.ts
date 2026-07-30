@@ -664,6 +664,24 @@ export async function getUserById(id: number): Promise<User | null> {
   return (await attachSchoolIds([rowToUser(res.rows[0])]))[0];
 }
 
+/**
+ * Look up a user by email (case-insensitive) — used to link a Google sign-in to
+ * an existing account. Returns null if there's no match, or if the email is
+ * ambiguous (more than one account), so an ambiguous email can't sign anyone in.
+ */
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const trimmed = email.trim();
+  if (!trimmed) return null;
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query(
+    `SELECT ${USER_COLUMNS} FROM users WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL`,
+    [trimmed]
+  );
+  if (res.rows.length !== 1) return null;
+  return (await attachSchoolIds([rowToUser(res.rows[0])]))[0];
+}
+
 /** Includes password_hash — for auth only. Never expose this shape to clients. */
 export async function getUserWithHashByUsername(
   username: string

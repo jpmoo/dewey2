@@ -1,10 +1,54 @@
 import type { NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { getUserById, getUserWithHashByUsername, logUserEvent } from "@/lib/db";
+import GoogleProvider from "next-auth/providers/google";
+import { getUserByEmail, getUserById, getUserWithHashByUsername, logUserEvent } from "@/lib/db";
 import type { SystemRole, User } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { maybeRunDailyBackup } from "@/lib/backup";
+
+/** Google sign-in is available only when its OAuth credentials are configured. */
+export const googleEnabled = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
+const providers: NextAuthOptions["providers"] = [
+  CredentialsProvider({
+    id: "dewey",
+    name: "Dewey account",
+    credentials: {
+      username: { label: "Username", type: "text" },
+      password: { label: "Password", type: "password" },
+    },
+    async authorize(credentials) {
+      if (!credentials?.username || !credentials?.password) return null;
+      const user = await getUserWithHashByUsername(credentials.username);
+      if (!user) return null;
+      const ok = await verifyPassword(credentials.password, user.password_hash);
+      if (!ok) return null;
+      await logUserEvent({ userId: user.id, actorId: user.id, action: "signed_in" });
+      return {
+        id: String(user.id),
+        name: user.full_name,
+        email: user.email,
+        username: user.username,
+        nickname: user.nickname,
+        system_role: user.system_role,
+        district_id: user.district_id,
+        school_id: user.school_id,
+      };
+    },
+  }),
+];
+
+if (googleEnabled) {
+  providers.push(
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID as string,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      // Only need identity, and always show the account chooser.
+      authorization: { params: { prompt: "select_account" } },
+    })
+  );
+}
 
 /** Copy a user's identity onto the JWT. Shared by sign-in and impersonation. */
 function applyUserToToken(token: JWT, user: User): void {
@@ -19,37 +63,31 @@ function applyUserToToken(token: JWT, user: User): void {
 }
 
 export const authOptions: NextAuthOptions = {
-  providers: [
-    CredentialsProvider({
-      id: "dewey",
-      name: "Dewey account",
-      credentials: {
-        username: { label: "Username", type: "text" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.username || !credentials?.password) return null;
-        const user = await getUserWithHashByUsername(credentials.username);
-        if (!user) return null;
-        const ok = await verifyPassword(credentials.password, user.password_hash);
-        if (!ok) return null;
-        await logUserEvent({ userId: user.id, actorId: user.id, action: "signed_in" });
-        return {
-          id: String(user.id),
-          name: user.full_name,
-          email: user.email,
-          username: user.username,
-          nickname: user.nickname,
-          system_role: user.system_role,
-          district_id: user.district_id,
-          school_id: user.school_id,
-        };
-      },
-    }),
-  ],
+  providers,
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
-      // Fresh sign-in.
+    // Google sign-in is allowed only when the verified email maps to exactly one
+    // existing Dewey account (roles/org are admin-provisioned — no auto-create).
+    async signIn({ account, profile }) {
+      if (account?.provider !== "google") return true;
+      const p = profile as { email?: string; email_verified?: boolean } | undefined;
+      if (!p?.email || p.email_verified === false) return false;
+      const dewey = await getUserByEmail(p.email);
+      return dewey ? true : false; // false → /login?error=AccessDenied
+    },
+    async jwt({ token, user, account, trigger, session }) {
+      // Fresh sign-in via Google: resolve the identity from OUR database by the
+      // verified email, so Google only proves who they are.
+      if (user && account?.provider === "google") {
+        const email = (user.email as string | null) ?? (token.email as string | null);
+        const dewey = email ? await getUserByEmail(email) : null;
+        if (dewey) {
+          applyUserToToken(token, dewey);
+          await logUserEvent({ userId: dewey.id, actorId: dewey.id, action: "signed_in", detail: "via Google" });
+        }
+        return token;
+      }
+
+      // Fresh sign-in via credentials (authorize already returned our fields).
       if (user) {
         const u = user as typeof user & {
           username: string;
