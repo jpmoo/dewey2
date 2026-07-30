@@ -873,7 +873,7 @@ export function ThreadPane({
   );
 
   useEffect(() => {
-    stick.current = true; // jump to bottom when switching threads
+    stick.current = false; // open a thread at the top, not pinned to the bottom
     didInitialScroll.current = false;
     setLastReadAt(null);
     fetchThread(true);
@@ -930,7 +930,9 @@ export function ThreadPane({
           return;
         }
       }
-      el.scrollTop = el.scrollHeight;
+      // No unread/target: open at the top and let it fill downward.
+      el.scrollTop = 0;
+      stick.current = false;
       return;
     }
     if (stick.current) el.scrollTop = el.scrollHeight;
@@ -1238,9 +1240,9 @@ export function ThreadPane({
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-4 py-3">
-        {/* min-h-full + justify-end anchors a short conversation to the bottom so
-            the pane reads as filled, while long threads scroll normally. */}
-        <div className="flex min-h-full flex-col justify-end gap-3">
+        {/* Top-aligned: a short conversation starts at the top and fills downward;
+            long threads scroll normally (and stick to the newest on send). */}
+        <div className="flex min-h-full flex-col justify-start gap-3">
           {loading ? (
             <p className="text-xs text-dewey-mute">Loading…</p>
           ) : messages.length === 0 ? (
