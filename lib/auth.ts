@@ -22,6 +22,8 @@ const providers: NextAuthOptions["providers"] = [
       if (!credentials?.username || !credentials?.password) return null;
       const user = await getUserWithHashByUsername(credentials.username);
       if (!user) return null;
+      // Password-less accounts (Google-only) have an empty hash — no credentials login.
+      if (!user.password_hash) return null;
       const ok = await verifyPassword(credentials.password, user.password_hash);
       if (!ok) return null;
       await logUserEvent({ userId: user.id, actorId: user.id, action: "signed_in" });

@@ -580,8 +580,16 @@ function UserCreateModal({
 
   const save = async () => {
     setErr(null);
-    if (password.length < 8) {
+    if (!fullName.trim()) {
+      setErr("Full name is required.");
+      return;
+    }
+    if (password && password.length < 8) {
       setErr("Password must be at least 8 characters.");
+      return;
+    }
+    if (!password && !email.trim()) {
+      setErr("Set a password, or an email so the user can sign in with Google.");
       return;
     }
     setSaving(true);
@@ -615,7 +623,12 @@ function UserCreateModal({
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="dewey-label">Username</label>
-            <input className="dewey-input" value={username} onChange={(e) => setUsername(e.target.value)} />
+            <input
+              className="dewey-input"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Auto-generated if blank"
+            />
           </div>
           <div>
             <label className="dewey-label">Temporary password</label>
@@ -625,9 +638,15 @@ function UserCreateModal({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
+              placeholder="Optional"
             />
           </div>
         </div>
+        <p className="-mt-2 text-xs text-dewey-mute">
+          Leave the password blank to create a Google-only account — it just needs an email
+          matching the person&apos;s Google address. Username is optional and generated from the
+          email/name when left blank.
+        </p>
         <div>
           <label className="dewey-label">Full name</label>
           <input className="dewey-input" value={fullName} onChange={(e) => setFullName(e.target.value)} />

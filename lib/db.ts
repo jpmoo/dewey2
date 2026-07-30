@@ -699,8 +699,10 @@ export async function getUserWithHashByUsername(
 }
 
 export interface CreateUserParams {
-  username: string;
-  password: string;
+  /** Optional — auto-generated from the email/name when blank (e.g. a Google-only account). */
+  username?: string;
+  /** Optional — omit for an account that signs in only with Google (email required). */
+  password?: string;
   full_name: string;
   nickname?: string | null;
   email?: string | null;
@@ -713,24 +715,58 @@ export interface CreateUserParams {
   about?: string | null;
 }
 
+/** Derive a unique username from an email/name (for accounts created without one). */
+async function generateUniqueUsername(seed: string): Promise<string> {
+  const pool = getPool();
+  const local = seed.includes("@") ? seed.split("@")[0] : seed;
+  const base =
+    local
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, ".")
+      .replace(/^[.]+|[.]+$/g, "")
+      .slice(0, 24) || "user";
+  let candidate = base;
+  let n = 1;
+  // Reserve across all rows (including soft-deleted), like explicit usernames.
+  while (true) {
+    const taken = await pool.query(
+      "SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1",
+      [candidate]
+    );
+    if (taken.rows.length === 0) return candidate;
+    n += 1;
+    candidate = `${base}${n}`;
+  }
+}
+
 export async function createUser(params: CreateUserParams): Promise<User> {
   const pool = getPool();
   await ensureSchema();
-  const username = params.username.trim();
-  if (!username) throw new Error("Username is required");
   if (!params.full_name?.trim()) throw new Error("Full name is required");
-  // Check across ALL rows (including soft-deleted) — usernames stay reserved
-  // while a hidden account holds them, so a later restore can't collide.
-  const taken = await pool.query(
-    "SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1",
-    [username]
-  );
-  if (taken.rows.length > 0) {
-    throw new Error(
-      "Username already taken (it may belong to a hidden account — restore it from the audit log)."
-    );
+  const email = params.email?.trim() || null;
+  const hasPassword = typeof params.password === "string" && params.password.length > 0;
+  // A password-less account can only sign in with Google, so it needs an email.
+  if (!hasPassword && !email) {
+    throw new Error("Set a password, or an email so the user can sign in with Google.");
   }
-  const password_hash = await hashPassword(params.password);
+  let username = params.username?.trim() ?? "";
+  if (username) {
+    // Check across ALL rows (including soft-deleted) — usernames stay reserved
+    // while a hidden account holds them, so a later restore can't collide.
+    const taken = await pool.query(
+      "SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) LIMIT 1",
+      [username]
+    );
+    if (taken.rows.length > 0) {
+      throw new Error(
+        "Username already taken (it may belong to a hidden account — restore it from the audit log)."
+      );
+    }
+  } else {
+    username = await generateUniqueUsername(email ?? params.full_name);
+  }
+  // Empty hash = no password login (Google-only); authorize() rejects an empty hash.
+  const password_hash = hasPassword ? await hashPassword(params.password as string) : "";
   const res = await pool.query(
     `INSERT INTO users
        (username, password_hash, full_name, nickname, email, system_role, district_id, school_id, role, about)
@@ -2269,7 +2305,7 @@ export async function createDemoUsers(): Promise<void> {
   ];
 
   for (const demo of demos) {
-    const exists = await getUserWithHashByUsername(demo.username);
+    const exists = await getUserWithHashByUsername(demo.username as string);
     if (!exists) {
       await createUser(demo);
       continue;

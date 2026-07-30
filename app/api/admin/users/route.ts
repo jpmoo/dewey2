@@ -26,15 +26,21 @@ export async function POST(request: NextRequest) {
   const username = typeof body.username === "string" ? body.username.trim() : "";
   const password = typeof body.password === "string" ? body.password : "";
   const full_name = typeof body.full_name === "string" ? body.full_name.trim() : "";
+  const email = typeof body.email === "string" ? body.email.trim() : "";
   const system_role: SystemRole = ROLES.includes(body.system_role) ? body.system_role : "partner";
 
-  if (!username || !password || !full_name) {
+  if (!full_name) {
+    return NextResponse.json({ error: "Full name is required" }, { status: 400 });
+  }
+  // A password is optional — but a password-less account needs an email so it can
+  // sign in with Google. Username is optional (auto-generated when blank).
+  if (!password && !email) {
     return NextResponse.json(
-      { error: "Username, password, and full name are required" },
+      { error: "Set a password, or an email so the user can sign in with Google." },
       { status: 400 }
     );
   }
-  if (password.length < 8) {
+  if (password && password.length < 8) {
     return NextResponse.json(
       { error: "Password must be at least 8 characters" },
       { status: 400 }
@@ -43,8 +49,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const user = await createUser({
-      username,
-      password,
+      username: username || undefined,
+      password: password || undefined,
       full_name,
       nickname: typeof body.nickname === "string" ? body.nickname : null,
       email: typeof body.email === "string" ? body.email : null,
