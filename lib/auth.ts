@@ -174,6 +174,26 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
+    // With a base path, NEXTAUTH_URL points at `.../<base>/api/auth`, so the
+    // callback's baseUrl may carry that path. Resolve relative targets against the
+    // ORIGIN and default to the app's base path — so post-login (e.g. via Google)
+    // lands on the app, not the auth route.
+    async redirect({ url, baseUrl }) {
+      let origin = baseUrl;
+      try {
+        origin = new URL(baseUrl).origin;
+      } catch {
+        /* keep baseUrl */
+      }
+      const home = origin + (process.env.NEXT_PUBLIC_BASE_PATH || "");
+      try {
+        if (url.startsWith("/")) return `${origin}${url}`;
+        if (new URL(url).origin === origin) return url;
+      } catch {
+        /* fall through */
+      }
+      return home;
+    },
   },
   events: {
     // On any sign-in, lazily ensure today's on-server backup exists (no-op if it
