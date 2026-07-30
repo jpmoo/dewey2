@@ -930,9 +930,16 @@ export function ThreadPane({
           return;
         }
       }
-      // No unread/target: open at the top and let it fill downward.
-      el.scrollTop = 0;
-      stick.current = false;
+      // No unread/target: a short thread that fits opens at the top and fills
+      // down; once it overflows we open at the bottom (newest), like iMessage.
+      const overflowing = el.scrollHeight - el.clientHeight > 1;
+      if (overflowing) {
+        el.scrollTop = el.scrollHeight;
+        stick.current = true;
+      } else {
+        el.scrollTop = 0;
+        stick.current = false;
+      }
       return;
     }
     if (stick.current) el.scrollTop = el.scrollHeight;
