@@ -15,6 +15,8 @@ export async function GET() {
   const directory = await getCoachDirectory({
     id: Number(session.user.id),
     district_id: session.user.district_id ?? null,
+    // District leaders see every coachable person in their district.
+    districtWide: session.user.system_role === "district_leader",
   });
   return NextResponse.json(directory);
 }

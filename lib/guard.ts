@@ -31,7 +31,9 @@ export async function requireCoach(): Promise<{ session: Session } | NextRespons
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.user.system_role !== "coach") {
+  // Coach-family: coach + district leader (a coach at their base).
+  const role = session.user.system_role;
+  if (role !== "coach" && role !== "district_leader") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return { session };
@@ -44,10 +46,31 @@ export async function requireCoachOrAdmin(): Promise<{ session: Session } | Next
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const role = session.user.system_role;
-  if (role !== "coach" && role !== "admin") {
+  if (role !== "coach" && role !== "admin" && role !== "district_leader") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   return { session };
+}
+
+/**
+ * Message-area authorization scope for a session:
+ *   - admin → system-wide oversight
+ *   - district_leader → oversight of threads involving their own district
+ *   - everyone else → their own threads only
+ * `canOversee` is true for admin or district leader (admin-like capabilities in
+ * the message area).
+ */
+export function messageScope(session: Session): {
+  me: number;
+  isAdmin: boolean;
+  overseeDistrictId: number | null;
+  canOversee: boolean;
+} {
+  const role = session.user.system_role;
+  const isAdmin = role === "admin";
+  const overseeDistrictId =
+    role === "district_leader" ? session.user.district_id ?? null : null;
+  return { me: Number(session.user.id), isAdmin, overseeDistrictId, canOversee: isAdmin || overseeDistrictId != null };
 }
 
 /** Guard for any authenticated user (e.g. the message center). */

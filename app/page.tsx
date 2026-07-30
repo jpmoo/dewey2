@@ -29,6 +29,8 @@ export default async function HomePage() {
     case "site_leader":
     case "deputy_site_leader":
       redirect("/leader");
+    case "district_leader":
+      redirect("/district");
     default:
       redirect("/partner");
   }

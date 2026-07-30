@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/guard";
+import { messageScope, requireUser } from "@/lib/guard";
 import { canAccessThread, getAttachmentForDownload } from "@/lib/messages";
 
 // Only these exact types are rendered inline. Notably SVG and HTML are NOT here
@@ -30,13 +30,13 @@ export async function GET(
   if (!att) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const me = Number(session.user.id);
-  const isAdmin = session.user.system_role === "admin";
-  if (!(await canAccessThread(att.threadId, me, isAdmin))) {
+  const { isAdmin, overseeDistrictId, canOversee } = messageScope(session);
+  if (!(await canAccessThread(att.threadId, me, isAdmin, overseeDistrictId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  // Respect a restricted message's audience: only listed users (plus admins) may
-  // fetch its attachment, mirroring the message-body visibility rules.
-  if (att.audience && !isAdmin && !att.audience.includes(me)) {
+  // Respect a restricted message's audience: only listed users (plus oversight
+  // roles) may fetch its attachment, mirroring the message-body visibility rules.
+  if (att.audience && !canOversee && !att.audience.includes(me)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

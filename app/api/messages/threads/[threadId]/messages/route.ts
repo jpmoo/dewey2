@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/guard";
+import { messageScope, requireUser } from "@/lib/guard";
 import {
   addAttachment,
   canAccessThread,
@@ -40,8 +40,8 @@ export async function POST(
   const id = parseInt(threadId, 10);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
-  const isAdmin = session.user.system_role === "admin";
-  if (!(await canAccessThread(id, Number(session.user.id), isAdmin))) {
+  const { isAdmin, overseeDistrictId } = messageScope(session);
+  if (!(await canAccessThread(id, Number(session.user.id), isAdmin, overseeDistrictId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

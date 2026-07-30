@@ -1,20 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/guard";
+import { messageScope, requireUser } from "@/lib/guard";
 import { getMessageRecipients } from "@/lib/db";
 import { getSystemSettings } from "@/lib/settings";
 import { createThread, findOrCreateThread, listThreadsForUser, logThreadEvent, postMessage } from "@/lib/messages";
 
-/** Threads the user participates in. Admins see every thread (oversight). */
+/**
+ * Threads the user participates in. Admins see every thread; a district leader
+ * sees every thread involving their own district (both get oversight actions).
+ */
 export async function GET(request: NextRequest) {
   const guard = await requireUser();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
-  const isAdmin = session.user.system_role === "admin";
+  const { me, isAdmin, overseeDistrictId, canOversee } = messageScope(session);
   const url = new URL(request.url);
   const q = url.searchParams.get("q") ?? undefined;
   const archived = url.searchParams.get("archived") === "1";
-  const threads = await listThreadsForUser(Number(session.user.id), isAdmin, { q, archived });
-  return NextResponse.json({ threads, isAdmin });
+  const threads = await listThreadsForUser(me, isAdmin, { q, archived }, overseeDistrictId);
+  // `isAdmin` here is the UI's "oversight" flag (admin-like message capabilities).
+  return NextResponse.json({ threads, isAdmin: canOversee });
 }
 
 /**

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/guard";
+import { messageScope, requireUser } from "@/lib/guard";
 import {
   canAccessThread,
   logThreadEvent,
@@ -19,18 +19,18 @@ export async function POST(
   const id = parseInt(threadId, 10);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
-  const isAdmin = session.user.system_role === "admin";
+  const { isAdmin, overseeDistrictId, canOversee } = messageScope(session);
   const userId = Number(session.user.id);
-  if (!(await canAccessThread(id, userId, isAdmin))) {
+  if (!(await canAccessThread(id, userId, isAdmin, overseeDistrictId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const body = await request.json().catch(() => ({}));
   const archived = body.archived !== false;
 
-  // No one but an admin can archive a conversation that still has an active plan
-  // — finish or abandon the plan first.
-  if (archived && session.user.system_role !== "admin" && (await threadHasLivePlan(id))) {
+  // Oversight roles (admin / district leader) can archive despite an active plan;
+  // others must finish or abandon the plan first.
+  if (archived && !canOversee && (await threadHasLivePlan(id))) {
     return NextResponse.json(
       { error: "This conversation has an active plan — finish or abandon it before archiving." },
       { status: 403 }

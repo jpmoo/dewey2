@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/guard";
 import { createUser, getAllUsers, logUserEvent } from "@/lib/db";
 import type { SystemRole } from "@/lib/db";
 
-const ROLES: SystemRole[] = ["admin", "coach", "partner", "site_leader", "deputy_site_leader"];
+const ROLES: SystemRole[] = ["admin", "coach", "partner", "site_leader", "deputy_site_leader", "district_leader"];
 
 export async function GET() {
   const guard = await requireAdmin();

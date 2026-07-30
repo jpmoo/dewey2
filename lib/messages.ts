@@ -260,7 +260,8 @@ export async function setThreadSubject(threadId: number, subject: string): Promi
 export async function canAccessThread(
   threadId: number,
   userId: number,
-  isAdmin: boolean
+  isAdmin: boolean,
+  overseeDistrictId: number | null = null
 ): Promise<boolean> {
   const pool = getPool();
   if (isAdmin) {
@@ -275,9 +276,21 @@ export async function canAccessThread(
     [threadId, userId]
   );
   const r = res.rows[0];
-  if (!r) return false;
-  if (r.kind === "partnership" && r.accepted !== true && r.created_by !== userId) return false;
-  return true;
+  if (r && !(r.kind === "partnership" && r.accepted !== true && r.created_by !== userId)) {
+    return true;
+  }
+  // District-leader oversight: any thread with a participant in their district.
+  if (overseeDistrictId != null) {
+    const o = await pool.query(
+      `SELECT 1 FROM message_threads t
+         JOIN thread_participants p ON p.thread_id = t.id
+         JOIN users u ON u.id = p.user_id
+        WHERE t.id = $1 AND t.deleted_at IS NULL AND u.district_id = $2 LIMIT 1`,
+      [threadId, overseeDistrictId]
+    );
+    return o.rows.length > 0;
+  }
+  return false;
 }
 
 // ============================================================
@@ -585,16 +598,30 @@ export async function logThreadEvent(params: {
 export async function listThreadsForUser(
   userId: number,
   isAdmin: boolean,
-  opts: { q?: string; archived?: boolean } = {}
+  opts: { q?: string; archived?: boolean } = {},
+  overseeDistrictId: number | null = null
 ): Promise<ThreadSummary[]> {
   const pool = getPool();
   await ensureSchema();
 
   const params: unknown[] = [userId];
   const where: string[] = ["t.deleted_at IS NULL"];
-  let join = "LEFT JOIN coaching_templates ct ON ct.id = t.template_id";
+  const join = "LEFT JOIN coaching_templates ct ON ct.id = t.template_id";
   if (!isAdmin) {
-    join = "JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1 " + join;
+    // Visibility: threads the user participates in, plus (a district leader) any
+    // thread that has a participant in their district.
+    const clauses = [
+      "EXISTS (SELECT 1 FROM thread_participants pp WHERE pp.thread_id = t.id AND pp.user_id = $1)",
+    ];
+    if (overseeDistrictId != null) {
+      params.push(overseeDistrictId);
+      const di = `$${params.length}`;
+      clauses.push(
+        `EXISTS (SELECT 1 FROM thread_participants pp JOIN users uu ON uu.id = pp.user_id
+                  WHERE pp.thread_id = t.id AND uu.district_id = ${di})`
+      );
+    }
+    where.push(`(${clauses.join(" OR ")})`);
   }
   // Per-user archive state (admins archive their own oversight view too). A
   // partnership that has been marked done or abandoned counts as archived for
@@ -857,7 +884,7 @@ export async function getRecentCelebrations(
        FROM messages m
        JOIN message_threads t ON t.id = m.thread_id AND t.deleted_at IS NULL
        JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = $1
-       JOIN users u ON u.id = $1 AND u.system_role NOT IN ('coach', 'admin')
+       JOIN users u ON u.id = $1 AND u.system_role NOT IN ('coach', 'admin', 'district_leader')
       WHERE m.deleted_at IS NULL AND m.event IN ('advance', 'finish')
         AND m.created_at > NOW() - INTERVAL '14 days'
         AND (m.audience IS NULL OR $1 = ANY(m.audience))

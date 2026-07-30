@@ -18,7 +18,13 @@ const ThreadViewer = dynamic(
   { ssr: false }
 );
 
-type SystemRole = "admin" | "coach" | "partner" | "site_leader" | "deputy_site_leader";
+type SystemRole =
+  | "admin"
+  | "coach"
+  | "partner"
+  | "site_leader"
+  | "deputy_site_leader"
+  | "district_leader";
 
 /** Human labels for the system roles. */
 const ROLE_LABEL: Record<SystemRole, string> = {
@@ -27,6 +33,7 @@ const ROLE_LABEL: Record<SystemRole, string> = {
   partner: "Partner",
   site_leader: "Site Leader",
   deputy_site_leader: "Deputy Site Leader",
+  district_leader: "District Leader",
 };
 
 type User = {
@@ -54,9 +61,17 @@ const ROLE_BADGE: Record<SystemRole, string> = {
   partner: "bg-green-100 text-green-800",
   site_leader: "bg-purple-100 text-purple-800",
   deputy_site_leader: "bg-indigo-100 text-indigo-800",
+  district_leader: "bg-teal-100 text-teal-800",
 };
 
-const ROLES: SystemRole[] = ["admin", "coach", "partner", "site_leader", "deputy_site_leader"];
+const ROLES: SystemRole[] = [
+  "admin",
+  "coach",
+  "partner",
+  "site_leader",
+  "deputy_site_leader",
+  "district_leader",
+];
 
 type LogEntityType = "template" | "message" | "user" | "district" | "school";
 
@@ -260,9 +275,6 @@ export function AdminUserManager() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Users</h2>
-          <p className="text-sm text-dewey-mute">
-            Each account has one role: admin, coach, or partner.
-          </p>
         </div>
         <button
           type="button"

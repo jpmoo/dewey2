@@ -10,7 +10,8 @@ export async function POST(
   const guard = await requireUser();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
-  if (session.user.system_role !== "coach" && session.user.system_role !== "admin") {
+  const role = session.user.system_role;
+  if (role !== "coach" && role !== "admin" && role !== "district_leader") {
     return NextResponse.json({ error: "Only a coach can add a plan" }, { status: 403 });
   }
   const { threadId } = await params;

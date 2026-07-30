@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/guard";
+import { messageScope, requireUser } from "@/lib/guard";
 import { canAccessThread, getActiveActivity } from "@/lib/messages";
 import { userManagesThreadPlan } from "@/lib/db";
 import { getReviewData } from "@/lib/activity-flow";
@@ -22,12 +22,12 @@ export async function GET(
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
   const me = Number(session.user.id);
-  const isAdmin = session.user.system_role === "admin";
-  if (!(await canAccessThread(id, me, isAdmin))) {
+  const { isAdmin, overseeDistrictId } = messageScope(session);
+  if (!(await canAccessThread(id, me, isAdmin, overseeDistrictId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Only a coach who manages this thread's plan (or an admin) may read it.
+  // Only someone who manages this thread's plan (coach/admin/district leader) may read it.
   const active = await getActiveActivity(id);
   const allowed = isAdmin || (active != null && (await userManagesThreadPlan(active.planId, me)));
   if (!allowed) {

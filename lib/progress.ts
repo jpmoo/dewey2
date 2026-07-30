@@ -147,6 +147,14 @@ async function accessibleBuildings(viewer: {
     );
     return res.rows.map((r) => ({ id: r.id as number, name: r.name as string, districtName: r.district_name as string | null }));
   }
+  // A district leader oversees every building in their district (not just their base).
+  if (viewer.system_role === "district_leader" && viewer.district_id != null) {
+    const res = await pool.query(
+      `SELECT id, name FROM schools WHERE district_id = $1 AND deleted_at IS NULL ORDER BY name`,
+      [viewer.district_id]
+    );
+    return res.rows.map((r) => ({ id: r.id as number, name: r.name as string }));
+  }
   if (viewer.school_ids.length > 0) {
     const res = await pool.query(
       `SELECT id, name FROM schools WHERE id = ANY($1::int[]) AND deleted_at IS NULL ORDER BY name`,

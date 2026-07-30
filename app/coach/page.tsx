@@ -23,6 +23,8 @@ export default async function CoachPage() {
   // Site / Deputy Site Leaders have the leader workspace.
   if (session.user.system_role === "site_leader" || session.user.system_role === "deputy_site_leader")
     redirect("/leader");
+  // District Leaders have their own oversight workspace.
+  if (session.user.system_role === "district_leader") redirect("/district");
 
   return (
     <div className="min-h-screen bg-dewey-cream text-dewey-ink flex flex-col">

@@ -24,13 +24,13 @@ export async function POST(
   }
 
   const me = Number(session.user.id);
-  const isAdmin = session.user.system_role === "admin";
-  const isCoach = session.user.system_role === "coach";
+  const role = session.user.system_role;
+  const canRename = role === "admin" || role === "coach" || role === "district_leader";
   const thread = await getThreadMeta(id);
   if (!thread || thread.kind === "compliance") {
     return NextResponse.json({ error: "Can't rename this conversation" }, { status: 404 });
   }
-  if (!isAdmin && !isCoach) {
+  if (!canRename) {
     return NextResponse.json({ error: "Only a coach or an admin can rename this." }, { status: 403 });
   }
 

@@ -9,12 +9,26 @@ import { nextNodeId, isLastInPhase, phaseIdOfNode, recomputeCurrent } from "@/li
 // Types
 // ============================================================
 
-export type SystemRole = "admin" | "coach" | "partner" | "site_leader" | "deputy_site_leader";
+export type SystemRole =
+  | "admin"
+  | "coach"
+  | "partner"
+  | "site_leader"
+  | "deputy_site_leader"
+  | "district_leader";
 
 /** Roles that are coached like a partner (partner + school-leadership roles). */
 export const PARTNER_ROLES: SystemRole[] = ["partner", "site_leader", "deputy_site_leader"];
-/** Roles with access to a school's Progress report. */
-export const PROGRESS_ROLES: SystemRole[] = ["admin", "coach", "site_leader", "deputy_site_leader"];
+/** Roles that act as a coach (coach + district leader). */
+export const COACH_ROLES: SystemRole[] = ["coach", "district_leader"];
+/** Roles with access to a Progress report. */
+export const PROGRESS_ROLES: SystemRole[] = [
+  "admin",
+  "coach",
+  "site_leader",
+  "deputy_site_leader",
+  "district_leader",
+];
 
 export interface District {
   id: number;
@@ -112,7 +126,7 @@ export function ensureSchema(): Promise<void> {
           nickname       TEXT,
           email          TEXT,
           system_role    TEXT NOT NULL DEFAULT 'partner'
-                           CHECK (system_role IN ('admin', 'coach', 'partner', 'site_leader', 'deputy_site_leader')),
+                           CHECK (system_role IN ('admin', 'coach', 'partner', 'site_leader', 'deputy_site_leader', 'district_leader')),
           district_id    INTEGER REFERENCES districts (id) ON DELETE SET NULL,
           school_id      INTEGER REFERENCES schools (id) ON DELETE SET NULL,
           role           TEXT,
@@ -231,7 +245,7 @@ export function ensureSchema(): Promise<void> {
         -- Widen the system_role check to include the school-leadership roles.
         ALTER TABLE users DROP CONSTRAINT IF EXISTS users_system_role_check;
         ALTER TABLE users ADD CONSTRAINT users_system_role_check
-          CHECK (system_role IN ('admin', 'coach', 'partner', 'site_leader', 'deputy_site_leader'));
+          CHECK (system_role IN ('admin', 'coach', 'partner', 'site_leader', 'deputy_site_leader', 'district_leader'));
         ALTER TABLE districts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         ALTER TABLE schools ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         ALTER TABLE coaching_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
@@ -956,10 +970,12 @@ async function getDistrictUsersWithBuildings(
 export async function getCoachDirectory(coach: {
   id: number;
   district_id: number | null;
+  /** District leaders see every coachable person in their district, not just shared buildings. */
+  districtWide?: boolean;
 }): Promise<{
   partners: DirectoryPartner[];
   schools: School[];
-  scope: "school" | "none";
+  scope: "school" | "district" | "none";
 }> {
   await ensureSchema();
   if (coach.district_id == null) {
@@ -971,7 +987,9 @@ export async function getCoachDirectory(coach: {
   const rows = await getDistrictUsersWithBuildings(coach.district_id, coach.id, PARTNER_ROLES);
 
   const coachSet = new Set(coachBuildings);
-  const visible = rows.filter((r) => r.school_ids.some((sid) => coachSet.has(sid)));
+  const visible = coach.districtWide
+    ? rows
+    : rows.filter((r) => r.school_ids.some((sid) => coachSet.has(sid)));
 
   const partners: DirectoryPartner[] = visible.map((r) => ({
     id: r.id,
@@ -992,10 +1010,11 @@ export async function getCoachDirectory(coach: {
     school_names: r.school_names,
   }));
 
-  // The coach's own buildings, for narrowing the directory.
+  // Buildings for narrowing the directory: the whole district for a district
+  // leader, otherwise just the coach's own buildings.
   const allSchools = await getSchools(coach.district_id);
-  const schools = allSchools.filter((s) => coachSet.has(s.id));
-  return { partners, schools, scope: "school" };
+  const schools = coach.districtWide ? allSchools : allSchools.filter((s) => coachSet.has(s.id));
+  return { partners, schools, scope: coach.districtWide ? "district" : "school" };
 }
 
 /** Other coaches in the same district (for the "share a template" picker). */
@@ -1096,9 +1115,30 @@ export async function getMessageRecipients(
   // Everyone can message an admin.
   for (const a of await getAdminRecipients(meId)) out.set(a.id, a);
 
-  // Leadership roles use the "partner" permission set (they're coached like one).
+  // A district leader can start a conversation with anyone in their district
+  // (district-wide access), regardless of the same-school messaging matrix.
+  if (me.system_role === "district_leader" && me.district_id != null) {
+    const rows = await getDistrictUsersWithBuildings(me.district_id, meId, [
+      "coach",
+      "district_leader",
+      ...PARTNER_ROLES,
+    ]);
+    for (const r of rows) {
+      out.set(r.id, {
+        id: r.id,
+        full_name: r.full_name,
+        username: r.username,
+        system_role: r.system_role,
+        district_name: r.district_name,
+        school_names: r.school_names,
+      });
+    }
+    return Array.from(out.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
+  }
+
+  // Coach-family roles use the "coach" permission set; leadership roles use "partner".
   const permRole: "coach" | "partner" | null =
-    me.system_role === "coach" ? "coach" : PARTNER_ROLES.includes(me.system_role) ? "partner" : null;
+    COACH_ROLES.includes(me.system_role) ? "coach" : PARTNER_ROLES.includes(me.system_role) ? "partner" : null;
   const perms: RoleMessagePerms | undefined = permRole ? permissions[permRole] : undefined;
   if (perms && me.district_id != null) {
     const myBuildings = new Set(me.school_ids);
@@ -1491,7 +1531,16 @@ export async function userManagesThreadPlan(planId: number, userId: number): Pro
        JOIN users u ON u.id = $2
        LEFT JOIN thread_participants p ON p.thread_id = ct.thread_id AND p.user_id = $2
       WHERE ct.id = $1 AND ct.scope = 'partnership' AND ct.deleted_at IS NULL
-        AND (u.system_role = 'admin' OR (u.system_role = 'coach' AND p.user_id IS NOT NULL))
+        AND (
+          u.system_role = 'admin'
+          OR (u.system_role = 'coach' AND p.user_id IS NOT NULL)
+          -- District leaders manage plans in any thread in their own district.
+          OR (u.system_role = 'district_leader' AND (
+                p.user_id IS NOT NULL
+                OR EXISTS (SELECT 1 FROM thread_participants dp JOIN users du ON du.id = dp.user_id
+                            WHERE dp.thread_id = ct.thread_id AND du.district_id = u.district_id)
+              ))
+        )
       LIMIT 1`,
     [planId, userId]
   );

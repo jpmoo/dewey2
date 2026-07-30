@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/guard";
+import { messageScope, requireUser } from "@/lib/guard";
 import {
   canAccessThread,
   getActiveActivity,
@@ -21,14 +21,14 @@ export async function GET(
   const id = parseInt(threadId, 10);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
-  const isAdmin = session.user.system_role === "admin";
-  if (!(await canAccessThread(id, Number(session.user.id), isAdmin))) {
+  const { me, isAdmin, overseeDistrictId, canOversee } = messageScope(session);
+  if (!(await canAccessThread(id, me, isAdmin, overseeDistrictId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const thread = await getThreadMeta(id);
   if (!thread) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const messages = await getThreadMessages(id, { userId: Number(session.user.id), isAdmin });
+  const messages = await getThreadMessages(id, { userId: me, isAdmin: canOversee });
   const activeActivity = await getActiveActivity(id);
   // Capture the prior last-read time (so the client can scroll to the first
   // unread message) BEFORE marking the thread read.
