@@ -219,14 +219,17 @@ export function AdminUserManager() {
       )
         return;
       setImpersonating(u.id);
+      // update() re-signs the session cookie server-side in its response, so the
+      // browser adopts the impersonated identity even if the client promise then
+      // rejects. Always hard-navigate afterward — never leave the admin sitting on
+      // the (now stale) console, which would 403 every admin action mid-transition.
       try {
         await update({ action: "impersonate", userId: u.id });
-        // Hard navigation so the dispatcher routes by the now-impersonated role.
-        window.location.href = rootPath;
-      } catch (e) {
-        dialog.alert(e instanceof Error ? e.message : "Failed to switch users");
-        setImpersonating(null);
+      } catch {
+        // Ignore — the reload below re-syncs the UI to the real cookie state.
       }
+      // Hard navigation so the dispatcher routes by the (now-impersonated) role.
+      window.location.href = rootPath;
     },
     [update, dialog]
   );
