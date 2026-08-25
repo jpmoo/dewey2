@@ -309,7 +309,7 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
                 </button>
               </div>
             </div>
-            <ul className="flex-1 divide-y divide-dewey-border overflow-y-auto">
+            <ul className="flex-1 divide-y divide-dewey-border/50 overflow-y-auto">
               {loading ? (
                 <li className="px-3 py-3 text-xs text-dewey-mute">Loading…</li>
               ) : threads.length === 0 ? (
@@ -578,6 +578,49 @@ function threadTitle(t: ThreadSummary, meId: number | null): string {
  * Row of participant avatars with nicknames below; coaches are highlighted with
  * an accent ring + label so it's clear who's coaching.
  */
+/** Compact overlapping avatar cluster for the thread list (coaches ringed). */
+function AvatarStack({
+  participants,
+  meId,
+  size = 30,
+  max = 3,
+}: {
+  participants: Participant[];
+  meId: number | null;
+  size?: number;
+  max?: number;
+}) {
+  // Prefer showing the other people; fall back to everyone for a solo thread.
+  const others = participants.filter((p) => p.id !== meId);
+  const list = others.length ? others : participants;
+  const shown = list.slice(0, max);
+  const extra = list.length - shown.length;
+  if (shown.length === 0) return null;
+  return (
+    <div className="flex shrink-0 -space-x-2">
+      {shown.map((p) => (
+        <div
+          key={p.id}
+          title={p.full_name}
+          className={`rounded-full ring-2 ${
+            p.system_role === "coach" ? "ring-dewey-accent" : "ring-dewey-surface"
+          }`}
+        >
+          <Avatar userId={p.id} name={p.full_name} size={size} />
+        </div>
+      ))}
+      {extra > 0 && (
+        <div
+          className="flex items-center justify-center rounded-full bg-dewey-surface-2 text-[10px] font-medium text-dewey-mute ring-2 ring-dewey-surface"
+          style={{ width: size, height: size }}
+        >
+          +{extra}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ParticipantAvatars({
   participants,
   size,
@@ -628,53 +671,63 @@ function ThreadListItem({
   onSelect: () => void;
 }) {
   return (
-    <li
-      className={`px-3 py-2 ${active ? "bg-dewey-surface-2" : "hover:bg-dewey-surface-2"}`}
-    >
-      <button type="button" onClick={onSelect} className="block w-full text-left">
-        <div className="flex items-center justify-between gap-2">
-          <span
-            className={`flex min-w-0 items-center gap-1.5 truncate text-sm text-dewey-ink ${
-              t.unread ? "font-semibold" : "font-medium"
-            }`}
-          >
-            {t.unread && (
-              <span className="h-2 w-2 shrink-0 rounded-full bg-dewey-accent" aria-label="unread" />
-            )}
-            <span className="truncate">{threadTitle(t, meId)}</span>
-          </span>
-          {t.status && (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`flex w-full items-center gap-3 border-l-2 px-3 py-2.5 text-left transition-colors ${
+          active
+            ? "border-dewey-accent bg-dewey-accent/[0.06]"
+            : "border-transparent hover:bg-dewey-surface-2"
+        }`}
+      >
+        <AvatarStack participants={t.participants} meId={meId} size={34} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-2">
             <span
-              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase ${
-                STATUS_BADGE[t.status] ?? "bg-dewey-surface-2 text-dewey-mute"
+              className={`min-w-0 flex-1 truncate text-sm text-dewey-ink ${
+                t.unread ? "font-semibold" : "font-medium"
               }`}
             >
-              {t.status}
+              {threadTitle(t, meId)}
             </span>
-          )}
-        </div>
-        {t.participants.length > 0 && (
-          <div className="mt-1.5">
-            <ParticipantAvatars participants={t.participants} size={24} />
+            {t.last_message && (
+              <time className="shrink-0 text-[11px] text-dewey-mute">
+                {formatLastTime(t.last_message.created_at)}
+              </time>
+            )}
           </div>
-        )}
-        {t.last_message && (
-          <>
-            <div
-              className={`mt-0.5 truncate text-xs ${
+          <div className="mt-0.5 flex items-center gap-2">
+            <span
+              className={`min-w-0 flex-1 truncate text-xs ${
                 t.unread ? "text-dewey-ink" : "text-dewey-mute"
               }`}
             >
-              {t.last_message.sender_name && (
-                <span className="font-medium">{t.last_message.sender_name}: </span>
+              {t.last_message ? (
+                <>
+                  {t.last_message.sender_name && (
+                    <span className="font-medium">{t.last_message.sender_name}: </span>
+                  )}
+                  {t.last_message.body}
+                </>
+              ) : (
+                <span className="italic text-dewey-mute">No messages yet</span>
               )}
-              {t.last_message.body}
-            </div>
-            <div className="mt-0.5 text-[10px] text-dewey-mute">
-              {formatLastTime(t.last_message.created_at)}
-            </div>
-          </>
-        )}
+            </span>
+            {t.status && (
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-medium uppercase tracking-wide ${
+                  STATUS_BADGE[t.status] ?? "bg-dewey-surface-2 text-dewey-mute"
+                }`}
+              >
+                {t.status}
+              </span>
+            )}
+            {t.unread && (
+              <span className="h-2 w-2 shrink-0 rounded-full bg-dewey-accent" aria-label="unread" />
+            )}
+          </div>
+        </div>
       </button>
     </li>
   );
