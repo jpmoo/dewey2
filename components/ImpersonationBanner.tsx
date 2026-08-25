@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { pathWithBase } from "@/lib/base-path";
 
@@ -12,8 +12,17 @@ import { pathWithBase } from "@/lib/base-path";
 export function ImpersonationBanner() {
   const { data: session, update } = useSession();
   const [leaving, setLeaving] = useState(false);
+  const impersonating = !!session?.user?.impersonating;
 
-  if (!session?.user?.impersonating) return null;
+  // Reserve top space (via --imp-h) while impersonating so full-screen overlays
+  // sit below the banner instead of covering it.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("impersonating", impersonating);
+    return () => root.classList.remove("impersonating");
+  }, [impersonating]);
+
+  if (!impersonating) return null;
 
   const { name, nickname, system_role, impersonatorName } = session.user;
 
@@ -29,10 +38,10 @@ export function ImpersonationBanner() {
   }
 
   return (
-    // z-[45] keeps the banner above normal page chrome — including the corner "D"
-    // logo (z-40), which must sit behind this band — but BELOW full-screen
-    // overlays/modals (z-50+), so it never covers a modal's top toolbar/commands.
-    <div className="sticky top-0 z-[45] bg-amber-500 text-amber-950 px-4 py-2 flex items-center justify-between gap-3 text-sm shadow">
+    // z-[80] keeps the bail-out band above everything — including full-screen
+    // editors (z-50) and their modals — so there's always a way back to admin.
+    // Full-screen overlays reserve --imp-h at the top so it never covers a toolbar.
+    <div className="sticky top-0 z-[80] flex h-11 items-center justify-between gap-3 bg-amber-500 px-4 text-sm text-amber-950 shadow">
       <span>
         Viewing as <strong>{nickname || name}</strong>{" "}
         <span className="opacity-80">({system_role})</span>

@@ -1101,7 +1101,7 @@ function CanvasInner({
   const editingPhase = editingPhaseId ? phases.find((p) => p.id === editingPhaseId) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-dewey-cream">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--imp-h)] z-50 flex flex-col bg-dewey-cream">
       {/* Toolbar */}
       <div className="flex items-center gap-3 border-b border-dewey-border px-4 py-2">
         <input
@@ -2110,7 +2110,7 @@ export function TemplateCanvas({
 
   if (error) {
     return (
-      <div className="fixed inset-0 z-50 bg-dewey-cream flex flex-col items-center justify-center gap-3">
+      <div className="fixed inset-x-0 bottom-0 top-[var(--imp-h)] z-50 bg-dewey-cream flex flex-col items-center justify-center gap-3">
         <p className="text-red-600">{error}</p>
         <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
           <span aria-hidden>✕</span> Close
@@ -2120,7 +2120,7 @@ export function TemplateCanvas({
   }
   if (!template) {
     return (
-      <div className="fixed inset-0 z-50 bg-dewey-cream flex items-center justify-center">
+      <div className="fixed inset-x-0 bottom-0 top-[var(--imp-h)] z-50 bg-dewey-cream flex items-center justify-center">
         <p className="text-dewey-mute">Loading plan…</p>
       </div>
     );
@@ -2266,7 +2266,7 @@ export function TemplateReadOnly({
 
   if (error) {
     return (
-      <div className="fixed inset-0 z-50 bg-dewey-cream flex flex-col items-center justify-center gap-3">
+      <div className="fixed inset-x-0 bottom-0 top-[var(--imp-h)] z-50 bg-dewey-cream flex flex-col items-center justify-center gap-3">
         <p className="text-red-600">{error}</p>
         <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
           <span aria-hidden>✕</span> Close
@@ -2276,14 +2276,14 @@ export function TemplateReadOnly({
   }
   if (!template) {
     return (
-      <div className="fixed inset-0 z-50 bg-dewey-cream flex items-center justify-center">
+      <div className="fixed inset-x-0 bottom-0 top-[var(--imp-h)] z-50 bg-dewey-cream flex items-center justify-center">
         <p className="text-dewey-mute">Loading plan…</p>
       </div>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-dewey-cream">
+    <div className="fixed inset-x-0 bottom-0 top-[var(--imp-h)] z-50 flex flex-col bg-dewey-cream">
       <div className="flex items-center gap-3 border-b border-dewey-border px-4 py-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">

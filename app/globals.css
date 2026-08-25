@@ -47,6 +47,13 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* Height reserved at the top for the impersonation banner; 0 unless active.
+     Full-screen overlays offset their top by this so the banner is never hidden
+     and never covers their toolbars. */
+  --imp-h: 0px;
+}
+html.impersonating {
+  --imp-h: 2.75rem;
 }
 
 body {
