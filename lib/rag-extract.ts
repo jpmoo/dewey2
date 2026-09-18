@@ -129,9 +129,18 @@ async function ocr(png: string): Promise<string> {
 }
 
 const VISION_PROMPT =
-  "You are extracting page content for search. Describe in detail any charts, graphs, " +
-  "figures, tables, or diagrams on this page — include axis labels, trends, categories, and key " +
-  "numbers, and transcribe any text within them. If the page has no such visual, reply with just: NONE.";
+  "You are extracting page content for search and retrieval. Look only at charts, graphs, " +
+  "figures, tables, and diagrams on this page (ignore ordinary body paragraphs — those are " +
+  "captured separately).\n" +
+  "For each such visual:\n" +
+  "- Begin with one short sentence naming what it is and its subject (e.g. \"A table describing " +
+  "the continual-improvement process.\").\n" +
+  "- Then transcribe its content faithfully and completely: every label, category, term, and " +
+  "number, and the relationships between them. Do not summarize or omit specifics.\n" +
+  "- Reconstruct any TABLE as a Markdown table (with the real header row and every data cell) so " +
+  "row/column relationships are preserved. Reconstruct a process/flow diagram as an ordered list " +
+  "of its steps with the exact labels.\n" +
+  "If the page has no chart, table, figure, or diagram, reply with just: NONE.";
 
 async function describe(png: string, model: string, ollamaUrl: string): Promise<string> {
   try {
@@ -168,9 +177,13 @@ export async function extractDocument(
   const parts: string[] = [];
   const methods = new Set<string>();
 
-  // 1. Native text layer. A malformed file can make the parser throw; treat that
-  // as "no native text" so the OCR/vision stages still get a chance.
-  const native = ((await extractText(filename, mime, bytes).catch(() => null)) ?? "").trim();
+  // 1. Native text layer. maxChars: 0 = keep the whole document (the default cap
+  // is for message-attachment peeks and would drop half a multi-page doc). A
+  // malformed file can make the parser throw; treat that as "no native text" so
+  // the OCR/vision stages still get a chance.
+  const native = (
+    (await extractText(filename, mime, bytes, { maxChars: 0 }).catch(() => null)) ?? ""
+  ).trim();
   if (native) {
     parts.push(native);
     methods.add("text");

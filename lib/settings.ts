@@ -58,6 +58,12 @@ export interface SystemSettings {
   ollama_embedding_model: string | null;
   /** Ollama vision model used to describe charts/figures during ingest (v1). */
   ollama_vision_model: string | null;
+  /**
+   * Model used for background ingest text tasks (e.g. auto-drafting a document
+   * description). Defaults to the coaching model when unset. Prefer a local
+   * "ollama:<name>" here so ingest stays offline and free.
+   */
+  ollama_ingest_model: string | null;
   /** Context-window ceiling for Ollama (num_ctx). 0/null = each model's full window. */
   ollama_num_ctx: number;
   anthropic_api_key: string | null;
@@ -77,6 +83,7 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
     ollama_coaching_model: (row.ollama_coaching_model as string | null) ?? null,
     ollama_embedding_model: (row.ollama_embedding_model as string | null) ?? null,
     ollama_vision_model: (row.ollama_vision_model as string | null) ?? null,
+    ollama_ingest_model: (row.ollama_ingest_model as string | null) ?? null,
     ollama_num_ctx: row.ollama_num_ctx != null ? Number(row.ollama_num_ctx) : 0,
     anthropic_api_key: (row.anthropic_api_key as string | null) ?? null,
     rag_default_threshold:
@@ -115,6 +122,7 @@ export interface UpdateSystemSettingsParams {
   ollama_coaching_model?: string | null;
   ollama_embedding_model?: string | null;
   ollama_vision_model?: string | null;
+  ollama_ingest_model?: string | null;
   ollama_num_ctx?: number;
   anthropic_api_key?: string | null;
   rag_default_threshold?: number;
@@ -148,6 +156,8 @@ export async function updateSystemSettings(
     push("ollama_embedding_model", emptyToNull(params.ollama_embedding_model));
   if (params.ollama_vision_model !== undefined)
     push("ollama_vision_model", emptyToNull(params.ollama_vision_model));
+  if (params.ollama_ingest_model !== undefined)
+    push("ollama_ingest_model", emptyToNull(params.ollama_ingest_model));
   if (params.ollama_num_ctx !== undefined)
     push("ollama_num_ctx", params.ollama_num_ctx > 0 ? Math.floor(params.ollama_num_ctx) : null);
   if (params.backup_retention_days !== undefined)

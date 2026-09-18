@@ -180,6 +180,9 @@ export function ensureSchema(): Promise<void> {
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_embedding_model TEXT;
         -- Ollama vision model for reading charts/figures during RAG ingest.
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_vision_model TEXT;
+        -- Model for background ingest text tasks (auto-description); when NULL,
+        -- the coaching model is used. Prefer a local ollama:<name> here.
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_ingest_model TEXT;
 
         -- Per-user audit log. user_id is the subject; actor_id is who did it
         -- (null for system/self events). Cascades away with the user.

@@ -2,6 +2,8 @@ import { getPool } from "@/lib/pg";
 import { ragAvailable } from "@/lib/db";
 import { extractDocument } from "@/lib/rag-extract";
 import { embedText, toVectorLiteral } from "@/lib/embeddings";
+import { chatComplete } from "@/lib/ai";
+import { getSystemSettings } from "@/lib/settings";
 
 export type RagLevel = "system" | "district" | "school" | "cop";
 
@@ -78,6 +80,35 @@ async function setStatus(
 
 function methodsNote(methods: string[]): string {
   return methods.length ? `Read via ${methods.join(", ")}. ` : "";
+}
+
+/**
+ * Draft a short catalog description from the document's own text using the
+ * configured coaching model. Best-effort: returns null if no model is set or the
+ * call fails, so ingest never depends on it. The admin can edit it afterward.
+ */
+async function generateDescription(text: string): Promise<string | null> {
+  const sample = text.slice(0, 6000).trim();
+  if (!sample) return null;
+  try {
+    const settings = await getSystemSettings();
+    const model = (settings.ollama_ingest_model ?? "").trim() || undefined; // undefined → coaching model
+    const { text: out } = await chatComplete({
+      model,
+      system:
+        "You write concise catalog descriptions for a document library used by school and " +
+        "district leadership coaches. Given the beginning of a document, write 1–2 sentences " +
+        "(about 40 words max) that say what the document is and its purpose. Be specific and " +
+        "factual — no marketing language. Output only the description: no preamble, no quotation marks.",
+      messages: [{ role: "user", content: sample }],
+      maxTokens: 160,
+    });
+    const d = out.trim().replace(/^["']+|["']+$/g, "").trim();
+    return d || null;
+  } catch (e) {
+    console.warn("[rag] description generation failed:", e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 /**
@@ -182,6 +213,26 @@ export async function processDocument(documentId: number, src: ProcessSource): P
       "UPDATE rag_documents SET extracted_text = $2, bytes = $3, mime = $4, chunk_total = $5 WHERE id = $1",
       [documentId, text || null, storeBytes, storeMime, chunks.length]
     );
+
+    // Auto-draft a description from the text when the admin left it blank; they
+    // can edit it later. Best-effort and non-fatal.
+    if (text) {
+      const cur = await pool.query(
+        "SELECT description FROM rag_documents WHERE id = $1",
+        [documentId]
+      );
+      const hasDesc = ((cur.rows[0]?.description as string | null) ?? "").trim().length > 0;
+      if (!hasDesc) {
+        await setStatus(documentId, "processing", "Summarizing…");
+        const desc = await generateDescription(text);
+        if (desc) {
+          await pool.query("UPDATE rag_documents SET description = $2 WHERE id = $1", [
+            documentId,
+            desc,
+          ]);
+        }
+      }
+    }
 
     if (chunks.length === 0) {
       await setStatus(

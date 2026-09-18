@@ -25,6 +25,7 @@ export async function GET() {
       ollama_coaching_model: s.ollama_coaching_model,
       ollama_embedding_model: s.ollama_embedding_model,
       ollama_vision_model: s.ollama_vision_model,
+      ollama_ingest_model: s.ollama_ingest_model,
       ollama_num_ctx: s.ollama_num_ctx,
       rag_default_threshold: s.rag_default_threshold,
       default_theme: s.default_theme,
@@ -61,6 +62,8 @@ export async function PATCH(request: NextRequest) {
     update.ollama_embedding_model = body.ollama_embedding_model;
   if (typeof body.ollama_vision_model === "string")
     update.ollama_vision_model = body.ollama_vision_model;
+  if (typeof body.ollama_ingest_model === "string")
+    update.ollama_ingest_model = body.ollama_ingest_model;
   if (body.ollama_num_ctx !== undefined && body.ollama_num_ctx !== null) {
     const n = Number(body.ollama_num_ctx);
     if (Number.isFinite(n) && n >= 0) update.ollama_num_ctx = n;

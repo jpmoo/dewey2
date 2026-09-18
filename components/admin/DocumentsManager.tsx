@@ -321,7 +321,6 @@ function UploadModal({
 }) {
   const dialog = useDialog();
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [catIds, setCatIds] = useState<number[]>([]);
   const [placements, setPlacements] = useState<DraftPlacement[]>([{ level: "system", districtId: null, schoolId: null }]);
   const [file, setFile] = useState<File | null>(null);
@@ -338,7 +337,6 @@ function UploadModal({
     try {
       const form = new FormData();
       form.append("title", title.trim() || (file?.name ?? ""));
-      form.append("description", description);
       form.append("categoryIds", JSON.stringify(catIds));
       form.append("placements", JSON.stringify(places));
       if (mode === "file" && file) form.append("file", file);
@@ -374,10 +372,7 @@ function UploadModal({
         <div>
           <label className="dewey-label">Title</label>
           <input className="dewey-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={file?.name ?? "Document title"} />
-        </div>
-        <div>
-          <label className="dewey-label">Description</label>
-          <textarea className="dewey-input min-h-[60px]" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <p className="mt-1 text-xs text-dewey-mute">A description is drafted automatically from the document; you can edit it afterward.</p>
         </div>
         <div>
           <label className="dewey-label">Categories</label>

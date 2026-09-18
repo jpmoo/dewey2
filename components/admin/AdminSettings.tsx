@@ -18,6 +18,7 @@ type SettingsView = {
   ollama_coaching_model: string | null;
   ollama_embedding_model: string | null;
   ollama_vision_model: string | null;
+  ollama_ingest_model: string | null;
   ollama_num_ctx: number;
   rag_default_threshold: number;
   default_theme: string;
@@ -81,6 +82,7 @@ export function AdminSettings() {
   const [coachingModel, setCoachingModel] = useState("");
   const [embeddingModel, setEmbeddingModel] = useState("");
   const [visionModel, setVisionModel] = useState("");
+  const [ingestModel, setIngestModel] = useState("");
   const [numCtx, setNumCtx] = useState(0);
   const [anthropicKey, setAnthropicKey] = useState("");
   const [ragThreshold, setRagThreshold] = useState(0.5);
@@ -100,6 +102,7 @@ export function AdminSettings() {
       setCoachingModel(settings.ollama_coaching_model ?? "");
       setEmbeddingModel(settings.ollama_embedding_model ?? "");
       setVisionModel(settings.ollama_vision_model ?? "");
+      setIngestModel(settings.ollama_ingest_model ?? "");
       setNumCtx(settings.ollama_num_ctx ?? 0);
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
       setDefaultTheme(settings.default_theme ?? "light");
@@ -145,6 +148,7 @@ export function AdminSettings() {
         ollama_coaching_model: coachingModel,
         ollama_embedding_model: embeddingModel,
         ollama_vision_model: visionModel,
+        ollama_ingest_model: ingestModel,
         ollama_num_ctx: numCtx,
         rag_default_threshold: ragThreshold,
         default_theme: defaultTheme,
@@ -167,6 +171,7 @@ export function AdminSettings() {
     coachingModel,
     embeddingModel,
     visionModel,
+    ingestModel,
     numCtx,
     anthropicKey,
     ragThreshold,
@@ -275,6 +280,36 @@ export function AdminSettings() {
           <p className="text-xs text-dewey-mute mt-1">
             Local Ollama vision model (e.g. llama3.2-vision) used during ingest to describe charts
             and figures so they’re searchable. Leave unset to index text/OCR only.
+          </p>
+        </div>
+
+        <div>
+          <label className="dewey-label">Ingest model (RAG document summaries)</label>
+          <select
+            className="dewey-input"
+            value={ingestModel}
+            onChange={(e) => setIngestModel(e.target.value)}
+          >
+            <option value="">— use coaching model —</option>
+            <optgroup label="Ollama (local)">
+              {models.length === 0 ? (
+                <option value="" disabled>Test the Ollama URL to load models</option>
+              ) : (
+                models.map((m) => (
+                  <option key={`ollama:${m}`} value={`ollama:${m}`}>{m}</option>
+                ))
+              )}
+            </optgroup>
+            {ingestModel && !models.some((m) => `ollama:${m}` === ingestModel) && (
+              <optgroup label="Currently set">
+                <option value={ingestModel}>{ingestModel}</option>
+              </optgroup>
+            )}
+          </select>
+          <p className="text-xs text-dewey-mute mt-1">
+            Local Ollama model used for background ingest text tasks (auto-drafting a document’s
+            description). Prefer a local model here so ingest stays offline and free. Defaults to the
+            coaching model when unset.
           </p>
         </div>
 

@@ -61,25 +61,28 @@ export async function chatComplete(params: {
   system: string;
   messages: ChatMessage[];
   maxTokens?: number;
+  /** Override the model (e.g. "ollama:llama3.1"); defaults to the coaching model. */
+  model?: string;
 }): Promise<ChatResult> {
   const settings = await getSystemSettings();
-  const selected = (settings.ollama_coaching_model ?? "").trim();
+  const selected = (params.model ?? settings.ollama_coaching_model ?? "").trim();
   if (!selected) {
     throw new Error("No conversational model is configured in System settings.");
   }
   const sep = selected.indexOf(":");
   const backend = sep === -1 ? "" : selected.slice(0, sep).toLowerCase();
   const modelId = sep === -1 ? selected : selected.slice(sep + 1);
+  const { system, messages, maxTokens } = params;
 
   if (backend === "claude") {
     const apiKey = getEffectiveAnthropicKey(settings.anthropic_api_key);
     if (!apiKey) throw new Error("No Anthropic API key is configured.");
-    return callClaude({ apiKey, model: modelId, ...params });
+    return callClaude({ apiKey, model: modelId, system, messages, maxTokens });
   }
   if (backend === "ollama") {
     const url = (settings.ollama_url ?? "").trim();
     if (!url) throw new Error("No Ollama URL is configured.");
-    return callOllama({ url, model: modelId, numCtxCap: settings.ollama_num_ctx, ...params });
+    return callOllama({ url, model: modelId, numCtxCap: settings.ollama_num_ctx, system, messages, maxTokens });
   }
   throw new Error(
     `Unrecognized coaching model "${selected}". Select a Claude or Ollama model in System settings.`
@@ -125,8 +128,11 @@ async function callOllama(p: {
   system: string;
   messages: ChatMessage[];
   numCtxCap?: number;
+  maxTokens?: number;
 }): Promise<ChatResult> {
   const num_ctx = await resolveOllamaNumCtx(p.url, p.model, p.numCtxCap ?? 0);
+  const options: Record<string, number> = { num_ctx };
+  if (p.maxTokens && p.maxTokens > 0) options.num_predict = p.maxTokens;
   const res = await fetch(`${p.url.replace(/\/$/, "")}/api/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -135,7 +141,7 @@ async function callOllama(p: {
       stream: false,
       think: false, // don't let reasoning models burn time emitting <think> tokens
       keep_alive: "30m", // keep the model warm between calls
-      options: { num_ctx },
+      options,
       messages: [{ role: "system", content: p.system }, ...p.messages],
     }),
     signal: AbortSignal.timeout(120000),
