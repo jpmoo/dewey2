@@ -56,6 +56,8 @@ export interface SystemSettings {
   ollama_coaching_model: string | null;
   /** Ollama model used to embed RAG documents + queries (e.g. nomic-embed-text). */
   ollama_embedding_model: string | null;
+  /** Ollama vision model used to describe charts/figures during ingest (v1). */
+  ollama_vision_model: string | null;
   /** Context-window ceiling for Ollama (num_ctx). 0/null = each model's full window. */
   ollama_num_ctx: number;
   anthropic_api_key: string | null;
@@ -79,6 +81,7 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
     ollama_compliance_model: (row.ollama_compliance_model as string | null) ?? null,
     ollama_coaching_model: (row.ollama_coaching_model as string | null) ?? null,
     ollama_embedding_model: (row.ollama_embedding_model as string | null) ?? null,
+    ollama_vision_model: (row.ollama_vision_model as string | null) ?? null,
     ollama_num_ctx: row.ollama_num_ctx != null ? Number(row.ollama_num_ctx) : 0,
     anthropic_api_key: (row.anthropic_api_key as string | null) ?? null,
     rag_url: (row.rag_url as string | null) ?? null,
@@ -123,6 +126,7 @@ export interface UpdateSystemSettingsParams {
   ollama_compliance_model?: string | null;
   ollama_coaching_model?: string | null;
   ollama_embedding_model?: string | null;
+  ollama_vision_model?: string | null;
   ollama_num_ctx?: number;
   anthropic_api_key?: string | null;
   rag_url?: string | null;
@@ -157,6 +161,8 @@ export async function updateSystemSettings(
     push("ollama_coaching_model", emptyToNull(params.ollama_coaching_model));
   if (params.ollama_embedding_model !== undefined)
     push("ollama_embedding_model", emptyToNull(params.ollama_embedding_model));
+  if (params.ollama_vision_model !== undefined)
+    push("ollama_vision_model", emptyToNull(params.ollama_vision_model));
   if (params.ollama_num_ctx !== undefined)
     push("ollama_num_ctx", params.ollama_num_ctx > 0 ? Math.floor(params.ollama_num_ctx) : null);
   if (params.backup_retention_days !== undefined)

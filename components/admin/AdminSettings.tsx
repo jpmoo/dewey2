@@ -16,6 +16,8 @@ type SettingsView = {
   ollama_url: string | null;
   ollama_compliance_model: string | null;
   ollama_coaching_model: string | null;
+  ollama_embedding_model: string | null;
+  ollama_vision_model: string | null;
   ollama_num_ctx: number;
   rag_url: string | null;
   rag_default_threshold: number;
@@ -80,6 +82,8 @@ export function AdminSettings() {
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [classModel, setClassModel] = useState("");
   const [coachingModel, setCoachingModel] = useState("");
+  const [embeddingModel, setEmbeddingModel] = useState("");
+  const [visionModel, setVisionModel] = useState("");
   const [numCtx, setNumCtx] = useState(0);
   const [anthropicKey, setAnthropicKey] = useState("");
   const [ragUrl, setRagUrl] = useState("");
@@ -106,6 +110,8 @@ export function AdminSettings() {
       setOllamaUrl(settings.ollama_url ?? "");
       setClassModel(settings.ollama_compliance_model ?? "");
       setCoachingModel(settings.ollama_coaching_model ?? "");
+      setEmbeddingModel(settings.ollama_embedding_model ?? "");
+      setVisionModel(settings.ollama_vision_model ?? "");
       setNumCtx(settings.ollama_num_ctx ?? 0);
       setRagUrl(settings.rag_url ?? "");
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
@@ -176,6 +182,8 @@ export function AdminSettings() {
         ollama_url: ollamaUrl,
         ollama_compliance_model: classModel,
         ollama_coaching_model: coachingModel,
+        ollama_embedding_model: embeddingModel,
+        ollama_vision_model: visionModel,
         ollama_num_ctx: numCtx,
         rag_url: ragUrl,
         rag_default_threshold: ragThreshold,
@@ -202,6 +210,8 @@ export function AdminSettings() {
     ollamaUrl,
     classModel,
     coachingModel,
+    embeddingModel,
+    visionModel,
     numCtx,
     anthropicKey,
     ragUrl,
@@ -281,6 +291,42 @@ export function AdminSettings() {
             A local Ollama model used for two lightweight jobs: screening each message for safety
             before the coaching model runs, and drafting short summaries such as plan
             descriptions. Leave unset to skip screening and AI-drafted descriptions.
+          </p>
+        </div>
+
+        <div>
+          <label className="dewey-label">Embedding model (RAG)</label>
+          <select
+            className="dewey-input"
+            value={embeddingModel}
+            onChange={(e) => setEmbeddingModel(e.target.value)}
+          >
+            <option value="">nomic-embed-text (default)</option>
+            {Array.from(new Set([embeddingModel, ...models].filter(Boolean))).map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <p className="text-xs text-dewey-mute mt-1">
+            Local Ollama model used to embed documents and queries. Changing it requires
+            re-embedding the library (each document has a “Re-embed” action).
+          </p>
+        </div>
+
+        <div>
+          <label className="dewey-label">Vision model (RAG chart/figure reading)</label>
+          <select
+            className="dewey-input"
+            value={visionModel}
+            onChange={(e) => setVisionModel(e.target.value)}
+          >
+            <option value="">— none (skip chart reading) —</option>
+            {Array.from(new Set([visionModel, ...models].filter(Boolean))).map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <p className="text-xs text-dewey-mute mt-1">
+            Local Ollama vision model (e.g. llama3.2-vision) used during ingest to describe charts
+            and figures so they’re searchable. Leave unset to index text/OCR only.
           </p>
         </div>
 

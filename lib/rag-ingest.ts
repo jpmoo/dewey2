@@ -5,12 +5,17 @@ import { embedText, toVectorLiteral } from "@/lib/embeddings";
 
 export type RagLevel = "system" | "district" | "school" | "cop";
 
-export interface IngestParams {
+/** One place a document is available. */
+export interface RagPlacement {
   level: RagLevel;
   districtId?: number | null;
   schoolId?: number | null;
   copId?: number | null;
+}
+
+export interface IngestParams {
   title: string;
+  description?: string | null;
   filename?: string | null;
   mime?: string | null;
   /** Raw file bytes (optional if extractedText is supplied directly). */
@@ -18,6 +23,8 @@ export interface IngestParams {
   /** Pre-extracted text (e.g. a typed/pasted document); else extracted from bytes. */
   extractedText?: string | null;
   categoryIds: number[];
+  /** Where the document is available (one or more units). */
+  placements: RagPlacement[];
   uploadedBy?: number | null;
 }
 
@@ -80,15 +87,12 @@ export async function ingestDocument(params: IngestParams): Promise<IngestResult
 
   const res = await pool.query(
     `INSERT INTO rag_documents
-       (level, district_id, school_id, cop_id, title, filename, mime, bytes, extracted_text, uploaded_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       (title, description, filename, mime, bytes, extracted_text, uploaded_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
      RETURNING id`,
     [
-      params.level,
-      params.districtId ?? null,
-      params.schoolId ?? null,
-      params.copId ?? null,
       params.title.trim() || params.filename || "Untitled",
+      params.description?.trim() || null,
       params.filename ?? null,
       params.mime ?? null,
       params.bytes ?? null,
@@ -102,6 +106,13 @@ export async function ingestDocument(params: IngestParams): Promise<IngestResult
     await pool.query(
       "INSERT INTO rag_document_categories (document_id, category_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
       [documentId, cid]
+    );
+  }
+  for (const pl of params.placements) {
+    await pool.query(
+      `INSERT INTO rag_document_placements (document_id, level, district_id, school_id, cop_id)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [documentId, pl.level, pl.districtId ?? null, pl.schoolId ?? null, pl.copId ?? null]
     );
   }
 

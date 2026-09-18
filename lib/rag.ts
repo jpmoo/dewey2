@@ -65,16 +65,19 @@ export async function queryRag(prompt: string, scope: RagScope = {}, limit = 8):
 
   try {
     const res = await pool.query(
-      `SELECT c.text, d.id AS doc_id, d.title, d.level,
+      `SELECT c.text, d.id AS doc_id, d.title,
               1 - (c.embedding <=> $1::vector) AS similarity
          FROM rag_chunks c
          JOIN rag_documents d ON d.id = c.document_id AND d.deleted_at IS NULL
-        WHERE c.embed_model = $2
-          AND (
-            d.level = 'system'
-            OR (d.level = 'district' AND d.district_id = $3)
-            OR (d.level = 'school'   AND d.school_id = ANY($4::int[]))
-            OR (d.level = 'cop'      AND d.cop_id = $5)
+        WHERE c.embed_model = $2 AND c.embedding IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM rag_document_placements pl
+             WHERE pl.document_id = d.id AND (
+               pl.level = 'system'
+               OR (pl.level = 'district' AND pl.district_id = $3)
+               OR (pl.level = 'school'   AND pl.school_id = ANY($4::int[]))
+               OR (pl.level = 'cop'      AND pl.cop_id = $5)
+             )
           )
           AND (
             $6::boolean

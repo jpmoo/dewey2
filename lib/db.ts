@@ -178,6 +178,8 @@ export function ensureSchema(): Promise<void> {
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_num_ctx INTEGER;
         -- Ollama embedding model for the in-house RAG (default nomic-embed-text).
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_embedding_model TEXT;
+        -- Ollama vision model for reading charts/figures during RAG ingest.
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_vision_model TEXT;
 
         -- Per-user audit log. user_id is the subject; actor_id is who did it
         -- (null for system/self events). Cascades away with the user.
@@ -534,15 +536,13 @@ async function ensureRagSchema(): Promise<void> {
         created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
-      -- A document lives at one org level + unit; category and level are
-      -- independent axes. cop_id is reserved for Communities of Practice.
+      -- A document is ingested + embedded once; it is placed at one or more org
+      -- units via rag_document_placements (so it can be lifted to other schools/
+      -- CoPs without re-embedding). Category and level are independent axes.
       CREATE TABLE IF NOT EXISTS rag_documents (
         id             BIGSERIAL PRIMARY KEY,
-        level          TEXT NOT NULL CHECK (level IN ('system','district','school','cop')),
-        district_id    INTEGER REFERENCES districts (id) ON DELETE CASCADE,
-        school_id      INTEGER REFERENCES schools (id) ON DELETE CASCADE,
-        cop_id         INTEGER REFERENCES message_threads (id) ON DELETE CASCADE,
         title          TEXT NOT NULL,
+        description    TEXT,
         filename       TEXT,
         mime           TEXT,
         bytes          BYTEA,
@@ -551,8 +551,26 @@ async function ensureRagSchema(): Promise<void> {
         created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         deleted_at     TIMESTAMPTZ
       );
-      CREATE INDEX IF NOT EXISTS idx_rag_docs_scope
-        ON rag_documents (level, district_id, school_id, cop_id) WHERE deleted_at IS NULL;
+      -- Migrate an earlier (pre-placements) build of this table; safe pre-data.
+      ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS description TEXT;
+      ALTER TABLE rag_documents DROP COLUMN IF EXISTS level;
+      ALTER TABLE rag_documents DROP COLUMN IF EXISTS district_id;
+      ALTER TABLE rag_documents DROP COLUMN IF EXISTS school_id;
+      ALTER TABLE rag_documents DROP COLUMN IF EXISTS cop_id;
+
+      -- Where a document is available. cop_id is a Community of Practice thread.
+      CREATE TABLE IF NOT EXISTS rag_document_placements (
+        id          BIGSERIAL PRIMARY KEY,
+        document_id BIGINT NOT NULL REFERENCES rag_documents (id) ON DELETE CASCADE,
+        level       TEXT NOT NULL CHECK (level IN ('system','district','school','cop')),
+        district_id INTEGER REFERENCES districts (id) ON DELETE CASCADE,
+        school_id   INTEGER REFERENCES schools (id) ON DELETE CASCADE,
+        cop_id      INTEGER REFERENCES message_threads (id) ON DELETE CASCADE,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_rag_placements_doc ON rag_document_placements (document_id);
+      CREATE INDEX IF NOT EXISTS idx_rag_placements_scope
+        ON rag_document_placements (level, district_id, school_id, cop_id);
 
       CREATE TABLE IF NOT EXISTS rag_document_categories (
         document_id BIGINT NOT NULL REFERENCES rag_documents (id) ON DELETE CASCADE,
@@ -560,18 +578,26 @@ async function ensureRagSchema(): Promise<void> {
         PRIMARY KEY (document_id, category_id)
       );
 
-      -- Chunk embeddings. The vector column is dimension-agnostic and each row
-      -- records the model it was embedded with, so switching the embedding model
-      -- just means re-embedding (compare only within the same model at query time).
+      -- Chunks are user-facing "samples": individually editable, and new ones can
+      -- be added by hand (source='manual'). The vector column is dimension-agnostic
+      -- and each row records the model it was embedded with, so switching the
+      -- embedding model just means re-embedding (compare only within one model).
       CREATE TABLE IF NOT EXISTS rag_chunks (
         id          BIGSERIAL PRIMARY KEY,
         document_id BIGINT NOT NULL REFERENCES rag_documents (id) ON DELETE CASCADE,
         ordinal     INTEGER NOT NULL,
         text        TEXT NOT NULL,
-        embed_model TEXT NOT NULL,
+        source      TEXT NOT NULL DEFAULT 'auto',
+        edited      BOOLEAN NOT NULL DEFAULT FALSE,
+        embed_model TEXT,
         embedding   vector,
-        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+      ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'auto';
+      ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS edited BOOLEAN NOT NULL DEFAULT FALSE;
+      ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      ALTER TABLE rag_chunks ALTER COLUMN embed_model DROP NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks (document_id);
     `);
 
