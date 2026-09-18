@@ -5,17 +5,19 @@ import { AdminSettings } from "./AdminSettings";
 import { AdminOrgManager } from "./AdminOrgManager";
 import { AdminUserManager } from "./AdminUserManager";
 import { AdminTemplates } from "./AdminTemplates";
+import { DocumentsManager } from "./DocumentsManager";
 import { MessageCenter } from "@/components/messages/MessageCenter";
 import { ProgressReport } from "@/components/ProgressReport";
 import { useUnreadCount } from "@/components/messages/useUnreadCount";
 
-type Tab = "system" | "organization" | "users" | "templates" | "messages" | "progress";
+type Tab = "system" | "organization" | "users" | "templates" | "documents" | "messages" | "progress";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "system", label: "System" },
   { id: "organization", label: "Organization" },
   { id: "users", label: "Users" },
   { id: "templates", label: "Coaching Canvas" },
+  { id: "documents", label: "Documents" },
   { id: "messages", label: "Messages" },
   { id: "progress", label: "Progress" },
 ];
@@ -71,6 +73,7 @@ export function AdminTabs() {
       {tab === "organization" && <AdminOrgManager />}
       {tab === "users" && <AdminUserManager />}
       {tab === "templates" && <AdminTemplates />}
+      {tab === "documents" && <DocumentsManager />}
       {tab === "messages" && <MessageCenter openThreadId={openThreadId} />}
       {tab === "progress" && <ProgressReport />}
     </div>

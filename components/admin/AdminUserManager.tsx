@@ -152,6 +152,7 @@ const ACTION_LABELS: Record<string, string> = {
   activity_returned: "Returned a contribution with feedback",
   activity_consulted: "Consulted Dewey on a contribution",
   dewey_replied: "@dewey replied",
+  rag_document_ingested: "Added a document to the library",
   participant_added: "Added someone to a conversation",
   invitation_accepted: "Accepted a message thread invitation",
   invitation_declined: "Declined a message thread invitation",

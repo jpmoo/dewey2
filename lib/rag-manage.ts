@@ -135,3 +135,164 @@ export async function softDeleteDocument(documentId: number): Promise<void> {
   const pool = getPool();
   await pool.query("UPDATE rag_documents SET deleted_at = NOW() WHERE id = $1", [documentId]);
 }
+
+// ---- Read models for the Documents admin UI ------------------------------
+
+export interface RagPlacementRow {
+  id: number;
+  level: string;
+  districtId: number | null;
+  schoolId: number | null;
+  copId: number | null;
+  label: string;
+}
+export interface RagDocSummary {
+  id: number;
+  title: string;
+  description: string | null;
+  createdAt: string;
+  samples: number;
+  embedded: number;
+  categories: { id: number; name: string }[];
+  placements: RagPlacementRow[];
+}
+export interface RagSample {
+  id: number;
+  ordinal: number;
+  text: string;
+  source: string;
+  edited: boolean;
+  embedded: boolean;
+}
+export interface RagDocDetail extends RagDocSummary {
+  filename: string | null;
+  mime: string | null;
+  samplesList: RagSample[];
+}
+
+function placementLabel(r: {
+  level: string;
+  district_name: string | null;
+  school_name: string | null;
+  cop_id: number | null;
+}): string {
+  if (r.level === "system") return "System-wide";
+  if (r.level === "district") return r.district_name ?? "District";
+  if (r.level === "school")
+    return r.school_name ? `${r.district_name ? r.district_name + " · " : ""}${r.school_name}` : "School";
+  if (r.level === "cop") return `Community of Practice #${r.cop_id ?? "?"}`;
+  return r.level;
+}
+
+async function placementsFor(docIds: number[]): Promise<Map<number, RagPlacementRow[]>> {
+  const map = new Map<number, RagPlacementRow[]>();
+  if (docIds.length === 0) return map;
+  const pool = getPool();
+  const res = await pool.query(
+    `SELECT pl.id, pl.document_id, pl.level, pl.district_id, pl.school_id, pl.cop_id,
+            di.name AS district_name, s.name AS school_name
+       FROM rag_document_placements pl
+       LEFT JOIN districts di ON di.id = pl.district_id
+       LEFT JOIN schools s ON s.id = pl.school_id
+      WHERE pl.document_id = ANY($1::bigint[])
+      ORDER BY pl.id`,
+    [docIds]
+  );
+  for (const r of res.rows) {
+    const arr = map.get(r.document_id as number) ?? [];
+    arr.push({
+      id: r.id as number,
+      level: r.level as string,
+      districtId: (r.district_id as number | null) ?? null,
+      schoolId: (r.school_id as number | null) ?? null,
+      copId: (r.cop_id as number | null) ?? null,
+      label: placementLabel(r),
+    });
+    map.set(r.document_id as number, arr);
+  }
+  return map;
+}
+
+async function categoriesFor(docIds: number[]): Promise<Map<number, { id: number; name: string }[]>> {
+  const map = new Map<number, { id: number; name: string }[]>();
+  if (docIds.length === 0) return map;
+  const pool = getPool();
+  const res = await pool.query(
+    `SELECT dc.document_id, c.id, c.name FROM rag_document_categories dc
+       JOIN rag_categories c ON c.id = dc.category_id
+      WHERE dc.document_id = ANY($1::bigint[]) ORDER BY c.sort, c.name`,
+    [docIds]
+  );
+  for (const r of res.rows) {
+    const arr = map.get(r.document_id as number) ?? [];
+    arr.push({ id: r.id as number, name: r.name as string });
+    map.set(r.document_id as number, arr);
+  }
+  return map;
+}
+
+export async function listRagDocuments(q = ""): Promise<RagDocSummary[]> {
+  const pool = getPool();
+  const term = q.trim();
+  const res = await pool.query(
+    `SELECT d.id, d.title, d.description, d.created_at,
+            COUNT(ch.id)::int AS samples,
+            COUNT(ch.id) FILTER (WHERE ch.embedding IS NOT NULL)::int AS embedded
+       FROM rag_documents d
+       LEFT JOIN rag_chunks ch ON ch.document_id = d.id
+      WHERE d.deleted_at IS NULL
+        AND ($1 = '' OR d.title ILIKE '%'||$1||'%' OR d.description ILIKE '%'||$1||'%'
+             OR d.extracted_text ILIKE '%'||$1||'%')
+      GROUP BY d.id
+      ORDER BY d.created_at DESC`,
+    [term]
+  );
+  const ids = res.rows.map((r) => r.id as number);
+  const [cats, places] = await Promise.all([categoriesFor(ids), placementsFor(ids)]);
+  return res.rows.map((r) => ({
+    id: r.id as number,
+    title: r.title as string,
+    description: (r.description as string | null) ?? null,
+    createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
+    samples: r.samples as number,
+    embedded: r.embedded as number,
+    categories: cats.get(r.id as number) ?? [],
+    placements: places.get(r.id as number) ?? [],
+  }));
+}
+
+export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | null> {
+  const pool = getPool();
+  const dRes = await pool.query(
+    "SELECT id, title, description, filename, mime, created_at FROM rag_documents WHERE id = $1 AND deleted_at IS NULL",
+    [id]
+  );
+  const d = dRes.rows[0];
+  if (!d) return null;
+  const [cats, places] = await Promise.all([categoriesFor([id]), placementsFor([id])]);
+  const sRes = await pool.query(
+    `SELECT id, ordinal, text, source, edited, (embedding IS NOT NULL) AS embedded
+       FROM rag_chunks WHERE document_id = $1 ORDER BY ordinal`,
+    [id]
+  );
+  return {
+    id: d.id as number,
+    title: d.title as string,
+    description: (d.description as string | null) ?? null,
+    filename: (d.filename as string | null) ?? null,
+    mime: (d.mime as string | null) ?? null,
+    createdAt: d.created_at instanceof Date ? d.created_at.toISOString() : String(d.created_at),
+    samples: sRes.rows.length,
+    embedded: sRes.rows.filter((r) => r.embedded).length,
+    categories: cats.get(id) ?? [],
+    placements: places.get(id) ?? [],
+    samplesList: sRes.rows.map((r) => ({
+      id: r.id as number,
+      ordinal: r.ordinal as number,
+      text: r.text as string,
+      source: r.source as string,
+      edited: r.edited as boolean,
+      embedded: r.embedded as boolean,
+    })),
+  };
+}
