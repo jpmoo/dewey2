@@ -176,6 +176,8 @@ export function ensureSchema(): Promise<void> {
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_compliance_model TEXT;
         -- Ollama context-window ceiling (num_ctx). NULL/0 = use each model's max.
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_num_ctx INTEGER;
+        -- Ollama embedding model for the in-house RAG (default nomic-embed-text).
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_embedding_model TEXT;
 
         -- Per-user audit log. user_id is the subject; actor_id is who did it
         -- (null for system/self events). Cascades away with the user.
@@ -490,6 +492,11 @@ export function ensureSchema(): Promise<void> {
                      OR (newer.created_at = ct.created_at AND newer.id > ct.id))
            );
       `);
+
+      // In-house RAG schema — needs the pgvector extension. Isolated in its own
+      // guarded step so a Postgres without pgvector (e.g. a dev box) degrades to
+      // "RAG unavailable" instead of taking down the whole app.
+      await ensureRagSchema();
     })().catch((e) => {
       // Reset so a transient failure can retry on the next call.
       schemaPromise = null;
@@ -497,6 +504,96 @@ export function ensureSchema(): Promise<void> {
     });
   }
   return schemaPromise;
+}
+
+/** Whether the RAG tables (and pgvector) are available this process. */
+let ragReady: boolean | null = null;
+export async function ragAvailable(): Promise<boolean> {
+  await ensureSchema();
+  return ragReady === true;
+}
+
+const RAG_CATEGORY_SEED = [
+  ["Frameworks, Models & Plans", "Coaching/leadership/instructional frameworks and the unit's strategic/improvement plans."],
+  ["Research, Evidence & Readings", "The evidence base plus assigned articles and book-study texts."],
+  ["Protocols & Tools", "Procedures and instruments: protocols, rubrics, surveys, look-fors, data sheets."],
+  ["Local Context", "The unit's data, exemplars of strong practice, and the standards & policy it's held to."],
+];
+
+async function ensureRagSchema(): Promise<void> {
+  const pool = getPool();
+  try {
+    await pool.query(`
+      CREATE EXTENSION IF NOT EXISTS vector;
+
+      CREATE TABLE IF NOT EXISTS rag_categories (
+        id          BIGSERIAL PRIMARY KEY,
+        name        TEXT NOT NULL,
+        description TEXT,
+        sort        INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      -- A document lives at one org level + unit; category and level are
+      -- independent axes. cop_id is reserved for Communities of Practice.
+      CREATE TABLE IF NOT EXISTS rag_documents (
+        id             BIGSERIAL PRIMARY KEY,
+        level          TEXT NOT NULL CHECK (level IN ('system','district','school','cop')),
+        district_id    INTEGER REFERENCES districts (id) ON DELETE CASCADE,
+        school_id      INTEGER REFERENCES schools (id) ON DELETE CASCADE,
+        cop_id         INTEGER REFERENCES message_threads (id) ON DELETE CASCADE,
+        title          TEXT NOT NULL,
+        filename       TEXT,
+        mime           TEXT,
+        bytes          BYTEA,
+        extracted_text TEXT,
+        uploaded_by    INTEGER REFERENCES users (id) ON DELETE SET NULL,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deleted_at     TIMESTAMPTZ
+      );
+      CREATE INDEX IF NOT EXISTS idx_rag_docs_scope
+        ON rag_documents (level, district_id, school_id, cop_id) WHERE deleted_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS rag_document_categories (
+        document_id BIGINT NOT NULL REFERENCES rag_documents (id) ON DELETE CASCADE,
+        category_id BIGINT NOT NULL REFERENCES rag_categories (id) ON DELETE CASCADE,
+        PRIMARY KEY (document_id, category_id)
+      );
+
+      -- Chunk embeddings. The vector column is dimension-agnostic and each row
+      -- records the model it was embedded with, so switching the embedding model
+      -- just means re-embedding (compare only within the same model at query time).
+      CREATE TABLE IF NOT EXISTS rag_chunks (
+        id          BIGSERIAL PRIMARY KEY,
+        document_id BIGINT NOT NULL REFERENCES rag_documents (id) ON DELETE CASCADE,
+        ordinal     INTEGER NOT NULL,
+        text        TEXT NOT NULL,
+        embed_model TEXT NOT NULL,
+        embedding   vector,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks (document_id);
+    `);
+
+    // Seed the four standard categories once.
+    const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM rag_categories");
+    if ((rows[0]?.n ?? 0) === 0) {
+      for (let i = 0; i < RAG_CATEGORY_SEED.length; i++) {
+        const [name, description] = RAG_CATEGORY_SEED[i];
+        await pool.query(
+          "INSERT INTO rag_categories (name, description, sort) VALUES ($1, $2, $3)",
+          [name, description, i]
+        );
+      }
+    }
+    ragReady = true;
+  } catch (e) {
+    ragReady = false;
+    console.warn(
+      "[rag] schema unavailable (pgvector missing?) — RAG features disabled:",
+      e instanceof Error ? e.message : e
+    );
+  }
 }
 
 // ============================================================

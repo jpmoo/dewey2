@@ -1,20 +1,36 @@
+import { getPool } from "@/lib/pg";
 import { getSystemSettings } from "@/lib/settings";
+import { ragAvailable } from "@/lib/db";
+import { embedText, toVectorLiteral } from "@/lib/embeddings";
 
 /**
- * RAGDoll retrieval used to ground AI calls. Queries the configured RAGDoll
- * server (system_settings.rag_url) restricted to the platform default
- * collections (rag_default_collections) at the default threshold.
- * Best-effort: any failure (not configured, unreachable) yields no context so
- * the AI call still proceeds ungrounded.
+ * In-house RAG retrieval (Ollama embeddings + Postgres/pgvector), replacing the
+ * external RAGDoll PoC. The RagChunk/source shape is preserved so the callers
+ * (@dewey chat, coach-review consult, canvas assistant) and the source-link pills
+ * are unchanged. Best-effort: any failure (RAG unavailable, Ollama down) yields no
+ * context so the AI call still proceeds ungrounded.
  */
 
 export interface RagChunk {
   text: string;
   source: string;
-  /** RAGDoll fetch path for the source document, e.g. "/fetch/group/file.pdf". */
+  /** In-house serving path for the source document. */
   sourceUrl: string;
   group: string;
   similarity: number;
+}
+
+/** Where to look: the org units in scope, and which buckets/docs to include. */
+export interface RagScope {
+  districtId?: number | null;
+  /** The coachee's buildings (school-level docs). */
+  schoolIds?: number[];
+  /** A Community of Practice's own store. */
+  copId?: number | null;
+  /** Category ids to include; null/undefined = all categories ("default is all"). */
+  categoryIds?: number[] | null;
+  /** Specific documents to always include (pinned individual sources). */
+  documentIds?: number[];
 }
 
 /** Unique source documents from a set of chunks, in first-seen order. */
@@ -22,57 +38,92 @@ export function uniqueSources(chunks: RagChunk[]): { name: string; path: string 
   const seen = new Set<string>();
   const out: { name: string; path: string }[] = [];
   for (const c of chunks) {
-    if (!c.source || !c.sourceUrl || seen.has(c.source)) continue;
-    seen.add(c.source);
+    if (!c.source || !c.sourceUrl || seen.has(c.sourceUrl)) continue;
+    seen.add(c.sourceUrl);
     out.push({ name: c.source, path: c.sourceUrl });
   }
   return out;
 }
 
-export async function queryRagDefault(prompt: string, limit = 8): Promise<RagChunk[]> {
+/**
+ * Retrieve the most similar chunks to `prompt` within `scope`. The query is
+ * embedded with the current model and compared only against chunks embedded with
+ * that same model (so switching the embedding model never mixes vector spaces).
+ */
+export async function queryRag(prompt: string, scope: RagScope = {}, limit = 8): Promise<RagChunk[]> {
   const text = prompt.trim();
   if (!text) return [];
+  if (!(await ragAvailable())) return [];
+  const embedded = await embedText(text);
+  if (!embedded) return [];
+
   const settings = await getSystemSettings();
-  const url = (settings.rag_url ?? "").trim();
-  if (!url) return [];
+  const floor = settings.rag_default_threshold ?? 0.5;
+  const categoryIds = scope.categoryIds ?? null;
+  const allCategories = categoryIds == null; // null = every category
+  const pool = getPool();
 
   try {
-    const res = await fetch(`${url.replace(/\/$/, "")}/query`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        prompt: text,
-        group: settings.rag_default_collections ?? [], // [] = all collections
-        threshold: settings.rag_default_threshold ?? 0.5,
-      }),
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) return [];
-    const data = (await res.json().catch(() => ({}))) as { results?: unknown };
-    const results = Array.isArray(data.results) ? data.results : [];
-    return results
-      .map((r) => {
-        const o = (r ?? {}) as Record<string, unknown>;
-        return {
-          text: typeof o.text === "string" ? o.text : "",
-          source: typeof o.source_name === "string" ? o.source_name : "",
-          sourceUrl: typeof o.source_url === "string" ? o.source_url : "",
-          group: typeof o.group === "string" ? o.group : "",
-          similarity: typeof o.similarity === "number" ? o.similarity : 0,
-        };
-      })
-      .filter((c) => c.text)
-      .slice(0, limit);
-  } catch {
+    const res = await pool.query(
+      `SELECT c.text, d.id AS doc_id, d.title, d.level,
+              1 - (c.embedding <=> $1::vector) AS similarity
+         FROM rag_chunks c
+         JOIN rag_documents d ON d.id = c.document_id AND d.deleted_at IS NULL
+        WHERE c.embed_model = $2
+          AND (
+            d.level = 'system'
+            OR (d.level = 'district' AND d.district_id = $3)
+            OR (d.level = 'school'   AND d.school_id = ANY($4::int[]))
+            OR (d.level = 'cop'      AND d.cop_id = $5)
+          )
+          AND (
+            $6::boolean
+            OR d.id = ANY($7::bigint[])
+            OR EXISTS (
+              SELECT 1 FROM rag_document_categories dc
+               WHERE dc.document_id = d.id AND dc.category_id = ANY($8::bigint[])
+            )
+          )
+        ORDER BY c.embedding <=> $1::vector
+        LIMIT $9`,
+      [
+        toVectorLiteral(embedded.vector),
+        embedded.model,
+        scope.districtId ?? null,
+        scope.schoolIds ?? [],
+        scope.copId ?? null,
+        allCategories,
+        scope.documentIds ?? [],
+        allCategories ? [] : categoryIds,
+        limit,
+      ]
+    );
+    return res.rows
+      .map((r) => ({
+        text: (r.text as string) ?? "",
+        source: (r.title as string) ?? "source",
+        sourceUrl: `/api/rag/documents/${r.doc_id}`,
+        group: (r.level as string) ?? "",
+        similarity: typeof r.similarity === "number" ? r.similarity : 0,
+      }))
+      .filter((c) => c.text && c.similarity >= floor);
+  } catch (e) {
+    console.warn("[rag] query failed:", e instanceof Error ? e.message : e);
     return [];
   }
+}
+
+/**
+ * Backward-compatible default query used by the current call sites. Until node/arc
+ * source scoping is wired in (next phase), this searches all categories in the
+ * given scope (system-level only when no scope is provided).
+ */
+export async function queryRagDefault(prompt: string, limit = 8): Promise<RagChunk[]> {
+  return queryRag(prompt, {}, limit);
 }
 
 /** Render retrieved chunks as a context block for a prompt. Empty string if none. */
 export function formatRagContext(chunks: RagChunk[]): string {
   if (chunks.length === 0) return "";
-  const lines = chunks.map(
-    (c, i) => `[${i + 1}] (${c.source || c.group || "source"}) ${c.text}`
-  );
-  return lines.join("\n\n");
+  return chunks.map((c, i) => `[${i + 1}] (${c.source || c.group || "source"}) ${c.text}`).join("\n\n");
 }
