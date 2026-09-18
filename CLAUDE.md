@@ -100,7 +100,7 @@ These patterns from `reference/dewey1.0/` are worth understanding and adapting (
 
 - **Two-model stack** — Ollama for routing/compliance, Claude API for reasoning. This architecture continues in 2.0.
 - **Arc/phase JSON configs** — `coaching_arcs.json` and `coaching_phases.json` define the existing coaching journey shapes. The 2.0 template library will include these as system-provided arc templates.
-- **RAG integration** — the RAGDoll retrieval pattern (semantic similarity against org documents) carries forward
+- **RAG integration** — semantic-similarity retrieval against org documents carries forward, now **in-house** (Ollama embeddings + Postgres/pgvector), replacing the external RAGDoll PoC
 - **JSON contract for AI responses** — structured output with reasoning fields is a deliberate pattern to preserve
 - **Compliance screen** — the Ollama-based pre-generation safety check should be retained
 
@@ -123,7 +123,7 @@ These patterns from `reference/dewey1.0/` are worth understanding and adapting (
 - Postgres for persistent data
 - Ollama for local model serving (structural/routing calls)
 - Anthropic Claude API for coaching and AI reasoning
-- RAGDoll for retrieval-augmented generation
+- In-house RAG for retrieval-augmented generation (Ollama embeddings + Postgres/pgvector)
 
 ---
 

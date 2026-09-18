@@ -1978,18 +1978,13 @@ function CanvasAssistant({
                         <div className="mt-1.5 pt-1.5 border-t border-dewey-border flex flex-wrap items-center gap-1.5">
                           <span className="text-[11px] text-dewey-mute">Sources</span>
                           {m.sources.map((s, j) => (
-                            <a
+                            <span
                               key={j}
-                              href={pathWithBase(
-                                `/api/admin/rag/source?path=${encodeURIComponent(s.path)}`
-                              )}
-                              target="_blank"
-                              rel="noreferrer"
                               title={s.name}
-                              className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute hover:text-dewey-ink hover:border-dewey-mute"
+                              className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute"
                             >
                               {s.name}
-                            </a>
+                            </span>
                           ))}
                         </div>
                       )}

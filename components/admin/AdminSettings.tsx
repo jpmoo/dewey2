@@ -19,10 +19,7 @@ type SettingsView = {
   ollama_embedding_model: string | null;
   ollama_vision_model: string | null;
   ollama_num_ctx: number;
-  rag_url: string | null;
   rag_default_threshold: number;
-  rag_default_collections: string[];
-  rag_allowed_source_hosts: string[];
   default_theme: string;
   message_permissions: MessagePermissions;
   anthropic_api_key_set: boolean;
@@ -86,18 +83,9 @@ export function AdminSettings() {
   const [visionModel, setVisionModel] = useState("");
   const [numCtx, setNumCtx] = useState(0);
   const [anthropicKey, setAnthropicKey] = useState("");
-  const [ragUrl, setRagUrl] = useState("");
-  // Comma-separated hostnames RAG web-source links may redirect to.
-  const [ragHosts, setRagHosts] = useState("");
   const [ragThreshold, setRagThreshold] = useState(0.5);
   const [defaultTheme, setDefaultTheme] = useState("light");
   const [perms, setPerms] = useState<MessagePermissions>(EMPTY_PERMS);
-
-  // RAG collections: the live list from the server plus the selected defaults.
-  const [defaultCollections, setDefaultCollections] = useState<string[]>([]);
-  const [ragCollections, setRagCollections] = useState<string[]>([]);
-  const [ragCollLoading, setRagCollLoading] = useState(false);
-  const [ragCollError, setRagCollError] = useState<string | null>(null);
 
   // Live Ollama model list.
   const [models, setModels] = useState<string[]>([]);
@@ -113,10 +101,7 @@ export function AdminSettings() {
       setEmbeddingModel(settings.ollama_embedding_model ?? "");
       setVisionModel(settings.ollama_vision_model ?? "");
       setNumCtx(settings.ollama_num_ctx ?? 0);
-      setRagUrl(settings.rag_url ?? "");
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
-      setDefaultCollections(settings.rag_default_collections ?? []);
-      setRagHosts((settings.rag_allowed_source_hosts ?? []).join(", "));
       setDefaultTheme(settings.default_theme ?? "light");
       if (settings.message_permissions) setPerms(settings.message_permissions);
       setKeyFromEnv(settings.anthropic_api_key_from_env);
@@ -150,30 +135,6 @@ export function AdminSettings() {
     }
   }, [ollamaUrl]);
 
-  const loadCollections = useCallback(async () => {
-    setRagCollLoading(true);
-    setRagCollError(null);
-    try {
-      const { collections } = await apiFetch<{ collections: string[] }>(
-        "/api/admin/rag/collections",
-        { method: "POST", body: { rag_url: ragUrl } }
-      );
-      setRagCollections(collections);
-      if (collections.length === 0) setRagCollError("RAGDoll reported no collections.");
-    } catch (e) {
-      setRagCollections([]);
-      setRagCollError(e instanceof Error ? e.message : "Failed to reach RAGDoll");
-    } finally {
-      setRagCollLoading(false);
-    }
-  }, [ragUrl]);
-
-  const toggleDefaultCollection = useCallback((name: string) => {
-    setDefaultCollections((prev) =>
-      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
-    );
-  }, []);
-
   const save = useCallback(async () => {
     setSaving(true);
     setMessage(null);
@@ -185,13 +146,7 @@ export function AdminSettings() {
         ollama_embedding_model: embeddingModel,
         ollama_vision_model: visionModel,
         ollama_num_ctx: numCtx,
-        rag_url: ragUrl,
         rag_default_threshold: ragThreshold,
-        rag_default_collections: defaultCollections,
-        rag_allowed_source_hosts: ragHosts
-          .split(",")
-          .map((h) => h.trim().toLowerCase())
-          .filter(Boolean),
         default_theme: defaultTheme,
         message_permissions: perms,
       };
@@ -214,10 +169,7 @@ export function AdminSettings() {
     visionModel,
     numCtx,
     anthropicKey,
-    ragUrl,
     ragThreshold,
-    defaultCollections,
-    ragHosts,
     defaultTheme,
     perms,
     load,
@@ -232,10 +184,6 @@ export function AdminSettings() {
   // server isn't currently reachable.
   const classOptions = Array.from(new Set([classModel, ...models].filter(Boolean)));
   const coachingIsClaude = coachingModel.startsWith("claude:");
-  // Show saved defaults even before a live load, plus anything RAGDoll reports.
-  const allCollections = Array.from(
-    new Set([...defaultCollections, ...ragCollections])
-  ).sort((a, b) => a.localeCompare(b));
 
   return (
     <section className="space-y-6">
@@ -413,79 +361,22 @@ export function AdminSettings() {
 
         <hr className="border-dewey-border" />
 
-        {/* RAG */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="dewey-label">RAGDoll URL</label>
-            <input
-              className="dewey-input"
-              value={ragUrl}
-              onChange={(e) => setRagUrl(e.target.value)}
-              placeholder="http://localhost:8000"
-            />
-          </div>
-          <div>
-            <label className="dewey-label">Default similarity threshold</label>
-            <input
-              type="number"
-              min={0}
-              max={1}
-              step={0.05}
-              className="dewey-input"
-              value={ragThreshold}
-              onChange={(e) => setRagThreshold(parseFloat(e.target.value) || 0)}
-            />
-          </div>
-          <div className="col-span-2">
-            <label className="dewey-label">Allowed source-link hosts</label>
-            <input
-              className="dewey-input"
-              value={ragHosts}
-              onChange={(e) => setRagHosts(e.target.value)}
-              placeholder="learnercentered.org, edutopia.org"
-            />
-            <p className="mt-1 text-xs text-dewey-mute">
-              Comma-separated hostnames a cited web source may open. Anything not listed is
-              blocked (prevents open-redirects). Subdomains of a listed host are allowed.
-            </p>
-          </div>
-        </div>
-
-        {/* Default collections — populated once RAGDoll connects. */}
+        {/* Retrieval (in-house RAG) */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="dewey-label mb-0">Default collections</label>
-            <button
-              type="button"
-              className="dewey-btn-secondary"
-              onClick={loadCollections}
-              disabled={ragCollLoading || !ragUrl.trim()}
-              title="Connect to RAGDoll and list its collections"
-            >
-              <span aria-hidden>🔌</span> {ragCollLoading ? "Connecting…" : "Test / load collections"}
-            </button>
-          </div>
-          {ragCollError && <p className="text-xs text-red-600 mb-1">{ragCollError}</p>}
-          {allCollections.length === 0 ? (
-            <p className="text-xs text-dewey-mute">
-              Set the RAGDoll URL above, then load collections to choose defaults.
-            </p>
-          ) : (
-            <div className="border border-dewey-border rounded-md p-2 max-h-44 overflow-y-auto space-y-1 bg-dewey-surface">
-              {allCollections.map((name) => (
-                <label key={name} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={defaultCollections.includes(name)}
-                    onChange={() => toggleDefaultCollection(name)}
-                  />
-                  <span>{name}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          <p className="text-xs text-dewey-mute mt-1">
-            Used for retrieval by default. Override per user in Users below.
+          <label className="dewey-label">Retrieval similarity threshold</label>
+          <input
+            type="number"
+            min={0}
+            max={1}
+            step={0.05}
+            className="dewey-input max-w-[160px]"
+            value={ragThreshold}
+            onChange={(e) => setRagThreshold(parseFloat(e.target.value) || 0)}
+          />
+          <p className="mt-1 text-xs text-dewey-mute">
+            Minimum cosine similarity (0–1) for a document chunk to be used as context. Manage the
+            document library in the <strong>Documents</strong> tab; the embedding and vision models
+            are set above.
           </p>
         </div>
 

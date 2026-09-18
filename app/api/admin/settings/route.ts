@@ -26,10 +26,7 @@ export async function GET() {
       ollama_embedding_model: s.ollama_embedding_model,
       ollama_vision_model: s.ollama_vision_model,
       ollama_num_ctx: s.ollama_num_ctx,
-      rag_url: s.rag_url,
       rag_default_threshold: s.rag_default_threshold,
-      rag_default_collections: s.rag_default_collections,
-      rag_allowed_source_hosts: s.rag_allowed_source_hosts,
       default_theme: s.default_theme,
       message_permissions: s.message_permissions,
       // Key is write-only from the client's perspective.
@@ -68,17 +65,8 @@ export async function PATCH(request: NextRequest) {
     const n = Number(body.ollama_num_ctx);
     if (Number.isFinite(n) && n >= 0) update.ollama_num_ctx = n;
   }
-  if (typeof body.rag_url === "string") update.rag_url = body.rag_url;
   if (typeof body.rag_default_threshold === "number")
     update.rag_default_threshold = body.rag_default_threshold;
-  if (Array.isArray(body.rag_default_collections))
-    update.rag_default_collections = body.rag_default_collections.filter(
-      (c: unknown): c is string => typeof c === "string"
-    );
-  if (Array.isArray(body.rag_allowed_source_hosts))
-    update.rag_allowed_source_hosts = body.rag_allowed_source_hosts.filter(
-      (c: unknown): c is string => typeof c === "string"
-    );
   if (typeof body.default_theme === "string") update.default_theme = body.default_theme;
   if (body.message_permissions && typeof body.message_permissions === "object") {
     const mp = body.message_permissions as Record<string, Record<string, unknown>>;

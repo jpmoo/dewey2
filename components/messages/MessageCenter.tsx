@@ -1693,16 +1693,13 @@ function MessageBubble({
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-dewey-border pt-1.5">
                 <span className="text-[11px] text-dewey-mute">Sources</span>
                 {m.sources.map((s, j) => (
-                  <a
+                  <span
                     key={j}
-                    href={pathWithBase(`/api/rag/source?path=${encodeURIComponent(s.path)}`)}
-                    target="_blank"
-                    rel="noreferrer"
                     title={s.name}
-                    className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute hover:border-dewey-mute hover:text-dewey-ink"
+                    className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute"
                   >
                     {s.name}
-                  </a>
+                  </span>
                 ))}
               </div>
             )}
@@ -2507,16 +2504,13 @@ function ReviewModal({
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 border-t border-dewey-border pt-1.5">
                           <span className="text-[11px] text-dewey-mute">Sources</span>
                           {c.sources.map((s, j) => (
-                            <a
+                            <span
                               key={j}
-                              href={pathWithBase(`/api/rag/source?path=${encodeURIComponent(s.path)}`)}
-                              target="_blank"
-                              rel="noreferrer"
                               title={s.name}
-                              className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute hover:border-dewey-mute hover:text-dewey-ink"
+                              className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute"
                             >
                               {s.name}
-                            </a>
+                            </span>
                           ))}
                         </div>
                       )}
