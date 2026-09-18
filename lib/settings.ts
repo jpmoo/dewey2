@@ -64,6 +64,8 @@ export interface SystemSettings {
    * "ollama:<name>" here so ingest stays offline and free.
    */
   ollama_ingest_model: string | null;
+  /** Contextual Retrieval: write a situating header per chunk before embedding. */
+  rag_contextual_retrieval: boolean;
   /** Context-window ceiling for Ollama (num_ctx). 0/null = each model's full window. */
   ollama_num_ctx: number;
   anthropic_api_key: string | null;
@@ -84,6 +86,7 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
     ollama_embedding_model: (row.ollama_embedding_model as string | null) ?? null,
     ollama_vision_model: (row.ollama_vision_model as string | null) ?? null,
     ollama_ingest_model: (row.ollama_ingest_model as string | null) ?? null,
+    rag_contextual_retrieval: row.rag_contextual_retrieval !== false,
     ollama_num_ctx: row.ollama_num_ctx != null ? Number(row.ollama_num_ctx) : 0,
     anthropic_api_key: (row.anthropic_api_key as string | null) ?? null,
     rag_default_threshold:
@@ -123,6 +126,7 @@ export interface UpdateSystemSettingsParams {
   ollama_embedding_model?: string | null;
   ollama_vision_model?: string | null;
   ollama_ingest_model?: string | null;
+  rag_contextual_retrieval?: boolean;
   ollama_num_ctx?: number;
   anthropic_api_key?: string | null;
   rag_default_threshold?: number;
@@ -158,6 +162,8 @@ export async function updateSystemSettings(
     push("ollama_vision_model", emptyToNull(params.ollama_vision_model));
   if (params.ollama_ingest_model !== undefined)
     push("ollama_ingest_model", emptyToNull(params.ollama_ingest_model));
+  if (params.rag_contextual_retrieval !== undefined)
+    push("rag_contextual_retrieval", params.rag_contextual_retrieval);
   if (params.ollama_num_ctx !== undefined)
     push("ollama_num_ctx", params.ollama_num_ctx > 0 ? Math.floor(params.ollama_num_ctx) : null);
   if (params.backup_retention_days !== undefined)

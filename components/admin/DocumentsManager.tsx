@@ -34,6 +34,7 @@ type Sample = {
   id: number;
   ordinal: number;
   text: string;
+  context: string | null;
   source: string;
   edited: boolean;
   embedded: boolean;
@@ -610,6 +611,11 @@ function SampleRow({ sample, onChanged }: { sample: Sample; onChanged: () => voi
           <button type="button" className="text-red-600 hover:underline" onClick={del}>Delete</button>
         </span>
       </div>
+      {sample.context && !editing && (
+        <p className="mb-1 rounded bg-dewey-accent/5 px-1.5 py-1 text-[11px] italic text-dewey-mute line-clamp-3">
+          <span className="not-italic font-medium">Context: </span>{sample.context}
+        </p>
+      )}
       {editing ? (
         <textarea className="dewey-input min-h-[80px]" value={text} onChange={(e) => setText(e.target.value)} />
       ) : (

@@ -19,6 +19,7 @@ type SettingsView = {
   ollama_embedding_model: string | null;
   ollama_vision_model: string | null;
   ollama_ingest_model: string | null;
+  rag_contextual_retrieval: boolean;
   ollama_num_ctx: number;
   rag_default_threshold: number;
   default_theme: string;
@@ -83,6 +84,7 @@ export function AdminSettings() {
   const [embeddingModel, setEmbeddingModel] = useState("");
   const [visionModel, setVisionModel] = useState("");
   const [ingestModel, setIngestModel] = useState("");
+  const [contextualRetrieval, setContextualRetrieval] = useState(true);
   const [numCtx, setNumCtx] = useState(0);
   const [anthropicKey, setAnthropicKey] = useState("");
   const [ragThreshold, setRagThreshold] = useState(0.5);
@@ -103,6 +105,7 @@ export function AdminSettings() {
       setEmbeddingModel(settings.ollama_embedding_model ?? "");
       setVisionModel(settings.ollama_vision_model ?? "");
       setIngestModel(settings.ollama_ingest_model ?? "");
+      setContextualRetrieval(settings.rag_contextual_retrieval !== false);
       setNumCtx(settings.ollama_num_ctx ?? 0);
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
       setDefaultTheme(settings.default_theme ?? "light");
@@ -149,6 +152,7 @@ export function AdminSettings() {
         ollama_embedding_model: embeddingModel,
         ollama_vision_model: visionModel,
         ollama_ingest_model: ingestModel,
+        rag_contextual_retrieval: contextualRetrieval,
         ollama_num_ctx: numCtx,
         rag_default_threshold: ragThreshold,
         default_theme: defaultTheme,
@@ -172,6 +176,7 @@ export function AdminSettings() {
     embeddingModel,
     visionModel,
     ingestModel,
+    contextualRetrieval,
     numCtx,
     anthropicKey,
     ragThreshold,
@@ -308,9 +313,30 @@ export function AdminSettings() {
           </select>
           <p className="text-xs text-dewey-mute mt-1">
             Local Ollama model used for background ingest text tasks (auto-drafting a document’s
-            description). Prefer a local model here so ingest stays offline and free. Defaults to the
-            coaching model when unset.
+            description and, if enabled below, per-chunk retrieval context). Prefer a local model
+            here so ingest stays offline and free. Defaults to the coaching model when unset.
           </p>
+        </div>
+
+        <div>
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={contextualRetrieval}
+              onChange={(e) => setContextualRetrieval(e.target.checked)}
+            />
+            <span>
+              <span className="dewey-label mb-0">Contextual retrieval</span>
+              <span className="block text-xs text-dewey-mute mt-1">
+                During ingest, use the ingest model to write a short header situating each chunk
+                within its whole document; the header is embedded together with the verbatim text
+                (which is stored and shown unchanged). Improves recall on long documents at the cost
+                of one ingest-model call per chunk. Applies to newly ingested or re-processed
+                documents.
+              </span>
+            </span>
+          </label>
         </div>
 
         <div>

@@ -197,3 +197,32 @@ The workflow language is deliberately collegial rather than gatekeeping:
 
 Internal identifiers (tables like `activity_submissions`, `submission_status`
 enums, API paths) are left unchanged; only user-facing copy changes.
+
+---
+
+## RAG ingest & chunking
+
+**Verbatim, semantically chunked.** Document chunks are stored and returned
+**verbatim** (paragraph-aware, ~1200 chars, 150 overlap). We do **not** summarize
+or "extract the important points" at ingest — that would drop the long tail
+(relevance is set by the coach's later query, not by the model at ingest) and bake
+in interpretation/error into what the coaching model later cites. Distillation is
+available only as human-curated **manual samples**.
+
+**Full-text extraction.** RAG extracts the whole document (the 12k-char cap in
+`extractText` is for message-attachment peeks only). Pipeline: native text →
+normalize-to-PDF → OCR (scanned) → vision model (charts/tables). The vision model
+reconstructs **tables as Markdown** and transcribes every label/number.
+
+**Contextual Retrieval (locked).** When enabled (`rag_contextual_retrieval`, default
+on), the **ingest model** writes a short header situating each chunk within its
+whole document; that header is embedded **together with** the verbatim chunk, while
+the chunk itself is stored/returned unchanged. This is asymmetric indexing done
+safely — the model's whole-document understanding shapes the embedding without
+paraphrasing the source. One ingest-model call per chunk; applies to newly ingested
+or re-processed documents.
+
+**Ingest model.** Background ingest text tasks (auto-description, per-chunk context)
+run on `ollama_ingest_model`, defaulting to the coaching model when unset. Prefer a
+local `ollama:<name>` so ingest stays offline and free. Document descriptions are
+auto-drafted from the text (editable later); the upload form no longer asks for one.

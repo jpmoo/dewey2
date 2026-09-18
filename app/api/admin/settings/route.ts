@@ -26,6 +26,7 @@ export async function GET() {
       ollama_embedding_model: s.ollama_embedding_model,
       ollama_vision_model: s.ollama_vision_model,
       ollama_ingest_model: s.ollama_ingest_model,
+      rag_contextual_retrieval: s.rag_contextual_retrieval,
       ollama_num_ctx: s.ollama_num_ctx,
       rag_default_threshold: s.rag_default_threshold,
       default_theme: s.default_theme,
@@ -64,6 +65,8 @@ export async function PATCH(request: NextRequest) {
     update.ollama_vision_model = body.ollama_vision_model;
   if (typeof body.ollama_ingest_model === "string")
     update.ollama_ingest_model = body.ollama_ingest_model;
+  if (typeof body.rag_contextual_retrieval === "boolean")
+    update.rag_contextual_retrieval = body.rag_contextual_retrieval;
   if (body.ollama_num_ctx !== undefined && body.ollama_num_ctx !== null) {
     const n = Number(body.ollama_num_ctx);
     if (Number.isFinite(n) && n >= 0) update.ollama_num_ctx = n;

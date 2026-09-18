@@ -1,7 +1,7 @@
 import { getPool } from "@/lib/pg";
 import { ragAvailable } from "@/lib/db";
 import { embedText, toVectorLiteral } from "@/lib/embeddings";
-import type { RagPlacement } from "@/lib/rag-ingest";
+import { embeddableText, type RagPlacement } from "@/lib/rag-ingest";
 
 /** The four standard categories (admin can add more later). */
 export async function listRagCategories(): Promise<{ id: number; name: string; description: string | null }[]> {
@@ -16,10 +16,16 @@ export async function listRagCategories(): Promise<{ id: number; name: string; d
   }));
 }
 
-/** Embed a chunk's text and store the vector (or clear it if embedding failed). */
+/**
+ * Embed a chunk (its Contextual-Retrieval header + verbatim text) and store the
+ * vector, or clear it if embedding failed. The context is read from the row so
+ * callers only need to pass the text they just wrote.
+ */
 async function embedChunk(chunkId: number, text: string): Promise<boolean> {
   const pool = getPool();
-  const e = await embedText(text);
+  const ctxRes = await pool.query("SELECT context FROM rag_chunks WHERE id = $1", [chunkId]);
+  const context = (ctxRes.rows[0]?.context as string | null) ?? null;
+  const e = await embedText(embeddableText(context, text));
   if (!e) {
     await pool.query(
       "UPDATE rag_chunks SET embedding = NULL, embed_model = NULL, updated_at = NOW() WHERE id = $1",
@@ -164,6 +170,8 @@ export interface RagSample {
   id: number;
   ordinal: number;
   text: string;
+  /** Contextual-Retrieval header embedded alongside the text (null if none). */
+  context: string | null;
   source: string;
   edited: boolean;
   embedded: boolean;
@@ -278,7 +286,7 @@ export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | n
   if (!d) return null;
   const [cats, places] = await Promise.all([categoriesFor([id]), placementsFor([id])]);
   const sRes = await pool.query(
-    `SELECT id, ordinal, text, source, edited, (embedding IS NOT NULL) AS embedded
+    `SELECT id, ordinal, text, context, source, edited, (embedding IS NOT NULL) AS embedded
        FROM rag_chunks WHERE document_id = $1 ORDER BY ordinal`,
     [id]
   );
@@ -300,6 +308,7 @@ export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | n
       id: r.id as number,
       ordinal: r.ordinal as number,
       text: r.text as string,
+      context: (r.context as string | null) ?? null,
       source: r.source as string,
       edited: r.edited as boolean,
       embedded: r.embedded as boolean,

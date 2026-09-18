@@ -92,9 +92,8 @@ async function generateDescription(text: string): Promise<string | null> {
   if (!sample) return null;
   try {
     const settings = await getSystemSettings();
-    const model = (settings.ollama_ingest_model ?? "").trim() || undefined; // undefined → coaching model
     const { text: out } = await chatComplete({
-      model,
+      model: ingestModelOf(settings),
       system:
         "You write concise catalog descriptions for a document library used by school and " +
         "district leadership coaches. Given the beginning of a document, write 1–2 sentences " +
@@ -109,6 +108,58 @@ async function generateDescription(text: string): Promise<string | null> {
     console.warn("[rag] description generation failed:", e instanceof Error ? e.message : e);
     return null;
   }
+}
+
+/** The ingest model, or undefined to fall back to the coaching model. */
+function ingestModelOf(settings: { ollama_ingest_model: string | null }): string | undefined {
+  return (settings.ollama_ingest_model ?? "").trim() || undefined;
+}
+
+// How much of the document to show the model when situating a chunk. Bounds the
+// per-chunk cost; the whole document is used when it fits.
+const CONTEXT_DOC_CHARS = 16000;
+
+/**
+ * Contextual Retrieval: ask the ingest model to write a 1–2 sentence header that
+ * situates one verbatim chunk within the whole document. This header is embedded
+ * together with the chunk (not stored in its place), which markedly improves
+ * recall on long documents. Best-effort — returns null on any failure so ingest
+ * falls back to embedding the chunk alone.
+ */
+async function generateChunkContext(
+  docText: string,
+  chunk: string,
+  model: string | undefined
+): Promise<string | null> {
+  try {
+    const doc = docText.slice(0, CONTEXT_DOC_CHARS);
+    const { text: out } = await chatComplete({
+      model,
+      system:
+        "You improve search retrieval for a document library. You are given a whole document and " +
+        "one chunk taken from it. Write a short, standalone context (1–2 sentences, ~50 words) that " +
+        "situates the chunk within the document — what section/topic it belongs to and what it is " +
+        "about — using specific names and terms so the chunk can be found on its own. Do not repeat " +
+        "the chunk or add new facts. Output only the context sentence(s).",
+      messages: [
+        {
+          role: "user",
+          content: `<document>\n${doc}\n</document>\n\n<chunk>\n${chunk}\n</chunk>\n\nContext:`,
+        },
+      ],
+      maxTokens: 120,
+    });
+    const c = out.trim().replace(/^["']+|["']+$/g, "").trim();
+    return c || null;
+  } catch (e) {
+    console.warn("[rag] chunk context failed:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/** The text actually embedded for a chunk: its context header + the verbatim text. */
+export function embeddableText(context: string | null, text: string): string {
+  return context ? `${context}\n\n${text}` : text;
 }
 
 /**
@@ -243,35 +294,45 @@ export async function processDocument(documentId: number, src: ProcessSource): P
       return;
     }
 
+    // Contextual Retrieval: when enabled, situate each chunk within the whole
+    // document before embedding. Skipped for a single chunk (nothing to situate).
+    const settings = await getSystemSettings();
+    const useContext = settings.rag_contextual_retrieval && chunks.length > 1;
+    const ctxModel = ingestModelOf(settings);
+
     let embedded = 0;
     for (let i = 0; i < chunks.length; i++) {
-      const e = await embedText(chunks[i]);
+      const context = useContext ? await generateChunkContext(text, chunks[i], ctxModel) : null;
+      const e = await embedText(embeddableText(context, chunks[i]));
       if (e) {
         await pool.query(
-          `INSERT INTO rag_chunks (document_id, ordinal, text, embed_model, embedding)
-           VALUES ($1,$2,$3,$4,$5::vector)`,
-          [documentId, i, chunks[i], e.model, toVectorLiteral(e.vector)]
+          `INSERT INTO rag_chunks (document_id, ordinal, text, context, embed_model, embedding)
+           VALUES ($1,$2,$3,$4,$5,$6::vector)`,
+          [documentId, i, chunks[i], context, e.model, toVectorLiteral(e.vector)]
         );
         embedded += 1;
       } else {
-        // Store the chunk unembedded so it's visible and can be re-embedded later.
+        // Store the chunk (and any context) unembedded so it's visible and can be
+        // re-embedded later.
         await pool.query(
-          "INSERT INTO rag_chunks (document_id, ordinal, text) VALUES ($1,$2,$3)",
-          [documentId, i, chunks[i]]
+          "INSERT INTO rag_chunks (document_id, ordinal, text, context) VALUES ($1,$2,$3,$4)",
+          [documentId, i, chunks[i], context]
         );
       }
-      if (i % 3 === 0 || i === chunks.length - 1) {
+      if (i % 2 === 0 || i === chunks.length - 1) {
+        const verb = useContext ? "Contextualizing" : "Embedding";
         await pool.query("UPDATE rag_documents SET status_detail = $2 WHERE id = $1", [
           documentId,
-          `${methodsNote(methods)}Embedding ${embedded}/${chunks.length}…`,
+          `${methodsNote(methods)}${verb} ${embedded}/${chunks.length}…`,
         ]);
       }
     }
 
+    const ctxNote = useContext ? " (with contextual retrieval)" : "";
     const note =
       embedded === chunks.length
-        ? `${methodsNote(methods)}${embedded}/${chunks.length} samples embedded.`
-        : `${methodsNote(methods)}${embedded}/${chunks.length} embedded — the embedding model was unavailable for the rest. Use Re-embed once it's reachable.`;
+        ? `${methodsNote(methods)}${embedded}/${chunks.length} samples embedded${ctxNote}.`
+        : `${methodsNote(methods)}${embedded}/${chunks.length} embedded${ctxNote} — the embedding model was unavailable for the rest. Use Re-embed once it's reachable.`;
     await pool.query("UPDATE rag_documents SET processed_at = NOW() WHERE id = $1", [documentId]);
     await setStatus(documentId, "ready", note);
   } catch (e) {

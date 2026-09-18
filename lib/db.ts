@@ -183,6 +183,9 @@ export function ensureSchema(): Promise<void> {
         -- Model for background ingest text tasks (auto-description); when NULL,
         -- the coaching model is used. Prefer a local ollama:<name> here.
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS ollama_ingest_model TEXT;
+        -- Contextual Retrieval: use the ingest model to write a situating header
+        -- per chunk before embedding. Improves recall on long documents.
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS rag_contextual_retrieval BOOLEAN NOT NULL DEFAULT TRUE;
 
         -- Per-user audit log. user_id is the subject; actor_id is who did it
         -- (null for system/self events). Cascades away with the user.
@@ -612,6 +615,10 @@ async function ensureRagSchema(): Promise<void> {
       ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'auto';
       ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS edited BOOLEAN NOT NULL DEFAULT FALSE;
       ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+      -- Contextual Retrieval: a short model-written header situating this chunk
+      -- within its document. Embedded together with the verbatim text; the text
+      -- itself is stored and returned unchanged.
+      ALTER TABLE rag_chunks ADD COLUMN IF NOT EXISTS context TEXT;
       ALTER TABLE rag_chunks ALTER COLUMN embed_model DROP NOT NULL;
       CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks (document_id);
     `);
