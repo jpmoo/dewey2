@@ -78,8 +78,122 @@ Ollama handles routing and compliance. Claude API handles reasoning and coaching
 ### JSON contract pattern is preserved
 AI responses for coaching and phase evaluation return structured JSON with reasoning fields. This auditability is intentional.
 
-### RAG integration is preserved
-Document retrieval via RAGDoll (semantic similarity) continues to ground AI responses in organizational context.
+### RAG integration is preserved (retrieval grounding), but moves in-house
+Semantic-similarity retrieval still grounds AI responses in organizational
+context. RAGDoll (a generic external proof-of-concept) is being **replaced** by a
+native, in-house RAG subsystem — see "In-house RAG (document sources)" below.
 
 ### Compliance screen is preserved
 Ollama-based pre-generation safety check is retained.
+
+---
+
+## In-house RAG (document sources)
+
+Replaces RAGDoll with a native subsystem so ingestion, querying, serving, and
+review all live inside Dewey.
+
+### Stack: Ollama embeddings + Postgres/pgvector
+Local Ollama embedding model (e.g. `nomic-embed-text`); embeddings stored in a
+`vector` column via the pgvector extension (both already on the server). Cosine
+similarity search in Postgres. No external service; nothing leaves the box. The
+embedding model/dimension is a one-time commitment — changing it means
+re-embedding the corpus.
+
+### Documents live in a hierarchy of stores; retrieval inherits upward
+Every document is stamped with a **level + unit**:
+`system` (root) → `district` → `school` → `cop` (a Community of Practice, bottom).
+Retrieval for an activity resolves the **ancestor chain** and unions it:
+- a regular partnership pulls `system ∪ district ∪ school` (the **coachee's** units);
+- a CoP pulls `system ∪ district ∪ school ∪ that CoP's own store`.
+
+A CoP anchors to a **school** (inherits school+district+system) or a **district**
+(inherits district+system). Inheritance is a query-time union — no duplication.
+
+### Four categories, global and standard (not per-unit free-text)
+A single admin-managed vocabulary, so plan/node source config stays portable
+across districts/schools and inheritance merges cleanly. **Category and level are
+independent axes** — a document has one level+unit and one or more categories.
+
+1. **Frameworks, Models & Plans** — coaching/leadership/instructional frameworks
+   (Impact Cycle, PoP, competency frameworks) *and* the unit's strategic/
+   improvement plans, mission/vision, goal structures.
+2. **Research, Evidence & Readings** — the evidence base plus assigned articles
+   and book-study texts.
+3. **Protocols & Tools** — procedures and instruments: facilitation/observation/
+   interview protocols, rubrics, surveys, look-fors, data-collection sheets.
+4. **Local Context** — the unit's performance/demographic **data**, **exemplars**
+   of strong practice, and the **standards & policy** it's held to.
+
+System admin can add more categories later.
+
+### Ingestion is system-admin-first
+System admin uploads and, at ingest, picks the **level + unit** (which district /
+school / CoP) and one or more **categories**. Text extraction reuses `lib/extract`
+(pdf-parse + mammoth); documents are chunked and embedded. Per-level admins (and
+CoP chairs into their own store) come later.
+
+### Source selection: node-level + arc-level "standing" sources
+A **source selector** is `{ categories: [...] | "all", documentIds: [...] }` — it
+can name buckets *and/or* specific documents. It attaches at two levels:
+- **Per node** — the sources for that activity.
+- **Per arc ("standing sources")** — ongoing resources unioned into *every*
+  activity's retrieval for the whole arc (e.g. pin the strategic plan).
+
+Query = embed the prompt, cosine top-k (~8, with a similarity floor) over
+`node.sources ∪ arc.standingSources`, clipped to the visible org chain. **Default
+is "all"** — an empty node selector draws from every category in the chain.
+
+### Downstream shape is preserved
+The `RagChunk`/source-link shape and the three call sites (@dewey chat, coach
+review consult, canvas assistant) are unchanged apart from passing bucket/doc
+scope; source-link pills keep working. Documents are served from the in-house
+store (admins browse/preview/delete by level/unit/category).
+
+---
+
+## Communities of Practice (CoP)
+
+A conversation with more than two participants can be designated a **Community of
+Practice**. Distinct from a regular 2-person partnership.
+
+### One community arc, tied to a goal
+A CoP has a **single arc** for the whole community, anchored to a stated
+problem/goal. Individuals in a CoP do **not** carry their own arcs (individual
+arcs remain the thing for 2-person partnerships). The goal/problem is stored on
+the CoP and **injected as AI context** throughout that arc.
+
+### The Chair, not a coach, owns the arc
+Each CoP has a **Chair** — a **per-CoP designation** (any member can hold it; it
+is *not* a global system role). The Chair builds/assigns the arc via the canvas
+(scoped to that CoP), reviews contributions, and decides when the community is
+ready to advance. **School and district admins can also edit/set** the arc. The
+Chair **fully replaces** the coach requirement — a CoP needs no coach.
+
+### Collective progression, multiple contributions
+The community moves through the arc **together** (one shared current activity).
+**Multiple members contribute** to an activity; the Chair reviews all
+contributions and decides whether the group is ready for the next step. OPEN
+activities self-attest; REVIEWED activities surface to the Chair.
+
+### Private @dewey with share-to-group
+Inside a CoP, a member's `@dewey` exchange is **private to that member by default**
+(reusing the `messages.audience` restricted-visibility mechanism), clearly marked
+private, with a **"Share with group"** action that widens visibility to the whole
+community.
+
+### CoP anchoring for RAG
+A CoP has its own document store at the bottom of the RAG hierarchy (see In-house
+RAG), inheriting school/district/system per its anchor.
+
+---
+
+## Terminology (collegial framing)
+
+The workflow language is deliberately collegial rather than gatekeeping:
+- **"Submit" / "Submission" → "Contribute" / "Contribution"** (user-facing).
+- **"Approve" / "Approval" → "Endorse" / "Endorsement"** (user-facing) — pending
+  final word choice.
+
+Internal identifiers (tables like `activity_submissions`, `submission_status`
+enums, API paths) are left unchanged; only user-facing copy changes.
