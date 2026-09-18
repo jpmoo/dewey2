@@ -128,6 +128,27 @@ async function ocr(png: string): Promise<string> {
   }
 }
 
+/**
+ * Extract a PDF's text layer with poppler's pdftotext. This is far more reliable
+ * than pdf-parse on designed/exported PDFs (which often defeat pdf-parse and force
+ * a bad OCR fallback), so it's the primary text source for PDFs when available.
+ */
+async function pdfToText(dir: string, pdfBytes: Buffer): Promise<string> {
+  if (!(await has("pdftotext"))) return "";
+  try {
+    const p = path.join(dir, "text-src.pdf");
+    await fs.writeFile(p, pdfBytes);
+    const { stdout } = await exec("pdftotext", ["-nopgbrk", p, "-"], {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 120000,
+    });
+    return stdout.trim();
+  } catch (e) {
+    console.warn("[rag-extract] pdftotext failed:", e instanceof Error ? e.message : e);
+    return "";
+  }
+}
+
 const VISION_PROMPT =
   "You are extracting page content for search and retrieval. Look only at charts, graphs, " +
   "figures, tables, and diagrams on this page (ignore ordinary body paragraphs — those are " +
@@ -148,14 +169,26 @@ async function describe(png: string, model: string, ollamaUrl: string): Promise<
     const res = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/generate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, prompt: VISION_PROMPT, images: [b64], stream: false }),
-      signal: AbortSignal.timeout(120000),
+      // keep_alive holds the (large) vision model in memory across pages; a big
+      // model's first load plus per-page inference can be slow, so allow more time.
+      body: JSON.stringify({
+        model,
+        prompt: VISION_PROMPT,
+        images: [b64],
+        stream: false,
+        keep_alive: "30m",
+      }),
+      signal: AbortSignal.timeout(300000),
     });
-    if (!res.ok) return "";
+    if (!res.ok) {
+      console.warn("[rag-extract] vision", res.status, (await res.text().catch(() => "")).slice(0, 300));
+      return "";
+    }
     const data = (await res.json().catch(() => ({}))) as { response?: string };
     const out = (data.response ?? "").trim();
     return out && out.toUpperCase() !== "NONE" ? out : "";
-  } catch {
+  } catch (e) {
+    console.warn("[rag-extract] vision error:", e instanceof Error ? e.message : e);
     return "";
   }
 }
@@ -177,25 +210,30 @@ export async function extractDocument(
   const parts: string[] = [];
   const methods = new Set<string>();
 
-  // 1. Native text layer. maxChars: 0 = keep the whole document (the default cap
-  // is for message-attachment peeks and would drop half a multi-page doc). A
-  // malformed file can make the parser throw; treat that as "no native text" so
-  // the OCR/vision stages still get a chance.
-  const native = (
-    (await extractText(filename, mime, bytes, { maxChars: 0 }).catch(() => null)) ?? ""
-  ).trim();
-  if (native) {
-    parts.push(native);
-    methods.add("text");
-  }
-
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `dewey-rag-${randomUUID()}-`));
   let pdfBytes: Buffer | null = null;
+  let native = "";
   try {
     pdfBytes = await toPdf(dir, filename, mime, bytes);
     if (pdfBytes && !isPdf(filename, mime)) methods.add("pdf");
 
-    // Only rasterize if we'll actually use the pages (scanned doc or vision on).
+    // 1. Native text layer. For PDFs, prefer poppler's pdftotext — pdf-parse
+    // silently returns nothing on many designed/exported PDFs, which used to
+    // force a garbage OCR fallback. maxChars: 0 keeps the whole document (the
+    // extractText cap is only for message-attachment peeks).
+    if (pdfBytes) {
+      native = await pdfToText(dir, pdfBytes);
+      if (native) methods.add("pdftotext");
+    }
+    if (!native) {
+      native = (
+        (await extractText(filename, mime, bytes, { maxChars: 0 }).catch(() => null)) ?? ""
+      ).trim();
+      if (native) methods.add("text");
+    }
+    if (native) parts.push(native);
+
+    // Rasterize for OCR (only when there's no usable text layer) and/or vision.
     const scanned = native.length < 200;
     if (pdfBytes && (scanned || useVision)) {
       const pdfPath = path.join(dir, "doc.pdf");
