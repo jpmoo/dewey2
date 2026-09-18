@@ -39,7 +39,7 @@ type Sample = {
   edited: boolean;
   embedded: boolean;
 };
-type DocDetail = DocSummary & { filename: string | null; mime: string | null; samplesList: Sample[] };
+type DocDetail = DocSummary & { filename: string | null; mime: string | null; extractedChars: number; samplesList: Sample[] };
 
 /** New placement being composed in the picker (system / district / school). */
 type DraftPlacement = { level: "system" | "district" | "school"; districtId: number | null; schoolId: number | null };
@@ -571,6 +571,7 @@ function DetailModal({
           <div>
             <div className="mb-1 flex items-center justify-between">
               <label className="dewey-label mb-0">Samples ({doc.embedded}/{doc.samples} embedded)</label>
+              <span className="text-xs text-dewey-mute">Extracted text: {doc.extractedChars.toLocaleString()} chars</span>
             </div>
             <div className="space-y-2">
               {doc.samplesList.map((s) => (

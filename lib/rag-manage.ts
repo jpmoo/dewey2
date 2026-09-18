@@ -240,6 +240,8 @@ export interface RagSample {
 export interface RagDocDetail extends RagDocSummary {
   filename: string | null;
   mime: string | null;
+  /** Character length of the extracted text — reveals truncated vs full-text ingest. */
+  extractedChars: number;
   samplesList: RagSample[];
 }
 
@@ -340,7 +342,9 @@ export async function listRagDocuments(q = ""): Promise<RagDocSummary[]> {
 export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | null> {
   const pool = getPool();
   const dRes = await pool.query(
-    "SELECT id, title, description, filename, mime, created_at, status, status_detail, chunk_total FROM rag_documents WHERE id = $1 AND deleted_at IS NULL",
+    `SELECT id, title, description, filename, mime, created_at, status, status_detail, chunk_total,
+            COALESCE(char_length(extracted_text), 0) AS extracted_chars
+       FROM rag_documents WHERE id = $1 AND deleted_at IS NULL`,
     [id]
   );
   const d = dRes.rows[0];
@@ -363,6 +367,7 @@ export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | n
     status: ((d.status as string) ?? "ready") as RagDocStatus,
     statusDetail: (d.status_detail as string | null) ?? null,
     chunkTotal: (d.chunk_total as number | null) ?? null,
+    extractedChars: Number(d.extracted_chars ?? 0),
     categories: cats.get(id) ?? [],
     placements: places.get(id) ?? [],
     samplesList: sRes.rows.map((r) => ({
