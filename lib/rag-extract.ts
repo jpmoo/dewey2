@@ -19,7 +19,7 @@ import { getSystemSettings } from "@/lib/settings";
 
 const exec = promisify(execFile);
 const MAX_PAGES = 40; // cap raster/OCR/vision work per document
-const RASTER_DPI = "150";
+const RASTER_DPI = "200"; // higher DPI helps the vision model read dense tables
 
 const whichCache = new Map<string, boolean>();
 async function has(cmd: string): Promise<boolean> {
@@ -202,7 +202,9 @@ async function describe(
     }
     const data = (await res.json().catch(() => ({}))) as { response?: string };
     const out = (data.response ?? "").trim();
-    return { text: out && out.toUpperCase() !== "NONE" ? out : "" };
+    // Treat "NONE", "None.", "none" etc. as no-visual (models add punctuation/case).
+    const normalized = out.replace(/[\s.]+$/, "").toUpperCase();
+    return { text: out && normalized !== "NONE" ? out : "" };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn("[rag-extract] vision error:", msg);
