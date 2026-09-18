@@ -133,6 +133,21 @@ export function DocumentsManager() {
       dialog.alert(e instanceof Error ? e.message : "Retry failed");
     }
   };
+  const reprocess = async (doc: DocSummary) => {
+    if (
+      !(await dialog.confirm(
+        `Rebuild "${doc.title}" from the original file? This re-extracts the full text and re-chunks it, which replaces the current samples and discards any manual edits or added samples.`,
+        { title: "Reprocess document", confirmText: "Reprocess" }
+      ))
+    )
+      return;
+    try {
+      await apiFetch(`/api/admin/rag/documents/${doc.id}/reprocess`, { method: "POST" });
+      loadDocs(q);
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Reprocess failed");
+    }
+  };
 
   return (
     <section>
@@ -201,9 +216,24 @@ export function DocumentsManager() {
                       Retry
                     </button>
                   ) : d.status === "ready" ? (
-                    <button type="button" className="text-xs text-dewey-accent hover:underline" onClick={() => reembed(d)}>
-                      Re-embed
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-accent hover:underline"
+                        onClick={() => reembed(d)}
+                        title="Re-embed the existing samples with the current settings (regenerates contextual headers). Keeps sample text and manual edits."
+                      >
+                        Re-embed
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-accent hover:underline"
+                        onClick={() => reprocess(d)}
+                        title="Rebuild from the original file: re-extract the full text and re-chunk. Changes the sample set and discards manual edits."
+                      >
+                        Reprocess
+                      </button>
+                    </>
                   ) : null}
                   <button type="button" className="text-xs text-red-700 hover:underline" onClick={() => del(d)}>
                     Delete
