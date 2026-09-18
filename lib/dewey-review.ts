@@ -1,6 +1,7 @@
 import { getPool } from "@/lib/pg";
 import { chatComplete } from "@/lib/ai";
-import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
+import { queryRag, mergeSelectors, formatRagContext, uniqueSources } from "@/lib/rag";
+import { getThreadUnitScope } from "@/lib/messages";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
 import {
   addConsultTurn,
@@ -100,7 +101,11 @@ export async function consultDeweyOnSubmission(params: {
   ]
     .filter(Boolean)
     .join("\n");
-  const chunks = await queryRagDefault(ragQuery).catch(() => []);
+  const units = plan.thread_id != null
+    ? await getThreadUnitScope(plan.thread_id).catch(() => ({ districtId: null, schoolIds: [] as number[], copId: null }))
+    : { districtId: null, schoolIds: [] as number[], copId: null };
+  const sel = mergeSelectors(node?.sources ?? null, graph.standingSources ?? null);
+  const chunks = await queryRag(ragQuery, { ...units, ...sel }).catch(() => []);
 
   let system = `You are @dewey, an AI coaching companion on Dewey, advising a human COACH as they review a partner's work. You are speaking ONLY to the coach — never to the partner — and you do NOT make the decision. Give the coach a clear, honest, concise assessment of whether the submission meets the activity's goal, what's strong, and what (if anything) is missing. Weigh the work against the organization's strategic plans, goals, and priorities (excerpts below when available) and reference the specific source so the coach can connect the partner's work to those goals. The coach decides whether to approve or return it.`;
   if (chunks.length > 0) {

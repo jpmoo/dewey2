@@ -19,6 +19,19 @@ export interface TemplateNode {
   instructions?: string;
   /** What the partner is expected to produce in this activity. */
   artifact?: string;
+  /** Which RAG sources this activity draws from. Omitted = all (the default). */
+  sources?: SourceSelector;
+}
+
+/**
+ * Selects RAG sources: all categories (the default), or specific category buckets
+ * and/or pinned individual documents. Category ids are the global, admin-managed
+ * categories, so a selector is portable across districts/schools.
+ */
+export interface SourceSelector {
+  all: boolean;
+  categoryIds: number[];
+  documentIds: number[];
 }
 
 export interface TemplateEdge {
@@ -49,6 +62,8 @@ export interface TemplateGraph {
   nodes: TemplateNode[];
   edges: TemplateEdge[];
   phases: TemplatePhase[];
+  /** Arc-wide "standing" RAG sources, unioned into every activity's retrieval. */
+  standingSources?: SourceSelector;
 }
 
 export const EMPTY_GRAPH: TemplateGraph = { nodes: [], edges: [], phases: [] };

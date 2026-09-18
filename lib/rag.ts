@@ -2,6 +2,7 @@ import { getPool } from "@/lib/pg";
 import { getSystemSettings } from "@/lib/settings";
 import { ragAvailable } from "@/lib/db";
 import { embedText, toVectorLiteral } from "@/lib/embeddings";
+import type { SourceSelector } from "@/lib/templates";
 
 /**
  * In-house RAG retrieval (Ollama embeddings + Postgres/pgvector), replacing the
@@ -123,6 +124,26 @@ export async function queryRag(prompt: string, scope: RagScope = {}, limit = 8):
  */
 export async function queryRagDefault(prompt: string, limit = 8): Promise<RagChunk[]> {
   return queryRag(prompt, {}, limit);
+}
+
+/**
+ * Merge a node's sources with the arc's standing sources into query filters.
+ * Returns categoryIds=null for "all categories" (the default when nothing is set).
+ */
+export function mergeSelectors(
+  node?: SourceSelector | null,
+  standing?: SourceSelector | null
+): { categoryIds: number[] | null; documentIds: number[] } {
+  const nodeAll = node ? node.all : true; // no node selector = all
+  const standAll = standing ? standing.all : false;
+  const documentIds = Array.from(
+    new Set([...(node?.documentIds ?? []), ...(standing?.documentIds ?? [])])
+  );
+  if (nodeAll || standAll) return { categoryIds: null, documentIds };
+  const categoryIds = Array.from(
+    new Set([...(node?.categoryIds ?? []), ...(standing?.categoryIds ?? [])])
+  );
+  return { categoryIds, documentIds };
 }
 
 /** Render retrieved chunks as a context block for a prompt. Empty string if none. */

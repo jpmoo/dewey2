@@ -1,6 +1,6 @@
 import { chatComplete, complianceCheck } from "@/lib/ai";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
-import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
+import { queryRag, mergeSelectors, formatRagContext, uniqueSources } from "@/lib/rag";
 import {
   createTemplate,
   deactivatePriorThreadPlans,
@@ -15,6 +15,7 @@ import {
   getAttachmentTextsForThread,
   getThreadMessages,
   getThreadMeta,
+  getThreadUnitScope,
   logThreadEvent,
   postMessage,
   reportComplianceFlag,
@@ -181,7 +182,13 @@ export async function runDeweyForThread(params: {
   ]
     .filter(Boolean)
     .join("\n");
-  const chunks = await queryRagDefault(ragQuery).catch(() => []);
+  const units = await getThreadUnitScope(threadId).catch(() => ({
+    districtId: null,
+    schoolIds: [] as number[],
+    copId: null,
+  }));
+  const sel = mergeSelectors(active?.sources ?? null, active?.standingSources ?? null);
+  const chunks = await queryRag(ragQuery, { ...units, ...sel }).catch(() => []);
   const sources = uniqueSources(chunks);
   if (chunks.length > 0) {
     system +=

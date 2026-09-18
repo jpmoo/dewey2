@@ -11,9 +11,11 @@ import {
   getPlanAcceptances,
   logUserEvent,
   threadHasAcceptedPlan,
+  PARTNER_ROLES,
 } from "@/lib/db";
 import { isLastInPhase } from "@/lib/plan-graph";
 import { getSystemSettings } from "@/lib/settings";
+import type { SourceSelector } from "@/lib/templates";
 import { summarizeWithComplianceModel } from "@/lib/ai";
 
 /**
@@ -1114,6 +1116,9 @@ export interface ActiveActivity {
   } | null;
   /** A submission is awaiting coach review (freezes the partner's composer). */
   pendingReview: boolean;
+  /** RAG source selectors for retrieval: this node's, and the arc's standing set. */
+  sources: SourceSelector | null;
+  standingSources: SourceSelector | null;
 }
 
 /**
@@ -1149,7 +1154,39 @@ export async function getActiveActivity(threadId: number): Promise<ActiveActivit
         }
       : null,
     pendingReview: submission?.status === "pending",
+    sources: node.sources ?? null,
+    standingSources: plan.graph.standingSources ?? null,
   };
+}
+
+/**
+ * The org units in scope for retrieval in a thread: the coachee's district +
+ * buildings (a Community of Practice also scopes to its own store). Powers RAG
+ * source resolution during @dewey / review.
+ */
+export async function getThreadUnitScope(
+  threadId: number
+): Promise<{ districtId: number | null; schoolIds: number[]; copId: number | null }> {
+  await ensureSchema();
+  const pool = getPool();
+  // copId is reserved for Communities of Practice (that feature will set it).
+  const copId: number | null = null;
+  // Coachees = the non-coach/admin participants.
+  const res = await pool.query(
+    `SELECT u.district_id,
+            COALESCE(array_agg(us.school_id) FILTER (WHERE us.school_id IS NOT NULL), '{}') AS school_ids
+       FROM thread_participants p
+       JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+       LEFT JOIN user_schools us ON us.user_id = u.id
+      WHERE p.thread_id = $1 AND u.system_role = ANY($2::text[])
+      GROUP BY u.district_id`,
+    [threadId, PARTNER_ROLES]
+  );
+  const districtId = (res.rows[0]?.district_id as number | null) ?? null;
+  const schoolIds = Array.from(
+    new Set(res.rows.flatMap((r) => (r.school_ids as number[]) ?? []))
+  );
+  return { districtId, schoolIds, copId };
 }
 
 // ============================================================

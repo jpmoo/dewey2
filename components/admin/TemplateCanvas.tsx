@@ -49,7 +49,7 @@ import {
   type Gating,
 } from "@/lib/activities";
 import { EMPTY_GRAPH } from "@/lib/templates";
-import type { CoachingTemplate, TemplateGraph, TemplatePhase } from "@/lib/templates";
+import type { CoachingTemplate, TemplateGraph, TemplatePhase, SourceSelector } from "@/lib/templates";
 
 // Colors cycled through as phases are created.
 const PHASE_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db2777"];
@@ -271,6 +271,8 @@ type ActivityNodeData = {
   clickable?: boolean;
   /** Order letter within its phase (a, b, c…), shown as a badge and in the print export. */
   letter?: string;
+  /** RAG source selector for this activity; undefined = all sources (default). */
+  sources?: SourceSelector;
 };
 
 // Spreadsheet-style letters: a..z, aa, ab… (matches lib/plan-print).
@@ -386,6 +388,18 @@ function CanvasInner({
   const { screenToFlowPosition, getNodes } = useReactFlow();
 
   const [name, setName] = useState(template.name);
+  // Arc-wide "standing" RAG sources (polled across every activity).
+  const [standingSources, setStandingSources] = useState<SourceSelector | null>(
+    template.graph.standingSources ?? null
+  );
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  // RAG categories for the source selectors.
+  const [ragCategories, setRagCategories] = useState<{ id: number; name: string }[]>([]);
+  useEffect(() => {
+    apiFetch<{ categories: { id: number; name: string }[] }>("/api/rag/categories")
+      .then((d) => setRagCategories(d.categories))
+      .catch(() => setRagCategories([]));
+  }, []);
   const [phases, setPhases] = useState<TemplatePhase[]>(template.graph.phases ?? []);
   const [description, setDescription] = useState(template.description ?? "");
   const [saving, setSaving] = useState(false);
@@ -431,6 +445,7 @@ function CanvasInner({
             gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
             instructions: n.instructions ?? "",
             artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
+            sources: n.sources,
             phaseId: n.phaseId ?? null,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
@@ -776,6 +791,7 @@ function CanvasInner({
         gating: n.data.gating,
         instructions: n.data.instructions,
         artifact: n.data.artifact,
+        sources: n.data.sources,
       })),
       edges: edges.map((e) => ({
         id: e.id,
@@ -785,14 +801,16 @@ function CanvasInner({
         targetHandle: e.targetHandle ?? null,
       })),
       phases,
+      standingSources: standingSources ?? undefined,
     }),
-    [nodes, edges, phases]
+    [nodes, edges, phases, standingSources]
   );
 
   // Load a graph (e.g. an assistant proposal) into the canvas, replacing current state.
   const applyGraph = useCallback(
     (g: TemplateGraph) => {
       setPhases(g.phases ?? []);
+      setStandingSources(g.standingSources ?? null);
       setNodes(
         (g.nodes ?? []).map((n) => {
           const phase = g.phases?.find((p) => p.id === n.phaseId);
@@ -809,6 +827,7 @@ function CanvasInner({
               gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
               instructions: n.instructions ?? "",
               artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
+            sources: n.sources,
               phaseId: n.phaseId ?? null,
               phaseName: phase?.name ?? null,
               phaseColor: phase?.color ?? null,
@@ -858,6 +877,7 @@ function CanvasInner({
             gating: n.gating ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultGating ?? "REVIEWED",
             instructions: n.instructions ?? "",
             artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
+            sources: n.sources,
             phaseId,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
@@ -1141,6 +1161,14 @@ function CanvasInner({
           ) : null}
           <button
             type="button"
+            className="dewey-btn-secondary w-auto"
+            onClick={() => setSourcesOpen(true)}
+            title="Set the arc-wide standing document sources"
+          >
+            <span aria-hidden>📚</span> Arc sources
+          </button>
+          <button
+            type="button"
             className="dewey-btn-secondary w-auto px-5 py-2.5"
             onClick={handlePrint}
             title="Print or save this plan as a PDF"
@@ -1367,12 +1395,33 @@ function CanvasInner({
       {editingNode && (
         <NodeEditModal
           node={editingNode}
+          categories={ragCategories}
           onSave={(patch) => {
             updateNodeData(editingNode.id, patch);
             setEditingNodeId(null);
           }}
           onClose={() => setEditingNodeId(null)}
         />
+      )}
+
+      {sourcesOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onClick={() => setSourcesOpen(false)}>
+          <div className="w-full max-w-lg space-y-4 rounded-lg bg-dewey-surface p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="text-lg font-semibold">Arc sources</h3>
+              <p className="text-xs text-dewey-mute">
+                “Standing” document buckets @dewey draws from across every activity in this plan (e.g.
+                keep the strategic plan in view throughout). Added on top of each activity’s own sources.
+              </p>
+            </div>
+            <SourceSelectorEditor value={standingSources} categories={ragCategories} onChange={setStandingSources} />
+            <div className="flex justify-end">
+              <button type="button" className="dewey-btn-primary w-auto" onClick={() => setSourcesOpen(false)}>
+                <span aria-hidden>✓</span> Done
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {editingPhase && (
@@ -1514,12 +1563,59 @@ function PhaseEditModal({
 
 // ---- Node edit modal --------------------------------------------------------
 
+/** Reusable "all vs chosen buckets" RAG source picker (node- and arc-level). */
+function SourceSelectorEditor({
+  value,
+  categories,
+  onChange,
+}: {
+  value: SourceSelector | null;
+  categories: { id: number; name: string }[];
+  onChange: (v: SourceSelector | null) => void;
+}) {
+  const all = !value || value.all;
+  const catIds = value?.categoryIds ?? [];
+  const pick = (ids: number[]) => onChange({ all: false, categoryIds: ids, documentIds: value?.documentIds ?? [] });
+  return (
+    <div className="space-y-1.5">
+      <label className="flex items-center gap-2 text-sm">
+        <input type="radio" checked={all} onChange={() => onChange(null)} /> All sources (default)
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="radio" checked={!all} onChange={() => pick(catIds)} /> Only these buckets
+      </label>
+      {!all && (
+        <div className="flex flex-wrap gap-1.5 pl-6">
+          {categories.length === 0 && <span className="text-xs text-dewey-mute">No categories available.</span>}
+          {categories.map((c) => {
+            const on = catIds.includes(c.id);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => pick(on ? catIds.filter((x) => x !== c.id) : [...catIds, c.id])}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                  on ? "border-dewey-accent bg-dewey-accent/10 text-dewey-accent" : "border-dewey-border text-dewey-mute"
+                }`}
+              >
+                {on ? "✓ " : ""}{c.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NodeEditModal({
   node,
+  categories,
   onSave,
   onClose,
 }: {
   node: Node<ActivityNodeData>;
+  categories: { id: number; name: string }[];
   onSave: (patch: Partial<ActivityNodeData>) => void;
   onClose: () => void;
 }) {
@@ -1527,6 +1623,7 @@ function NodeEditModal({
   const [gating, setGating] = useState<Gating>(node.data.gating);
   const [instructions, setInstructions] = useState(node.data.instructions);
   const [artifact, setArtifact] = useState(node.data.artifact);
+  const [sources, setSources] = useState<SourceSelector | null>(node.data.sources ?? null);
 
   return (
     <div
@@ -1582,6 +1679,15 @@ function NodeEditModal({
           </p>
         </div>
 
+        <div>
+          <label className="dewey-label">AI sources for this activity</label>
+          <SourceSelectorEditor value={sources} categories={categories} onChange={setSources} />
+          <p className="text-xs text-dewey-mute mt-1">
+            Which document buckets @dewey draws from during this activity. Arc-wide “standing
+            sources” are always included on top of this.
+          </p>
+        </div>
+
         <div className="flex justify-end gap-2 pt-2">
           <button type="button" className="dewey-btn-secondary px-5 py-2.5" onClick={onClose}>
             <span aria-hidden>✕</span> Cancel
@@ -1589,7 +1695,7 @@ function NodeEditModal({
           <button
             type="button"
             className="dewey-btn-primary w-auto"
-            onClick={() => onSave({ gating, instructions, artifact })}
+            onClick={() => onSave({ gating, instructions, artifact, sources: sources ?? undefined })}
           >
             <span aria-hidden>✓</span> Done
           </button>
@@ -1975,6 +2081,7 @@ function PreviewModal({
             gating: n.gating ?? "REVIEWED",
             instructions: n.instructions ?? "",
             artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
+            sources: n.sources,
             phaseId: n.phaseId ?? null,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
@@ -2238,6 +2345,7 @@ export function TemplateReadOnly({
             gating: n.gating ?? "REVIEWED",
             instructions: n.instructions ?? "",
             artifact: n.artifact ?? ACTIVITY_BY_KEY[n.activityKey]?.defaultArtifact ?? "",
+            sources: n.sources,
             phaseId: n.phaseId ?? null,
             phaseName: phase?.name ?? null,
             phaseColor: phase?.color ?? null,
