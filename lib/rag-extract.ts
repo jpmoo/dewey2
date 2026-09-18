@@ -42,6 +42,8 @@ export interface ExtractResult {
   pdfBytes: Buffer | null;
   /** Which stages contributed (for logging/status). */
   methods: string[];
+  /** Non-fatal problems worth surfacing (e.g. the vision model failing to load). */
+  warnings: string[];
 }
 
 function isPdf(filename: string, mime: string): boolean {
@@ -163,7 +165,12 @@ const VISION_PROMPT =
   "of its steps with the exact labels.\n" +
   "If the page has no chart, table, figure, or diagram, reply with just: NONE.";
 
-async function describe(png: string, model: string, ollamaUrl: string): Promise<string> {
+/** Result of one vision call: description text (may be empty) plus an error note. */
+async function describe(
+  png: string,
+  model: string,
+  ollamaUrl: string
+): Promise<{ text: string; error?: string }> {
   try {
     const b64 = (await fs.readFile(png)).toString("base64");
     const res = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/generate`, {
@@ -181,15 +188,25 @@ async function describe(png: string, model: string, ollamaUrl: string): Promise<
       signal: AbortSignal.timeout(300000),
     });
     if (!res.ok) {
-      console.warn("[rag-extract] vision", res.status, (await res.text().catch(() => "")).slice(0, 300));
-      return "";
+      const body = (await res.text().catch(() => "")).slice(0, 300);
+      console.warn("[rag-extract] vision", res.status, body);
+      // Extract the meaningful bit of an Ollama error for the status line.
+      let msg = `vision model error (${res.status})`;
+      try {
+        const j = JSON.parse(body) as { error?: string };
+        if (j.error) msg = j.error.split("\n")[0].slice(0, 160);
+      } catch {
+        /* keep generic */
+      }
+      return { text: "", error: msg };
     }
     const data = (await res.json().catch(() => ({}))) as { response?: string };
     const out = (data.response ?? "").trim();
-    return out && out.toUpperCase() !== "NONE" ? out : "";
+    return { text: out && out.toUpperCase() !== "NONE" ? out : "" };
   } catch (e) {
-    console.warn("[rag-extract] vision error:", e instanceof Error ? e.message : e);
-    return "";
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[rag-extract] vision error:", msg);
+    return { text: "", error: msg.slice(0, 160) };
   }
 }
 
@@ -209,10 +226,12 @@ export async function extractDocument(
 
   const parts: string[] = [];
   const methods = new Set<string>();
+  const warnings = new Set<string>();
 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), `dewey-rag-${randomUUID()}-`));
   let pdfBytes: Buffer | null = null;
   let native = "";
+  let visionErr = "";
   try {
     pdfBytes = await toPdf(dir, filename, mime, bytes);
     if (pdfBytes && !isPdf(filename, mime)) methods.add("pdf");
@@ -249,11 +268,16 @@ export async function extractDocument(
         }
         if (useVision) {
           const d = await describe(pg, visionModel, ollamaUrl);
-          if (d) {
-            parts.push(`[Figure/chart] ${d}`);
+          if (d.text) {
+            parts.push(`[Figure/chart] ${d.text}`);
             methods.add("vision");
           }
+          if (d.error) visionErr = d.error;
         }
+      }
+      // Surface a vision failure once, but only if it never succeeded on any page.
+      if (useVision && visionErr && !methods.has("vision")) {
+        warnings.add(`Vision model "${visionModel}" failed — figures not described (${visionErr}).`);
       }
     }
   } catch (e) {
@@ -262,5 +286,10 @@ export async function extractDocument(
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
 
-  return { text: parts.join("\n\n").trim(), pdfBytes, methods: Array.from(methods) };
+  return {
+    text: parts.join("\n\n").trim(),
+    pdfBytes,
+    methods: Array.from(methods),
+    warnings: Array.from(warnings),
+  };
 }

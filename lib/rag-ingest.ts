@@ -243,10 +243,12 @@ export async function processDocument(documentId: number, src: ProcessSource): P
     let storeBytes = src.bytes ?? null;
     let storeMime = src.mime ?? null;
     let methods: string[] = [];
+    let warnings: string[] = [];
     if (!text && src.bytes) {
       const ex = await extractDocument(src.filename ?? "", src.mime ?? "", src.bytes);
       text = ex.text.trim();
       methods = ex.methods;
+      warnings = ex.warnings;
       if (ex.pdfBytes) {
         storeBytes = ex.pdfBytes;
         storeMime = "application/pdf";
@@ -325,10 +327,11 @@ export async function processDocument(documentId: number, src: ProcessSource): P
     }
 
     const ctxNote = useContext ? " (with contextual retrieval)" : "";
+    const warnNote = warnings.length ? ` ⚠️ ${warnings.join(" ")}` : "";
     const note =
       embedded === chunks.length
-        ? `${methodsNote(methods)}${embedded}/${chunks.length} samples embedded${ctxNote}.`
-        : `${methodsNote(methods)}${embedded}/${chunks.length} embedded${ctxNote} — the embedding model was unavailable for the rest. Use Re-embed once it's reachable.`;
+        ? `${methodsNote(methods)}${embedded}/${chunks.length} samples embedded${ctxNote}.${warnNote}`
+        : `${methodsNote(methods)}${embedded}/${chunks.length} embedded${ctxNote} — the embedding model was unavailable for the rest. Use Re-embed once it's reachable.${warnNote}`;
     await pool.query("UPDATE rag_documents SET processed_at = NOW() WHERE id = $1", [documentId]);
     await setStatus(documentId, "ready", note);
   } catch (e) {

@@ -209,6 +209,9 @@ export function DocumentsManager() {
                       {d.statusDetail}
                     </div>
                   )}
+                  {d.status === "ready" && d.statusDetail?.includes("⚠️") && (
+                    <div className="mt-1 text-xs text-amber-700">{d.statusDetail}</div>
+                  )}
                 </button>
                 <div className="flex shrink-0 items-center gap-2">
                   {d.status === "error" ? (
