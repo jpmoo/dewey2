@@ -1,6 +1,6 @@
 import { getPool } from "@/lib/pg";
 import { ragAvailable } from "@/lib/db";
-import { extractText } from "@/lib/extract";
+import { extractDocument } from "@/lib/rag-extract";
 import { embedText, toVectorLiteral } from "@/lib/embeddings";
 
 export type RagLevel = "system" | "district" | "school" | "cop";
@@ -79,11 +79,20 @@ export async function ingestDocument(params: IngestParams): Promise<IngestResult
   }
   const pool = getPool();
 
+  // Pasted text is used as-is; an uploaded file runs the full extract pipeline
+  // (native text + normalize-to-PDF + OCR + vision), and we store the normalized
+  // PDF as the served artifact when the pipeline produced one.
   let text = (params.extractedText ?? "").trim();
+  let storeBytes = params.bytes ?? null;
+  let storeMime = params.mime ?? null;
   if (!text && params.bytes) {
-    text = (await extractText(params.filename ?? "", params.mime ?? "", params.bytes)) ?? "";
+    const ex = await extractDocument(params.filename ?? "", params.mime ?? "", params.bytes);
+    text = ex.text.trim();
+    if (ex.pdfBytes) {
+      storeBytes = ex.pdfBytes;
+      storeMime = "application/pdf";
+    }
   }
-  text = text.trim();
 
   const res = await pool.query(
     `INSERT INTO rag_documents
@@ -94,8 +103,8 @@ export async function ingestDocument(params: IngestParams): Promise<IngestResult
       params.title.trim() || params.filename || "Untitled",
       params.description?.trim() || null,
       params.filename ?? null,
-      params.mime ?? null,
-      params.bytes ?? null,
+      storeMime,
+      storeBytes,
       text || null,
       params.uploadedBy ?? null,
     ]

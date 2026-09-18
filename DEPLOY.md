@@ -62,6 +62,38 @@ psql "postgres://dewey2:CHANGE_ME@localhost:5432/dewey2" -c "SELECT 1;"
 
 The app creates its own tables on first launch — no migration step.
 
+**pgvector** is required for the in-house RAG (document retrieval). Install the
+extension and the app will `CREATE EXTENSION` on first launch (guarded — without
+it, RAG features simply report "unavailable" and the rest of the app runs fine):
+
+```bash
+sudo apt install -y postgresql-16-pgvector   # match your Postgres major version
+```
+
+---
+
+## 2b. RAG document ingestion (optional, for the Documents library)
+
+Retrieval grounds the AI in uploaded documents. Embeddings run locally via Ollama;
+the ingest pipeline is layered and best-effort — each tool below is optional, and
+ingest degrades gracefully if it's missing.
+
+```bash
+# Text/PDF pipeline
+sudo apt install -y poppler-utils tesseract-ocr libreoffice
+# (poppler-utils = pdftoppm for page rasterization; tesseract = OCR of scanned
+#  pages; libreoffice = convert Word/PPT/etc. → PDF. img2pdf/imagemagick optional
+#  for image-only uploads.)
+
+# Local models (Ollama)
+ollama pull nomic-embed-text          # embeddings (default; selectable in System settings)
+ollama pull llama3.2-vision           # reads charts/figures during ingest (optional)
+```
+
+Then, in the admin **System** settings, set the **Embedding model** (defaults to
+`nomic-embed-text`) and, to index charts/figures, the **Vision model**. Documents
+are managed in the admin **Documents** tab.
+
 ---
 
 ## 3. Clone and configure
