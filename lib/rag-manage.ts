@@ -381,3 +381,61 @@ export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | n
     })),
   };
 }
+
+/**
+ * Build a plain-text diagnostic report for one document: metadata, the full
+ * extracted text, and every chunk (source, context, embedding state, text). Used
+ * by the admin "Download" action to inspect what ingest produced. Returns null
+ * when the document doesn't exist.
+ */
+export async function exportRagDocumentReport(
+  id: number
+): Promise<{ filename: string; text: string } | null> {
+  const pool = getPool();
+  const dRes = await pool.query(
+    `SELECT id, title, description, filename, mime, status, status_detail, chunk_total,
+            COALESCE(char_length(extracted_text), 0) AS chars, extracted_text,
+            octet_length(bytes) AS byte_len, created_at, processed_at
+       FROM rag_documents WHERE id = $1 AND deleted_at IS NULL`,
+    [id]
+  );
+  const d = dRes.rows[0];
+  if (!d) return null;
+  const cRes = await pool.query(
+    `SELECT ordinal, source, edited, context, embed_model,
+            (embedding IS NOT NULL) AS embedded, text
+       FROM rag_chunks WHERE document_id = $1 ORDER BY ordinal`,
+    [id]
+  );
+
+  const rule = (label: string) => `\n${"=".repeat(78)}\n${label}\n${"=".repeat(78)}\n`;
+  const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : v == null ? "(never)" : String(v));
+  const out: string[] = [];
+  out.push(rule(`DOCUMENT #${d.id}: ${d.title}`));
+  out.push(`filename:      ${d.filename ?? "(none)"}`);
+  out.push(`mime:          ${d.mime ?? "(none)"}`);
+  out.push(`stored bytes:  ${d.byte_len == null ? "(none)" : Number(d.byte_len).toLocaleString()}`);
+  out.push(`status:        ${d.status}  — ${d.status_detail ?? ""}`);
+  out.push(`extracted:     ${Number(d.chars).toLocaleString()} chars`);
+  out.push(`chunk_total:   ${d.chunk_total ?? "(null)"}`);
+  out.push(`chunks in db:  ${cRes.rows.length}`);
+  out.push(`created:       ${iso(d.created_at)}`);
+  out.push(`processed:     ${iso(d.processed_at)}`);
+  out.push(`description:   ${d.description ?? "(none)"}`);
+
+  out.push(rule("FULL EXTRACTED TEXT (verbatim, as stored)"));
+  out.push((d.extracted_text as string | null) ?? "(empty)");
+
+  out.push(rule(`CHUNKS / SAMPLES (${cRes.rows.length})`));
+  for (const r of cRes.rows) {
+    out.push(
+      `\n----- #${(r.ordinal as number) + 1}  source=${r.source}  edited=${r.edited}  ` +
+        `embedded=${r.embedded}  model=${r.embed_model ?? "-"}  (${((r.text as string) ?? "").length} chars) -----`
+    );
+    if (r.context) out.push(`[context] ${r.context}`);
+    out.push((r.text as string) ?? "");
+  }
+
+  const slug = String(d.title ?? "document").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "document";
+  return { filename: `rag-export-${id}-${slug}.txt`, text: out.join("\n") };
+}

@@ -569,9 +569,18 @@ function DetailModal({
           </div>
 
           <div>
-            <div className="mb-1 flex items-center justify-between">
+            <div className="mb-1 flex items-center justify-between gap-3">
               <label className="dewey-label mb-0">Samples ({doc.embedded}/{doc.samples} embedded)</label>
-              <span className="text-xs text-dewey-mute">Extracted text: {doc.extractedChars.toLocaleString()} chars</span>
+              <span className="flex items-center gap-3 text-xs text-dewey-mute">
+                <span>Extracted text: {doc.extractedChars.toLocaleString()} chars</span>
+                <a
+                  className="text-dewey-accent hover:underline"
+                  href={pathWithBase(`/api/admin/rag/documents/${docId}/export`)}
+                  download
+                >
+                  ⬇︎ Download export
+                </a>
+              </span>
             </div>
             <div className="space-y-2">
               {doc.samplesList.map((s) => (
