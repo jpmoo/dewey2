@@ -61,51 +61,51 @@ export function chunkText(text: string, target = 1200, overlap = 150): string[] 
   return chunks;
 }
 
-export interface IngestResult {
+export interface StartIngestResult {
   documentId: number;
-  chunks: number;
-  embedded: number;
-  model: string | null;
+}
+
+async function setStatus(
+  documentId: number,
+  status: "processing" | "ready" | "error",
+  detail: string | null
+): Promise<void> {
+  await getPool().query(
+    "UPDATE rag_documents SET status = $2, status_detail = $3 WHERE id = $1",
+    [documentId, status, detail]
+  );
+}
+
+function methodsNote(methods: string[]): string {
+  return methods.length ? `Read via ${methods.join(", ")}. ` : "";
 }
 
 /**
- * Ingest one document into the RAG store: extract text (if needed), persist the
- * document + its category links, then chunk, embed, and store each chunk. This is
- * the UX-agnostic core reused by whatever ingest UI we build.
+ * Create the document row immediately (status = 'processing') and kick off the
+ * heavy extract → chunk → embed work in the background, returning as soon as the
+ * row exists. Extraction (LibreOffice, OCR, vision) can take minutes, far longer
+ * than an HTTP request should block; the admin UI polls status/progress instead.
+ * The raw upload bytes are stored so the job can be retried after a failure or a
+ * server restart.
  */
-export async function ingestDocument(params: IngestParams): Promise<IngestResult> {
+export async function startIngest(params: IngestParams): Promise<StartIngestResult> {
   if (!(await ragAvailable())) {
     throw new Error("RAG is not available (pgvector/Ollama not configured).");
   }
   const pool = getPool();
 
-  // Pasted text is used as-is; an uploaded file runs the full extract pipeline
-  // (native text + normalize-to-PDF + OCR + vision), and we store the normalized
-  // PDF as the served artifact when the pipeline produced one.
-  let text = (params.extractedText ?? "").trim();
-  let storeBytes = params.bytes ?? null;
-  let storeMime = params.mime ?? null;
-  if (!text && params.bytes) {
-    const ex = await extractDocument(params.filename ?? "", params.mime ?? "", params.bytes);
-    text = ex.text.trim();
-    if (ex.pdfBytes) {
-      storeBytes = ex.pdfBytes;
-      storeMime = "application/pdf";
-    }
-  }
-
   const res = await pool.query(
     `INSERT INTO rag_documents
-       (title, description, filename, mime, bytes, extracted_text, uploaded_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
+       (title, description, filename, mime, bytes, extracted_text, uploaded_by, status, status_detail)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'processing','Queued…')
      RETURNING id`,
     [
       params.title.trim() || params.filename || "Untitled",
       params.description?.trim() || null,
       params.filename ?? null,
-      storeMime,
-      storeBytes,
-      text || null,
+      params.mime ?? null,
+      params.bytes ?? null,
+      params.extractedText?.trim() || null,
       params.uploadedBy ?? null,
     ]
   );
@@ -125,19 +125,105 @@ export async function ingestDocument(params: IngestParams): Promise<IngestResult
     );
   }
 
-  const chunks = chunkText(text);
-  let embedded = 0;
-  let model: string | null = null;
-  for (let i = 0; i < chunks.length; i++) {
-    const e = await embedText(chunks[i]);
-    if (!e) continue; // Ollama unavailable for this chunk — skip; can re-embed later.
-    model = e.model;
+  // Fire-and-forget: this deploys as a long-running Node server, so the promise
+  // keeps running after the response is sent. Errors are captured onto the row.
+  void processDocument(documentId, {
+    filename: params.filename ?? null,
+    mime: params.mime ?? null,
+    bytes: params.bytes ?? null,
+    pastedText: params.extractedText ?? null,
+  }).catch(async (e) => {
+    await setStatus(documentId, "error", e instanceof Error ? e.message : "Ingest failed").catch(() => {});
+  });
+
+  return { documentId };
+}
+
+export interface ProcessSource {
+  filename: string | null;
+  mime: string | null;
+  bytes: Buffer | null;
+  /** Pre-supplied text (pasted document); when present, extraction is skipped. */
+  pastedText: string | null;
+}
+
+/**
+ * The background worker: extract text (if needed), (re)chunk, and embed each
+ * chunk, writing progress and a final status onto the document row. Safe to run
+ * again on the same document (it clears prior chunks first), which is how retry
+ * and re-processing after a model change work.
+ */
+export async function processDocument(documentId: number, src: ProcessSource): Promise<void> {
+  const pool = getPool();
+  try {
+    await setStatus(documentId, "processing", "Extracting…");
+
+    // Pasted text is used as-is; an uploaded file runs the full extract pipeline
+    // (native text + normalize-to-PDF + OCR + vision). We store the normalized
+    // PDF as the served artifact when the pipeline produced one.
+    let text = (src.pastedText ?? "").trim();
+    let storeBytes = src.bytes ?? null;
+    let storeMime = src.mime ?? null;
+    let methods: string[] = [];
+    if (!text && src.bytes) {
+      const ex = await extractDocument(src.filename ?? "", src.mime ?? "", src.bytes);
+      text = ex.text.trim();
+      methods = ex.methods;
+      if (ex.pdfBytes) {
+        storeBytes = ex.pdfBytes;
+        storeMime = "application/pdf";
+      }
+    }
+
+    // Clear any chunks from a prior run (retry / re-process) before re-chunking.
+    await pool.query("DELETE FROM rag_chunks WHERE document_id = $1", [documentId]);
+    const chunks = chunkText(text);
     await pool.query(
-      `INSERT INTO rag_chunks (document_id, ordinal, text, embed_model, embedding)
-       VALUES ($1,$2,$3,$4,$5::vector)`,
-      [documentId, i, chunks[i], e.model, toVectorLiteral(e.vector)]
+      "UPDATE rag_documents SET extracted_text = $2, bytes = $3, mime = $4, chunk_total = $5 WHERE id = $1",
+      [documentId, text || null, storeBytes, storeMime, chunks.length]
     );
-    embedded += 1;
+
+    if (chunks.length === 0) {
+      await setStatus(
+        documentId,
+        "error",
+        "No text could be extracted from this file. Try pasting the text, or install the extraction tools."
+      );
+      return;
+    }
+
+    let embedded = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      const e = await embedText(chunks[i]);
+      if (e) {
+        await pool.query(
+          `INSERT INTO rag_chunks (document_id, ordinal, text, embed_model, embedding)
+           VALUES ($1,$2,$3,$4,$5::vector)`,
+          [documentId, i, chunks[i], e.model, toVectorLiteral(e.vector)]
+        );
+        embedded += 1;
+      } else {
+        // Store the chunk unembedded so it's visible and can be re-embedded later.
+        await pool.query(
+          "INSERT INTO rag_chunks (document_id, ordinal, text) VALUES ($1,$2,$3)",
+          [documentId, i, chunks[i]]
+        );
+      }
+      if (i % 3 === 0 || i === chunks.length - 1) {
+        await pool.query("UPDATE rag_documents SET status_detail = $2 WHERE id = $1", [
+          documentId,
+          `${methodsNote(methods)}Embedding ${embedded}/${chunks.length}…`,
+        ]);
+      }
+    }
+
+    const note =
+      embedded === chunks.length
+        ? `${methodsNote(methods)}${embedded}/${chunks.length} samples embedded.`
+        : `${methodsNote(methods)}${embedded}/${chunks.length} embedded — the embedding model was unavailable for the rest. Use Re-embed once it's reachable.`;
+    await pool.query("UPDATE rag_documents SET processed_at = NOW() WHERE id = $1", [documentId]);
+    await setStatus(documentId, "ready", note);
+  } catch (e) {
+    await setStatus(documentId, "error", e instanceof Error ? e.message : "Ingest failed");
   }
-  return { documentId, chunks: chunks.length, embedded, model };
 }

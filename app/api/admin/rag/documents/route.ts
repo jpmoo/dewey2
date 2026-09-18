@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
 import { ragAvailable, logUserEvent } from "@/lib/db";
-import { ingestDocument, type RagPlacement } from "@/lib/rag-ingest";
+import { startIngest, type RagPlacement } from "@/lib/rag-ingest";
 import { listRagDocuments } from "@/lib/rag-manage";
 
 /** List the RAG document library (system admin). Optional ?q= search. */
@@ -54,7 +54,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await ingestDocument({
+    // Returns as soon as the row exists; extraction + embedding run in the
+    // background and the client polls the list for status/progress.
+    const { documentId } = await startIngest({
       title: title || filename || "Untitled",
       description,
       filename,
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
       action: "rag_document_ingested",
       entityLabel: title || filename || "document",
     });
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, documentId, status: "processing" });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "Ingest failed" },

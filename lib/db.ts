@@ -557,6 +557,18 @@ async function ensureRagSchema(): Promise<void> {
       ALTER TABLE rag_documents DROP COLUMN IF EXISTS district_id;
       ALTER TABLE rag_documents DROP COLUMN IF EXISTS school_id;
       ALTER TABLE rag_documents DROP COLUMN IF EXISTS cop_id;
+      -- Ingest runs in the background; these track its lifecycle so the admin
+      -- Documents tab can show progress and surface errors without blocking.
+      -- 'ready' is the default so any pre-existing rows are treated as done.
+      ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'ready';
+      ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS status_detail TEXT;
+      ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS chunk_total INTEGER;
+      ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+      -- A job left mid-flight by a server restart can never finish; mark it failed
+      -- so the admin can retry it rather than see it spin forever.
+      UPDATE rag_documents SET status = 'error',
+             status_detail = COALESCE(status_detail, 'Interrupted — retry ingest.')
+       WHERE status = 'processing';
 
       -- Where a document is available. cop_id is a Community of Practice thread.
       CREATE TABLE IF NOT EXISTS rag_document_placements (

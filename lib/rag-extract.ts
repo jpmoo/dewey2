@@ -168,8 +168,9 @@ export async function extractDocument(
   const parts: string[] = [];
   const methods = new Set<string>();
 
-  // 1. Native text layer.
-  const native = ((await extractText(filename, mime, bytes)) ?? "").trim();
+  // 1. Native text layer. A malformed file can make the parser throw; treat that
+  // as "no native text" so the OCR/vision stages still get a chance.
+  const native = ((await extractText(filename, mime, bytes).catch(() => null)) ?? "").trim();
   if (native) {
     parts.push(native);
     methods.add("text");

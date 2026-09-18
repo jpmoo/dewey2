@@ -146,6 +146,7 @@ export interface RagPlacementRow {
   copId: number | null;
   label: string;
 }
+export type RagDocStatus = "processing" | "ready" | "error";
 export interface RagDocSummary {
   id: number;
   title: string;
@@ -153,6 +154,9 @@ export interface RagDocSummary {
   createdAt: string;
   samples: number;
   embedded: number;
+  status: RagDocStatus;
+  statusDetail: string | null;
+  chunkTotal: number | null;
   categories: { id: number; name: string }[];
   placements: RagPlacementRow[];
 }
@@ -235,7 +239,7 @@ export async function listRagDocuments(q = ""): Promise<RagDocSummary[]> {
   const pool = getPool();
   const term = q.trim();
   const res = await pool.query(
-    `SELECT d.id, d.title, d.description, d.created_at,
+    `SELECT d.id, d.title, d.description, d.created_at, d.status, d.status_detail, d.chunk_total,
             COUNT(ch.id)::int AS samples,
             COUNT(ch.id) FILTER (WHERE ch.embedding IS NOT NULL)::int AS embedded
        FROM rag_documents d
@@ -256,6 +260,9 @@ export async function listRagDocuments(q = ""): Promise<RagDocSummary[]> {
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     samples: r.samples as number,
     embedded: r.embedded as number,
+    status: ((r.status as string) ?? "ready") as RagDocStatus,
+    statusDetail: (r.status_detail as string | null) ?? null,
+    chunkTotal: (r.chunk_total as number | null) ?? null,
     categories: cats.get(r.id as number) ?? [],
     placements: places.get(r.id as number) ?? [],
   }));
@@ -264,7 +271,7 @@ export async function listRagDocuments(q = ""): Promise<RagDocSummary[]> {
 export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | null> {
   const pool = getPool();
   const dRes = await pool.query(
-    "SELECT id, title, description, filename, mime, created_at FROM rag_documents WHERE id = $1 AND deleted_at IS NULL",
+    "SELECT id, title, description, filename, mime, created_at, status, status_detail, chunk_total FROM rag_documents WHERE id = $1 AND deleted_at IS NULL",
     [id]
   );
   const d = dRes.rows[0];
@@ -284,6 +291,9 @@ export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | n
     createdAt: d.created_at instanceof Date ? d.created_at.toISOString() : String(d.created_at),
     samples: sRes.rows.length,
     embedded: sRes.rows.filter((r) => r.embedded).length,
+    status: ((d.status as string) ?? "ready") as RagDocStatus,
+    statusDetail: (d.status_detail as string | null) ?? null,
+    chunkTotal: (d.chunk_total as number | null) ?? null,
     categories: cats.get(id) ?? [],
     placements: places.get(id) ?? [],
     samplesList: sRes.rows.map((r) => ({

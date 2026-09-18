@@ -16,6 +16,7 @@ type Placement = {
   copId: number | null;
   label: string;
 };
+type DocStatus = "processing" | "ready" | "error";
 type DocSummary = {
   id: number;
   title: string;
@@ -23,6 +24,9 @@ type DocSummary = {
   createdAt: string;
   samples: number;
   embedded: number;
+  status: DocStatus;
+  statusDetail: string | null;
+  chunkTotal: number | null;
   categories: { id: number; name: string }[];
   placements: Placement[];
 };
@@ -40,6 +44,28 @@ type DocDetail = DocSummary & { filename: string | null; mime: string | null; sa
 type DraftPlacement = { level: "system" | "district" | "school"; districtId: number | null; schoolId: number | null };
 
 const chip = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]";
+
+/** Compact ingest-status pill for a document row. */
+function StatusChip({ doc }: { doc: DocSummary }) {
+  if (doc.status === "processing") {
+    const total = doc.chunkTotal;
+    const label = total != null && total > 0 ? `Processing · ${doc.embedded}/${total}` : "Processing…";
+    return (
+      <span className={`${chip} border-amber-300 bg-amber-50 text-amber-800`}>
+        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500" aria-hidden />
+        {label}
+      </span>
+    );
+  }
+  if (doc.status === "error") {
+    return <span className={`${chip} border-red-300 bg-red-50 text-red-700`}>⚠️ Failed</span>;
+  }
+  return (
+    <span className={`${chip} border-dewey-border ${doc.embedded === doc.samples ? "text-green-700" : "text-amber-700"}`}>
+      {doc.embedded}/{doc.samples} embedded
+    </span>
+  );
+}
 
 export function DocumentsManager() {
   const dialog = useDialog();
@@ -76,6 +102,15 @@ export function DocumentsManager() {
     return () => clearTimeout(t);
   }, [q, loadDocs]);
 
+  // While anything is still ingesting, poll so progress and the final status
+  // (or error) appear on the tab without a manual refresh.
+  const anyProcessing = docs.some((d) => d.status === "processing");
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const t = setInterval(() => loadDocs(q), 2500);
+    return () => clearInterval(t);
+  }, [anyProcessing, q, loadDocs]);
+
   const del = async (doc: DocSummary) => {
     if (!(await dialog.confirm(`Delete "${doc.title}" from the library?`, { title: "Delete document", confirmText: "Delete", danger: true }))) return;
     await apiFetch(`/api/admin/rag/documents/${doc.id}`, { method: "DELETE" });
@@ -88,6 +123,14 @@ export function DocumentsManager() {
       loadDocs(q);
     } catch (e) {
       dialog.alert(e instanceof Error ? e.message : "Re-embed failed");
+    }
+  };
+  const retry = async (doc: DocSummary) => {
+    try {
+      await apiFetch(`/api/admin/rag/documents/${doc.id}/reprocess`, { method: "POST" });
+      loadDocs(q);
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Retry failed");
     }
   };
 
@@ -144,15 +187,24 @@ export function DocumentsManager() {
                         📍 {p.label}
                       </span>
                     ))}
-                    <span className={`${chip} border-dewey-border ${d.embedded === d.samples ? "text-green-700" : "text-amber-700"}`}>
-                      {d.embedded}/{d.samples} embedded
-                    </span>
+                    <StatusChip doc={d} />
                   </div>
+                  {(d.status === "processing" || d.status === "error") && d.statusDetail && (
+                    <div className={`mt-1 text-xs ${d.status === "error" ? "text-red-700" : "text-dewey-mute"}`}>
+                      {d.statusDetail}
+                    </div>
+                  )}
                 </button>
                 <div className="flex shrink-0 items-center gap-2">
-                  <button type="button" className="text-xs text-dewey-accent hover:underline" onClick={() => reembed(d)}>
-                    Re-embed
-                  </button>
+                  {d.status === "error" ? (
+                    <button type="button" className="text-xs text-dewey-accent hover:underline" onClick={() => retry(d)}>
+                      Retry
+                    </button>
+                  ) : d.status === "ready" ? (
+                    <button type="button" className="text-xs text-dewey-accent hover:underline" onClick={() => reembed(d)}>
+                      Re-embed
+                    </button>
+                  ) : null}
                   <button type="button" className="text-xs text-red-700 hover:underline" onClick={() => del(d)}>
                     Delete
                   </button>
@@ -294,11 +346,11 @@ function UploadModal({
       const res = await fetch(pathWithBase("/api/admin/rag/documents"), { method: "POST", body: form });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Ingest failed");
-      await dialog.alert(`Added. Embedded ${d.embedded ?? 0} of ${d.chunks ?? 0} samples.`, { title: "Document added" });
+      // Extraction + embedding continue in the background; close now and let the
+      // list show progress and any error on the new document's row.
       onDone();
     } catch (e) {
-      dialog.alert(e instanceof Error ? e.message : "Ingest failed");
-    } finally {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't start the upload");
       setBusy(false);
     }
   };
@@ -368,7 +420,7 @@ function UploadModal({
             <span aria-hidden>✕</span> Cancel
           </button>
           <button type="button" className="dewey-btn-primary w-auto" onClick={submit} disabled={busy}>
-            <span aria-hidden>⬆️</span> {busy ? "Adding…" : "Add document"}
+            <span aria-hidden>⬆️</span> {busy ? "Starting…" : "Add document"}
           </button>
         </div>
       </div>
