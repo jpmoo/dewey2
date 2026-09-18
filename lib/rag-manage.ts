@@ -1,7 +1,13 @@
 import { getPool } from "@/lib/pg";
 import { ragAvailable } from "@/lib/db";
 import { embedText, toVectorLiteral } from "@/lib/embeddings";
-import { embeddableText, type RagPlacement } from "@/lib/rag-ingest";
+import { getSystemSettings } from "@/lib/settings";
+import {
+  embeddableText,
+  generateChunkContext,
+  ingestModelOf,
+  type RagPlacement,
+} from "@/lib/rag-ingest";
 
 /** The four standard categories (admin can add more later). */
 export async function listRagCategories(): Promise<{ id: number; name: string; description: string | null }[]> {
@@ -75,18 +81,73 @@ export async function deleteSample(chunkId: number): Promise<void> {
   await pool.query("DELETE FROM rag_chunks WHERE id = $1", [chunkId]);
 }
 
-/** Re-embed every sample of a document with the current model (e.g. after a model change). */
+/**
+ * Re-embed every sample of a document applying the *current* ingest settings:
+ * when contextual retrieval is on, each chunk's context header is regenerated
+ * from the whole document with the current ingest model; when it's off, stored
+ * context is cleared. The verbatim chunk text is preserved (edits and manual
+ * samples are kept). Writes progress/status to the row and runs to completion in
+ * the background, so callers should fire-and-forget it.
+ */
 export async function reEmbedDocument(documentId: number): Promise<{ total: number; embedded: number }> {
   if (!(await ragAvailable())) throw new Error("RAG is not available.");
   const pool = getPool();
-  const res = await pool.query("SELECT id, text FROM rag_chunks WHERE document_id = $1 ORDER BY ordinal", [
-    documentId,
-  ]);
-  let embedded = 0;
-  for (const row of res.rows) {
-    if (await embedChunk(row.id as number, row.text as string)) embedded += 1;
+  try {
+    const dRes = await pool.query(
+      "SELECT extracted_text FROM rag_documents WHERE id = $1 AND deleted_at IS NULL",
+      [documentId]
+    );
+    const docText = ((dRes.rows[0]?.extracted_text as string | null) ?? "").trim();
+    const settings = await getSystemSettings();
+    const res = await pool.query(
+      "SELECT id, text FROM rag_chunks WHERE document_id = $1 ORDER BY ordinal",
+      [documentId]
+    );
+    const total = res.rows.length;
+    const useContext = settings.rag_contextual_retrieval && !!docText && total > 1;
+    const ctxModel = ingestModelOf(settings);
+
+    await pool.query(
+      "UPDATE rag_documents SET status = 'processing', status_detail = 'Re-embedding…' WHERE id = $1",
+      [documentId]
+    );
+
+    let embedded = 0;
+    for (let i = 0; i < res.rows.length; i++) {
+      const id = res.rows[i].id as number;
+      const text = res.rows[i].text as string;
+      // Regenerate (or clear) the context header per current settings, then embed
+      // it together with the verbatim text via embedChunk (which reads it back).
+      const context = useContext ? await generateChunkContext(docText, text, ctxModel) : null;
+      await pool.query("UPDATE rag_chunks SET context = $2 WHERE id = $1", [id, context]);
+      if (await embedChunk(id, text)) embedded += 1;
+      if (i % 2 === 0 || i === res.rows.length - 1) {
+        await pool.query("UPDATE rag_documents SET status_detail = $2 WHERE id = $1", [
+          documentId,
+          `${useContext ? "Contextualizing" : "Re-embedding"} ${embedded}/${total}…`,
+        ]);
+      }
+    }
+
+    const ctxNote = useContext ? " (with contextual retrieval)" : "";
+    const note =
+      embedded === total
+        ? `${embedded}/${total} samples embedded${ctxNote}.`
+        : `${embedded}/${total} embedded${ctxNote} — the embedding model was unavailable for the rest.`;
+    await pool.query(
+      "UPDATE rag_documents SET status = 'ready', status_detail = $2, processed_at = NOW() WHERE id = $1",
+      [documentId, note]
+    );
+    return { total, embedded };
+  } catch (e) {
+    await pool
+      .query("UPDATE rag_documents SET status = 'error', status_detail = $2 WHERE id = $1", [
+        documentId,
+        e instanceof Error ? e.message : "Re-embed failed",
+      ])
+      .catch(() => {});
+    throw e;
   }
-  return { total: res.rows.length, embedded };
 }
 
 /** Add another placement (unit) for a document — no re-embedding needed. */

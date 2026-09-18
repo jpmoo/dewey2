@@ -119,9 +119,8 @@ export function DocumentsManager() {
   };
   const reembed = async (doc: DocSummary) => {
     try {
-      const r = await apiFetch<{ embedded: number; total: number }>(`/api/admin/rag/documents/${doc.id}/reembed`, { method: "POST" });
-      await dialog.alert(`Re-embedded ${r.embedded} of ${r.total} samples.`, { title: "Re-embed" });
-      loadDocs(q);
+      await apiFetch(`/api/admin/rag/documents/${doc.id}/reembed`, { method: "POST" });
+      loadDocs(q); // progress appears on the row via polling
     } catch (e) {
       dialog.alert(e instanceof Error ? e.message : "Re-embed failed");
     }

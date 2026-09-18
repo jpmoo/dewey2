@@ -111,28 +111,24 @@ async function generateDescription(text: string): Promise<string | null> {
 }
 
 /** The ingest model, or undefined to fall back to the coaching model. */
-function ingestModelOf(settings: { ollama_ingest_model: string | null }): string | undefined {
+export function ingestModelOf(settings: { ollama_ingest_model: string | null }): string | undefined {
   return (settings.ollama_ingest_model ?? "").trim() || undefined;
 }
-
-// How much of the document to show the model when situating a chunk. Bounds the
-// per-chunk cost; the whole document is used when it fits.
-const CONTEXT_DOC_CHARS = 16000;
 
 /**
  * Contextual Retrieval: ask the ingest model to write a 1–2 sentence header that
  * situates one verbatim chunk within the whole document. This header is embedded
  * together with the chunk (not stored in its place), which markedly improves
- * recall on long documents. Best-effort — returns null on any failure so ingest
- * falls back to embedding the chunk alone.
+ * recall on long documents. The whole document is passed — the real limit is the
+ * model's context window (num_ctx), not an arbitrary character cap. Best-effort:
+ * returns null on any failure so ingest falls back to embedding the chunk alone.
  */
-async function generateChunkContext(
+export async function generateChunkContext(
   docText: string,
   chunk: string,
   model: string | undefined
 ): Promise<string | null> {
   try {
-    const doc = docText.slice(0, CONTEXT_DOC_CHARS);
     const { text: out } = await chatComplete({
       model,
       system:
@@ -144,7 +140,7 @@ async function generateChunkContext(
       messages: [
         {
           role: "user",
-          content: `<document>\n${doc}\n</document>\n\n<chunk>\n${chunk}\n</chunk>\n\nContext:`,
+          content: `<document>\n${docText}\n</document>\n\n<chunk>\n${chunk}\n</chunk>\n\nContext:`,
         },
       ],
       maxTokens: 120,
