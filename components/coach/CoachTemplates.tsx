@@ -196,9 +196,9 @@ export function CoachTemplates() {
                 <CardPill icon="🔗" label="Share" onClick={() => setSharing(t)} />
                 <CardPill
                   icon="📤"
-                  label="Submit"
+                  label="Contribute"
                   onClick={() => setSubmitting(t)}
-                  title="Submit for district-wide consideration"
+                  title="Contribute for district-wide consideration"
                 />
                 <CardPill icon="📋" label="Duplicate" onClick={() => duplicate(t.id)} disabled={busy} />
                 <CardPill icon="🗑️" label="Delete" onClick={() => remove(t)} disabled={busy} />
@@ -364,11 +364,11 @@ function SubmitModal({
   };
 
   return (
-    <ModalShell title={`Submit "${template.name}"`} onClose={onClose}>
+    <ModalShell title={`Contribute "${template.name}"`} onClose={onClose}>
       {done ? (
         <div className="space-y-4">
           <p className="text-sm text-dewey-ink">
-            Submitted for district-wide consideration. You&apos;ll get the admin&apos;s decision in
+            Contributed for district-wide consideration. You&apos;ll get the admin&apos;s decision in
             your Message Center.
           </p>
           <div className="flex justify-end">
@@ -381,7 +381,7 @@ function SubmitModal({
         <div className="space-y-4">
           {err && <p className="text-sm text-red-600">{err}</p>}
           <p className="text-sm text-dewey-mute">
-            Submitting sends this plan to the admin to review for use as a district-wide
+            Contributing sends this plan to the admin to review for use as a district-wide
             plan. If approved, it becomes available to all coaches.
           </p>
           <div>
@@ -403,7 +403,7 @@ function SubmitModal({
               onClick={send}
               disabled={sending}
             >
-              <span aria-hidden>📤</span> {sending ? "Submitting…" : "Submit"}
+              <span aria-hidden>📤</span> {sending ? "Contributing…" : "Contribute"}
             </button>
           </div>
         </div>
@@ -485,7 +485,7 @@ function Group({
                           ? "bg-red-100 text-red-700"
                           : "bg-amber-100 text-amber-800"
                       }`}
-                      title="District-submission status"
+                      title="District-contribution status"
                     >
                       {t.submission_status === "rejected" ? "Rejected" : "Pending review"}
                     </span>
@@ -495,7 +495,7 @@ function Group({
                     t.owner_name &&
                     t.owner_name.trim() !== "John Coach" && (
                       <span className="text-[11px] text-dewey-mute">
-                        Submitted by {t.owner_name}
+                        Contributed by {t.owner_name}
                       </span>
                     )}
                 </div>

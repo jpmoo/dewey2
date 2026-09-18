@@ -1034,7 +1034,7 @@ function CanvasInner({
     if (lockedSet.size === 0 || savedId == null) return;
     if (
       !(await dialog.confirm(
-        "Reset this plan's progress? This permanently cancels every completed and submitted activity for the partner, so you can edit the entire plan. This can't be undone.",
+        "Reset this plan's progress? This permanently cancels every completed and contributed activity for the partner, so you can edit the entire plan. This can't be undone.",
         { title: "Reset progress", confirmText: "Reset progress", danger: true }
       ))
     )
@@ -1488,7 +1488,7 @@ function PhaseEditModal({
             className="dewey-input min-h-[140px]"
             value={exitConditions}
             onChange={(e) => setExitConditions(e.target.value)}
-            placeholder="Criteria the AI evaluates once all activities are done, surfaced to the coach before they approve advancement to the next phase…"
+            placeholder="Criteria the AI evaluates once all activities are done, surfaced to the coach before they endorse advancement to the next phase…"
           />
           <p className="text-xs text-dewey-mute mt-1">
             Evaluated across the phase's artifacts — distinct from individual activity done-states.

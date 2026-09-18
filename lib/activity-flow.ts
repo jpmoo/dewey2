@@ -183,7 +183,7 @@ export async function submitActivity(params: {
   const active = await getActiveActivity(threadId);
   if (!active) return { ok: false, error: "No activity is active in this conversation.", status: 400 };
   if (active.pendingReview) {
-    return { ok: false, error: "A submission is already awaiting coach review.", status: 409 };
+    return { ok: false, error: "A contribution is already awaiting coach review.", status: 409 };
   }
 
   // The marking partner must own the message, and it must be in this thread.
@@ -194,7 +194,7 @@ export async function submitActivity(params: {
   );
   if (!msg.rows[0]) return { ok: false, error: "Message not found.", status: 404 };
   if (Number(msg.rows[0].sender_id) !== partnerId) {
-    return { ok: false, error: "You can only submit your own messages.", status: 403 };
+    return { ok: false, error: "You can only contribute your own messages.", status: 403 };
   }
 
   // OPEN mid-phase = self-attest → approve + advance now. Everything else waits
@@ -236,11 +236,11 @@ export async function withdrawActivity(params: {
   const { threadId, partnerId } = params;
   const active = await getActiveActivity(threadId);
   if (!active || !active.submission || active.submission.status !== "pending") {
-    return { ok: false, error: "There's no pending submission to withdraw.", status: 400 };
+    return { ok: false, error: "There's no pending contribution to withdraw.", status: 400 };
   }
   const done = await withdrawSubmission(active.submission.id, partnerId);
   if (!done) {
-    return { ok: false, error: "You can only withdraw your own pending submission.", status: 403 };
+    return { ok: false, error: "You can only withdraw your own pending contribution.", status: 403 };
   }
   await logThreadEvent({ userId: partnerId, actorId: partnerId, action: "activity_withdrawn", threadId });
   return { ok: true, pendingReview: false, advanced: false, finished: false };

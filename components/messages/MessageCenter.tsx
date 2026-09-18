@@ -868,8 +868,8 @@ export function ThreadPane({
   };
 
   const decideSubmission = async (decision: "approve" | "reject") => {
-    const verb = decision === "approve" ? "Approve" : "Reject";
-    const note = await dialog.prompt(`${verb} this plan submission?`, {
+    const verb = decision === "approve" ? "Endorse" : "Reject";
+    const note = await dialog.prompt(`${verb} this plan contribution?`, {
       title: `${verb} plan`,
       placeholder: "Optional note to the coach…",
       multiline: true,
@@ -1017,9 +1017,9 @@ export function ThreadPane({
       const openAttest = activeActivity.gating === "OPEN" && !activeActivity.isLastInPhase;
       const ok = await dialog.confirm(
         openAttest
-          ? `Submit this message as your work for "${activeActivity.nodeLabel}" and mark the activity complete? The plan will move to the next activity.`
-          : `Submit this message for "${activeActivity.nodeLabel}"? Your coach will review it before the plan advances, and the chat will pause until they do.`,
-        { title: "Submit", confirmText: "Submit" }
+          ? `Contribute this message as your work for "${activeActivity.nodeLabel}" and mark the activity complete? The plan will move to the next activity.`
+          : `Contribute this message for "${activeActivity.nodeLabel}"? Your coach will review it before the plan advances, and the chat will pause until they do.`,
+        { title: "Contribute", confirmText: "Contribute" }
       );
       if (!ok) return;
       try {
@@ -1048,8 +1048,8 @@ export function ThreadPane({
   const withdrawSubmission = useCallback(async () => {
     if (
       !(await dialog.confirm(
-        "Withdraw your submission? Your coach hasn't reviewed it yet, and the chat will reopen so you can keep working.",
-        { title: "Withdraw submission", confirmText: "Withdraw" }
+        "Withdraw your contribution? Your coach hasn't reviewed it yet, and the chat will reopen so you can keep working.",
+        { title: "Withdraw contribution", confirmText: "Withdraw" }
       ))
     )
       return;
@@ -1065,7 +1065,7 @@ export function ThreadPane({
       fetchThread(false);
       onPosted();
     } catch (e) {
-      dialog.alert(e instanceof Error ? e.message : "Couldn't withdraw the submission.");
+      dialog.alert(e instanceof Error ? e.message : "Couldn't withdraw the contribution.");
     }
   }, [dialog, threadId, fetchThread, onPosted]);
 
@@ -1255,14 +1255,14 @@ export function ThreadPane({
                   type="button"
                   onClick={() => setReviewing(true)}
                   className="flex shrink-0 items-center gap-1 rounded-full bg-dewey-accent px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm hover:opacity-90"
-                  title="Review the partner's submission"
+                  title="Review the partner's contribution"
                 >
-                  🔎 <span className="max-w-[160px] truncate">Review submission</span>
+                  🔎 <span className="max-w-[160px] truncate">Review contribution</span>
                 </button>
               )}
               {isAdmin && submissionPending && (
                 <>
-                  <PlanPill icon="✅" label="Approve" onClick={() => decideSubmission("approve")} />
+                  <PlanPill icon="✅" label="Endorse" onClick={() => decideSubmission("approve")} />
                   <PlanPill icon="🚫" label="Reject" onClick={() => decideSubmission("reject")} />
                 </>
               )}
@@ -1385,7 +1385,7 @@ export function ThreadPane({
             onClick={withdrawSubmission}
             className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
           >
-            ↩ Withdraw submission
+            ↩ Withdraw contribution
           </button>
         </div>
       ) : (
@@ -1568,10 +1568,10 @@ function MessageBubble({
               >
                 📎{" "}
                 {m.submission_status === "approved"
-                  ? "Submission · approved"
+                  ? "Contribution · endorsed"
                   : m.submission_status === "returned"
-                  ? "Submission · returned"
-                  : "Submission · pending review"}
+                  ? "Contribution · returned"
+                  : "Contribution · pending review"}
               </span>
             )}
             {m.restricted && (
@@ -1736,7 +1736,7 @@ function MessageBubble({
               className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
               onClick={() => onSubmit(m.id)}
             >
-              <span aria-hidden>📎</span> Mark as Submission
+              <span aria-hidden>📎</span> Mark as Contribution
             </button>
           </div>
         )}
@@ -2278,7 +2278,7 @@ function PriorSubmissionItem({
           )}
           <div className="rounded-md bg-dewey-surface-2 px-2 py-1.5">
             <p className="mb-0.5 text-[11px] font-medium text-dewey-mute">
-              Submitted{sub.partnerName ? ` · ${sub.partnerName}` : ""}
+              Contributed{sub.partnerName ? ` · ${sub.partnerName}` : ""}
             </p>
             {sub.body && <p className="whitespace-pre-wrap text-dewey-ink">{sub.body}</p>}
             {sub.attachments.length > 0 && (
@@ -2397,7 +2397,7 @@ function ReviewModal({
               Review: {activity.nodeLabel}
             </h2>
             <p className="text-xs text-dewey-mute">
-              {activity.gating === "OPEN" ? "Partner Attests" : "Coach Approves"}
+              {activity.gating === "OPEN" ? "Partner Attests" : "Coach Endorses"}
               {activity.phaseName ? ` · ${activity.phaseName}` : ""}
               {activity.isLastInPhase ? " · last activity in phase" : ""}
             </p>
@@ -2441,7 +2441,7 @@ function ReviewModal({
 
               <section>
                 <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-dewey-mute">
-                  Submission{data.submission?.partnerName ? ` · ${data.submission.partnerName}` : ""}
+                  Contribution{data.submission?.partnerName ? ` · ${data.submission.partnerName}` : ""}
                 </h3>
                 {data.submission ? (
                   <div className="rounded-md border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-2">
@@ -2457,7 +2457,7 @@ function ReviewModal({
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs text-dewey-mute">The submitted message is unavailable.</p>
+                  <p className="text-xs text-dewey-mute">The contributed message is unavailable.</p>
                 )}
               </section>
 
@@ -2596,7 +2596,7 @@ function ReviewModal({
                 onClick={() => decide("approve")}
                 disabled={busy}
               >
-                {busy ? "Approving…" : "✅ Approve & advance"}
+                {busy ? "Endorsing…" : "✅ Endorse & advance"}
               </button>
             </div>
           )}

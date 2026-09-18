@@ -11,7 +11,7 @@ export type Gating = "OPEN" | "REVIEWED";
 /** Partner-/coach-facing labels for each gating mode. */
 export const GATING_LABEL: Record<Gating, string> = {
   OPEN: "Partner Attests",
-  REVIEWED: "Coach Approves",
+  REVIEWED: "Coach Endorses",
 };
 
 export interface ActivityType {

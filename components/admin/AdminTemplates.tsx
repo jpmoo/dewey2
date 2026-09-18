@@ -238,7 +238,7 @@ function Group({
                     t.owner_name &&
                     t.owner_name.trim() !== "John Coach" && (
                       <span className="text-[11px] text-dewey-mute">
-                        Submitted by {t.owner_name}
+                        Contributed by {t.owner_name}
                       </span>
                     )}
                 </div>
@@ -293,7 +293,7 @@ function SubmissionsPanel({ onDecided }: { onDecided: () => void }) {
 
   const decide = useCallback(
     async (s: Submission, decision: "approve" | "reject") => {
-      const verb = decision === "approve" ? "Approve" : "Reject";
+      const verb = decision === "approve" ? "Endorse" : "Reject";
       const message = await dialog.prompt(`Optional reply to ${s.coach_name ?? "the coach"}:`, {
         title: `${verb} "${s.template_name ?? "plan"}"`,
         multiline: true,
@@ -350,7 +350,7 @@ function SubmissionsPanel({ onDecided }: { onDecided: () => void }) {
                 onClick={() => decide(s, "approve")}
                 disabled={busyId === s.thread_id}
               >
-                Approve
+                Endorse
               </button>
               <button
                 type="button"

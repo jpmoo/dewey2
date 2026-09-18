@@ -19,10 +19,10 @@ export function CoachDashboard({
     <div className="max-w-3xl space-y-6">
       <section>
         <h2 className="mb-1 text-lg font-semibold">Dashboard</h2>
-        <p className="mb-3 text-sm text-dewey-mute">Submissions waiting for your review.</p>
+        <p className="mb-3 text-sm text-dewey-mute">Contributions waiting for your review.</p>
         {pending.length === 0 ? (
           <div className="rounded-lg border border-dewey-border bg-dewey-surface px-4 py-6 text-center text-sm text-dewey-mute">
-            🎉 No submissions waiting for review.
+            🎉 No contributions waiting for review.
           </div>
         ) : (
           <ul className="space-y-2">
