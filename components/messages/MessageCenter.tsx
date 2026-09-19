@@ -2090,6 +2090,19 @@ function Composer({
     }
   };
 
+  // Insert "@dewey" (the AI companion) — not a participant, so no add call.
+  const insertDewey = () => {
+    const el = textRef.current;
+    const caret = el?.selectionStart ?? body.length;
+    const before = body.slice(0, caret).replace(/@(\w*)$/, "@dewey ");
+    setBody(before + body.slice(caret));
+    setMention(null);
+    setMatches([]);
+    el?.focus();
+  };
+  // Show @dewey while the typed fragment is still a prefix of "dewey".
+  const showDewey = mention !== null && "dewey".startsWith(mention.toLowerCase());
+
   const addFiles = (list: FileList | null) => {
     if (!list) return;
     setFiles((prev) => [...prev, ...Array.from(list)]);
@@ -2159,8 +2172,25 @@ function Composer({
           </button>
         </div>
       )}
-      {mention !== null && matches.length > 0 && (
+      {mention !== null && (matches.length > 0 || showDewey) && (
         <ul className="absolute bottom-full left-3 z-20 mb-1 max-h-56 w-72 overflow-y-auto rounded-md border border-dewey-border bg-dewey-surface shadow-lg">
+          {showDewey && (
+            <li>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-dewey-surface-2"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertDewey();
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={pathWithBase("/logo.png")} alt="" className="h-5 w-5 object-contain" />
+                <span className="font-medium text-dewey-ink">Dewey</span>
+                <span className="ml-1 text-xs text-dewey-mute">AI companion</span>
+              </button>
+            </li>
+          )}
           {matches.map((u) => (
             <li key={u.id}>
               <button
