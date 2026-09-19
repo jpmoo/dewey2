@@ -1,8 +1,10 @@
 "use client";
 
 import {
+  createContext,
   forwardRef,
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -309,7 +311,18 @@ function newId(prefix: string): string {
 
 // ---- Custom node ------------------------------------------------------------
 
+// Whether the canvas is showing a Community of Practice arc, so node cards read
+// "Chair Advances" instead of "Partner Attests" for attestation-based activities.
+const CopModeContext = createContext(false);
+
+/** The completion label for a node, CoP-aware. */
+function gatingLabelFor(gating: Gating, copMode: boolean): string {
+  if (copMode && gating === "OPEN") return "Chair Advances";
+  return GATING_LABEL[gating];
+}
+
 function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
+  const copMode = useContext(CopModeContext);
   // The top stripe encodes the activity category; the border/chip reflect the phase.
   const catColor = CATEGORY_META[data.category]?.color ?? "#6b6b6b";
   const description = data.instructions || ACTIVITY_BY_KEY[data.activityKey]?.defaultInstructions || "";
@@ -357,7 +370,7 @@ function ActivityNode({ data, selected }: NodeProps<Node<ActivityNodeData>>) {
         </div>
         <div className="mt-0.5 flex items-center gap-1">
           <span className={`text-[10px] ${isCurrent ? "text-green-800" : "text-dewey-mute"}`}>
-            {GATING_LABEL[data.gating]}
+            {gatingLabelFor(data.gating, copMode)}
           </span>
           {isCurrent && (
             <span className="rounded bg-green-600 px-1 text-[9px] font-medium uppercase text-white">
@@ -1141,6 +1154,7 @@ function CanvasInner({
   const editingPhase = editingPhaseId ? phases.find((p) => p.id === editingPhaseId) : null;
 
   return (
+    <CopModeContext.Provider value={copMode}>
     <div className="fixed inset-x-0 bottom-0 top-[var(--imp-h)] z-50 flex flex-col bg-dewey-cream">
       {/* Toolbar */}
       <div className="flex items-center gap-3 border-b border-dewey-border px-4 py-2">
@@ -1558,6 +1572,7 @@ function CanvasInner({
         </div>
       )}
     </div>
+    </CopModeContext.Provider>
   );
 }
 
@@ -1740,15 +1755,19 @@ function NodeEditModal({
         </div>
 
         <div>
-          <label className="dewey-label">Expected artifact / product</label>
+          <label className="dewey-label">
+            {gating === "REVIEWED" ? "Expected artifact / product" : "Possible artifact / product"}
+          </label>
           <textarea
             className="dewey-input min-h-[64px]"
             value={artifact}
             onChange={(e) => setArtifact(e.target.value)}
-            placeholder="What the partner produces (e.g. reading notes, a goal statement, a recording)…"
+            placeholder="What is produced (e.g. reading notes, a goal statement, a recording)…"
           />
           <p className="text-xs text-dewey-mute mt-1">
-            The output the coach reviews and the phase-exit check evaluates.
+            {gating === "REVIEWED"
+              ? "The output the coach reviews and the phase-exit check evaluates."
+              : "A possible output — this activity completes by attestation, not review."}
           </p>
         </div>
 
@@ -2354,6 +2373,7 @@ export function TemplateReadOnly({
   onDuplicate,
   duplicating = false,
   focusCurrentActivity = false,
+  copMode = false,
 }: {
   templateId: number;
   templatesBase?: string;
@@ -2363,6 +2383,8 @@ export function TemplateReadOnly({
   duplicating?: boolean;
   /** Open straight to the current activity's detail (the "View current activity" entry point). */
   focusCurrentActivity?: boolean;
+  /** Community of Practice arc: attestation-only labels. */
+  copMode?: boolean;
 }) {
   const [template, setTemplate] = useState<CoachingTemplate | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2485,6 +2507,7 @@ export function TemplateReadOnly({
   }
 
   return (
+    <CopModeContext.Provider value={copMode}>
     <div className="fixed inset-x-0 bottom-0 top-[var(--imp-h)] z-50 flex flex-col bg-dewey-cream">
       <div className="flex items-center gap-3 border-b border-dewey-border px-4 py-2">
         <div className="min-w-0 flex-1">
@@ -2546,6 +2569,7 @@ export function TemplateReadOnly({
       </div>
       {detail && <PlanDetailModal detail={detail} onClose={() => setDetail(null)} />}
     </div>
+    </CopModeContext.Provider>
   );
 }
 
@@ -2559,6 +2583,7 @@ function PlanDetailModal({
     | { kind: "phase"; phase: TemplatePhase };
   onClose: () => void;
 }) {
+  const copMode = useContext(CopModeContext);
   const isActivity = detail.kind === "activity";
   const d = isActivity ? detail.data : null;
   const p = !isActivity ? detail.phase : null;
@@ -2591,12 +2616,12 @@ function PlanDetailModal({
         {isActivity ? (
           <dl className="space-y-3 text-sm">
             <DetailRow label="Category">{CATEGORY_META[d!.category]?.label ?? d!.category}</DetailRow>
-            <DetailRow label="Completion">{GATING_LABEL[d!.gating]}</DetailRow>
+            <DetailRow label="Completion">{gatingLabelFor(d!.gating, copMode)}</DetailRow>
             {d!.phaseName && <DetailRow label="Phase">{d!.phaseName}</DetailRow>}
             <DetailBlock label="Instructions">
               {d!.instructions || ACTIVITY_BY_KEY[d!.activityKey]?.defaultInstructions || "—"}
             </DetailBlock>
-            <DetailBlock label="Expected artifact">
+            <DetailBlock label={d!.gating === "REVIEWED" ? "Expected artifact" : "Possible artifact"}>
               {d!.artifact || ACTIVITY_BY_KEY[d!.activityKey]?.defaultArtifact || "—"}
             </DetailBlock>
           </dl>

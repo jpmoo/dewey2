@@ -1628,6 +1628,7 @@ export function ThreadPane({
           templateId={viewPlanId}
           templatesBase="/api/partnership-plans"
           focusCurrentActivity={viewPlanFocus}
+          copMode={isCop}
           onClose={() => setViewPlanId(null)}
         />
       )}
