@@ -1,7 +1,7 @@
 import { getPool } from "@/lib/pg";
 import { chatComplete } from "@/lib/ai";
 import { queryRag, mergeSelectors, formatRagContext, uniqueSources } from "@/lib/rag";
-import { getThreadUnitScope } from "@/lib/messages";
+import { getThreadUnitScope, getCopMeta } from "@/lib/messages";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
 import {
   addConsultTurn,
@@ -108,6 +108,15 @@ export async function consultDeweyOnSubmission(params: {
   const chunks = await queryRag(ragQuery, { ...units, ...sel }).catch(() => []);
 
   let system = `You are @dewey, an AI coaching companion on Dewey, advising a human COACH as they review a partner's work. You are speaking ONLY to the coach — never to the partner — and you do NOT make the decision. Give the coach a clear, honest, concise assessment of whether the submission meets the activity's goal, what's strong, and what (if anything) is missing. Weigh the work against the organization's strategic plans, goals, and priorities (excerpts below when available) and reference the specific source so the coach can connect the partner's work to those goals. The coach decides whether to approve or return it.`;
+  // For a Community of Practice, the reviewer is the Chair and the work is a
+  // member's contribution to the community's shared goal.
+  if (units.copId && plan.thread_id != null) {
+    const cop = await getCopMeta(plan.thread_id).catch(() => null);
+    if (cop?.goal) {
+      system +=
+        `\n\nThis is a Community of Practice: you are advising the CHAIR (not a coach) as they review a member's contribution toward the community's shared goal / problem of practice:\n"""\n${cop.goal}\n"""`;
+    }
+  }
   if (chunks.length > 0) {
     system +=
       "\n\nRelevant excerpts from the organization's documents (strategic plans, goals, priorities, frameworks, etc.) — ground your assessment in these and name the source:\n" +

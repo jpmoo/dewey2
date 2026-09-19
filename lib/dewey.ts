@@ -13,6 +13,7 @@ import {
 import {
   getActiveActivity,
   getAttachmentTextsForThread,
+  getCopMeta,
   getThreadMessages,
   getThreadMeta,
   getThreadUnitScope,
@@ -187,6 +188,17 @@ export async function runDeweyForThread(params: {
     schoolIds: [] as number[],
     copId: null,
   }));
+  // In a Community of Practice, keep the whole exchange oriented to the shared
+  // goal/problem of practice.
+  if (units.copId) {
+    const cop = await getCopMeta(threadId).catch(() => null);
+    if (cop?.goal) {
+      system +=
+        `\n\nThis conversation is a Community of Practice — a group working together, ` +
+        `led by a Chair (not a coach). The community's shared goal / problem of practice is:\n"""\n${cop.goal}\n"""\n` +
+        `Orient your responses to this shared goal and to the group (not a single individual).`;
+    }
+  }
   const sel = mergeSelectors(active?.sources ?? null, active?.standingSources ?? null);
   const chunks = await queryRag(ragQuery, { ...units, ...sel }).catch(() => []);
   const sources = uniqueSources(chunks);

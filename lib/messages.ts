@@ -29,6 +29,7 @@ export type ThreadKind =
   | "template_share"
   | "template_submission"
   | "partnership"
+  | "cop"
   | "compliance";
 export type ThreadStatus = "open" | "approved" | "rejected" | "done" | "abandoned" | null;
 
@@ -104,6 +105,10 @@ export interface ThreadSummary {
   /** The thread's accepted partnership plan (id + name), if any — for the list "View plan" pill. */
   accepted_plan_id: number | null;
   accepted_plan_name: string | null;
+  /** Community of Practice fields (kind='cop'): the shared goal and the Chair. */
+  cop_goal?: string | null;
+  cop_chair_id?: number | null;
+  cop_chair_name?: string | null;
 }
 
 // ============================================================
@@ -568,6 +573,84 @@ export async function createPartnership(
   return threadId;
 }
 
+/**
+ * Create a Community of Practice: a multi-member thread led by a Chair (any
+ * member) instead of a coach, anchored to a school or district (which sets its
+ * RAG inheritance) and tied to a shared goal. All members are active immediately
+ * (no per-member invitation gate). The Chair must be one of the members.
+ */
+export async function createCoP(params: {
+  subject: string;
+  goal: string;
+  chairId: number;
+  memberIds: number[];
+  /** Anchor: a school (inherits school+district+system) or a district. */
+  districtId: number | null;
+  schoolId: number | null;
+  createdBy: number;
+}): Promise<number> {
+  const pool = getPool();
+  await ensureSchema();
+  const members = Array.from(new Set([params.createdBy, params.chairId, ...params.memberIds]));
+  const res = await pool.query(
+    `INSERT INTO message_threads
+       (kind, subject, created_by, cop_goal, cop_chair_id, cop_district_id, cop_school_id)
+     VALUES ('cop', $1, $2, $3, $4, $5, $6) RETURNING id`,
+    [
+      params.subject.trim() || "Community of Practice",
+      params.createdBy,
+      params.goal.trim() || null,
+      params.chairId,
+      params.districtId,
+      params.schoolId,
+    ]
+  );
+  const threadId = res.rows[0].id as number;
+  for (const uid of members) {
+    await pool.query(
+      `INSERT INTO thread_participants (thread_id, user_id, accepted) VALUES ($1, $2, TRUE)
+       ON CONFLICT (thread_id, user_id) DO UPDATE SET accepted = TRUE`,
+      [threadId, uid]
+    );
+  }
+  // An opening message so the thread lists correctly and states the shared goal.
+  await postMessage({
+    threadId,
+    senderId: params.createdBy,
+    body: `This Community of Practice is now open.\n\n**Goal / problem of practice:** ${params.goal.trim()}`,
+  });
+  return threadId;
+}
+
+/** Update a CoP's editable fields (goal, chair, subject). Chair must be a member. */
+export async function updateCoP(
+  threadId: number,
+  fields: { subject?: string; goal?: string; chairId?: number }
+): Promise<void> {
+  const pool = getPool();
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 1;
+  if (fields.subject !== undefined) {
+    sets.push(`subject = $${i++}`);
+    vals.push(fields.subject.trim() || "Community of Practice");
+  }
+  if (fields.goal !== undefined) {
+    sets.push(`cop_goal = $${i++}`);
+    vals.push(fields.goal.trim() || null);
+  }
+  if (fields.chairId !== undefined) {
+    sets.push(`cop_chair_id = $${i++}`);
+    vals.push(fields.chairId);
+  }
+  if (sets.length === 0) return;
+  vals.push(threadId);
+  await pool.query(
+    `UPDATE message_threads SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $${i} AND kind = 'cop'`,
+    vals
+  );
+}
+
 /** Audit-log a message-center action with a deep-link to the thread. */
 export async function logThreadEvent(params: {
   userId: number;
@@ -991,6 +1074,10 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
     unread: false,
     accepted_plan_id: (t.accepted_plan_id as number | null) ?? null,
     accepted_plan_name: (t.accepted_plan_name as string | null) ?? null,
+    cop_goal: (t.cop_goal as string | null) ?? null,
+    cop_chair_id: (t.cop_chair_id as number | null) ?? null,
+    cop_chair_name:
+      partsRes.rows.find((r) => r.id === t.cop_chair_id)?.full_name ?? null,
   };
 }
 
@@ -1169,7 +1256,18 @@ export async function getThreadUnitScope(
 ): Promise<{ districtId: number | null; schoolIds: number[]; copId: number | null }> {
   await ensureSchema();
   const pool = getPool();
-  // copId is reserved for Communities of Practice (that feature will set it).
+  // A Community of Practice sets its own RAG scope from its anchor (a school, or
+  // a district), plus its own cop-level store (copId = the thread id). Members
+  // may span units, so we do NOT derive scope from participants for a CoP.
+  const cop = await pool.query(
+    "SELECT cop_district_id, cop_school_id FROM message_threads WHERE id = $1 AND kind = 'cop'",
+    [threadId]
+  );
+  if (cop.rows[0]) {
+    const districtId = (cop.rows[0].cop_district_id as number | null) ?? null;
+    const schoolId = (cop.rows[0].cop_school_id as number | null) ?? null;
+    return { districtId, schoolIds: schoolId ? [schoolId] : [], copId: threadId };
+  }
   const copId: number | null = null;
   // Coachees = the non-coach/admin participants.
   const res = await pool.query(
@@ -1187,6 +1285,32 @@ export async function getThreadUnitScope(
     new Set(res.rows.flatMap((r) => (r.school_ids as number[]) ?? []))
   );
   return { districtId, schoolIds, copId };
+}
+
+export interface CopMeta {
+  goal: string | null;
+  chairId: number | null;
+  districtId: number | null;
+  schoolId: number | null;
+}
+
+/** CoP metadata for a thread, or null if the thread isn't a Community of Practice. */
+export async function getCopMeta(threadId: number): Promise<CopMeta | null> {
+  await ensureSchema();
+  const pool = getPool();
+  const r = await pool.query(
+    `SELECT cop_goal, cop_chair_id, cop_district_id, cop_school_id
+       FROM message_threads WHERE id = $1 AND kind = 'cop'`,
+    [threadId]
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return {
+    goal: (row.cop_goal as string | null) ?? null,
+    chairId: (row.cop_chair_id as number | null) ?? null,
+    districtId: (row.cop_district_id as number | null) ?? null,
+    schoolId: (row.cop_school_id as number | null) ?? null,
+  };
 }
 
 // ============================================================

@@ -310,6 +310,18 @@ export function ensureSchema(): Promise<void> {
         -- When the user last read the thread (for unread highlighting).
         ALTER TABLE thread_participants ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ;
 
+        -- Community of Practice (kind='cop'): a multi-member thread with one shared
+        -- arc tied to a goal, led by a per-CoP Chair (any member) instead of a
+        -- coach. The anchor (a school, or a district) sets the RAG inheritance
+        -- chain; cop_goal is injected as AI context throughout the arc.
+        ALTER TABLE message_threads ADD COLUMN IF NOT EXISTS cop_goal TEXT;
+        ALTER TABLE message_threads
+          ADD COLUMN IF NOT EXISTS cop_chair_id INTEGER REFERENCES users (id) ON DELETE SET NULL;
+        ALTER TABLE message_threads
+          ADD COLUMN IF NOT EXISTS cop_district_id INTEGER REFERENCES districts (id) ON DELETE SET NULL;
+        ALTER TABLE message_threads
+          ADD COLUMN IF NOT EXISTS cop_school_id INTEGER REFERENCES schools (id) ON DELETE SET NULL;
+
         CREATE TABLE IF NOT EXISTS messages (
           id         BIGSERIAL PRIMARY KEY,
           thread_id  INTEGER NOT NULL REFERENCES message_threads (id) ON DELETE CASCADE,
@@ -1675,6 +1687,7 @@ export async function userManagesThreadPlan(planId: number, userId: number): Pro
     `SELECT 1 FROM coaching_templates ct
        JOIN users u ON u.id = $2
        LEFT JOIN thread_participants p ON p.thread_id = ct.thread_id AND p.user_id = $2
+       LEFT JOIN message_threads mt ON mt.id = ct.thread_id
       WHERE ct.id = $1 AND ct.scope = 'partnership' AND ct.deleted_at IS NULL
         AND (
           u.system_role = 'admin'
@@ -1685,6 +1698,9 @@ export async function userManagesThreadPlan(planId: number, userId: number): Pro
                 OR EXISTS (SELECT 1 FROM thread_participants dp JOIN users du ON du.id = dp.user_id
                             WHERE dp.thread_id = ct.thread_id AND du.district_id = u.district_id)
               ))
+          -- In a Community of Practice, the Chair (any member) owns the arc in
+          -- place of a coach.
+          OR (mt.kind = 'cop' AND mt.cop_chair_id = $2)
         )
       LIMIT 1`,
     [planId, userId]

@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
 import { Avatar } from "@/components/Avatar";
+import { CreateCoPModal } from "@/components/messages/CreateCoPModal";
 import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
 
 // Loaded only when a partnership plan is opened/edited (React Flow is heavy).
@@ -88,6 +89,9 @@ type ThreadSummary = {
   unread: boolean;
   accepted_plan_id: number | null;
   accepted_plan_name: string | null;
+  cop_goal?: string | null;
+  cop_chair_id?: number | null;
+  cop_chair_name?: string | null;
 };
 
 type ReplyTarget = { id: number; sender: string; excerpt: string; isAi: boolean };
@@ -159,6 +163,7 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
   }, [openThreadId]);
   const [preview, setPreview] = useState<AttachmentMeta | null>(null);
   const [composing, setComposing] = useState(false);
+  const [copOpen, setCopOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   // Collapse the left conversation list to give the chat more room.
@@ -253,13 +258,27 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold">Messages</h2>
         </div>
-        <button
-          type="button"
-          className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10"
-          onClick={() => setComposing(true)}
-        >
-          <span aria-hidden>✉️</span> New conversation
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {(() => {
+            const role = session?.user?.system_role;
+            return role === "admin" || role === "coach" || role === "district_leader";
+          })() && (
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10"
+              onClick={() => setCopOpen(true)}
+            >
+              <span aria-hidden>👥</span> New community
+            </button>
+          )}
+          <button
+            type="button"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10"
+            onClick={() => setComposing(true)}
+          >
+            <span aria-hidden>✉️</span> New conversation
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -395,6 +414,16 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
       {preview && <AttachmentLightbox attachment={preview} onClose={() => setPreview(null)} />}
       {composing && (
         <ComposeModal onClose={() => setComposing(false)} onSent={onComposed} />
+      )}
+      {copOpen && session?.user?.id && (
+        <CreateCoPModal
+          meId={Number(session.user.id)}
+          onClose={() => setCopOpen(false)}
+          onCreated={(threadId) => {
+            setCopOpen(false);
+            onComposed(threadId);
+          }}
+        />
       )}
     </section>
   );
@@ -1247,6 +1276,14 @@ export function ThreadPane({
               {thread.status}
             </span>
           )}
+          {thread?.kind === "cop" && (
+            <span
+              className="shrink-0 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[10px] text-dewey-accent"
+              title={thread.cop_chair_name ? `Chair: ${thread.cop_chair_name}` : "Community of Practice"}
+            >
+              👥 Community{thread.cop_chair_name ? ` · Chair: ${thread.cop_chair_name}` : ""}
+            </span>
+          )}
           {acceptedPlan && (
             <>
               <button
@@ -1321,6 +1358,11 @@ export function ThreadPane({
                 </span>
               );
             })}
+          </p>
+        )}
+        {thread?.kind === "cop" && thread.cop_goal && (
+          <p className="mt-1 rounded-md border border-dewey-accent/20 bg-dewey-accent/5 px-2 py-1 text-xs text-dewey-ink">
+            <span className="font-medium">Goal:</span> {thread.cop_goal}
           </p>
         )}
       </div>
