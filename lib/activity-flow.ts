@@ -299,3 +299,33 @@ export async function reviewActivity(params: {
   await logThreadEvent({ userId: coachId, actorId: coachId, action: "activity_returned", threadId });
   return { ok: true, decision, advanced: false, finished: false };
 }
+
+/**
+ * Community of Practice attestation: the Chair marks the shared current activity
+ * complete, advancing the whole community to the next one. In a CoP every
+ * activity advances by the Chair's attestation (never member review), at the
+ * Chair's judgment (no minimum contributions). Members contribute via ordinary
+ * messages; only the Chair may attest.
+ */
+export async function attestActivity(params: {
+  threadId: number;
+  chairId: number;
+}): Promise<ReviewResult> {
+  await ensureSchema();
+  const { threadId, chairId } = params;
+  const active = await getActiveActivity(threadId);
+  if (!active) return { ok: false, error: "No activity is active in this community.", status: 400 };
+  if (!(await userManagesThreadPlan(active.planId, chairId))) {
+    return { ok: false, error: "Only the Chair can advance the community.", status: 403 };
+  }
+  const adv = await advanceActivity(active.planId);
+  await postAdvanceNote(threadId, active.planId, active.nodeLabel, adv.finished);
+  await logThreadEvent({ userId: chairId, actorId: chairId, action: "activity_attested", threadId });
+  await logThreadEvent({
+    userId: chairId,
+    actorId: chairId,
+    action: adv.finished ? "plan_completed" : adv.crossedPhase ? "phase_advanced" : "plan_advanced",
+    threadId,
+  });
+  return { ok: true, decision: "approve", advanced: !adv.finished, finished: adv.finished };
+}

@@ -869,11 +869,15 @@ export function ThreadPane({
   // Submission flow: a partner (non-coach, non-admin) can mark a message while an
   // activity is active and nothing's pending review; a pending review freezes the
   // partner's composer and surfaces a Review button to coaches.
-  // A CoP member (not the Chair) contributes like a partner; the Chair reviews.
+  // In a CoP the community advances by the Chair's attestation only — members
+  // contribute via ordinary messages, not tracked submissions.
+  const isCop = thread?.kind === "cop";
   const iAmPartner = !iAmCoach && !isAdmin && !iAmChair;
-  const canSubmit = !!activeActivity && !activeActivity.pendingReview && iAmPartner;
-  const partnerFrozen = !!activeActivity?.pendingReview && iAmPartner;
-  const coachCanReview = !!activeActivity?.pendingReview && (iAmCoach || isAdmin || iAmChair);
+  const canSubmit = !isCop && !!activeActivity && !activeActivity.pendingReview && iAmPartner;
+  const partnerFrozen = !isCop && !!activeActivity?.pendingReview && iAmPartner;
+  const coachCanReview = !isCop && !!activeActivity?.pendingReview && (iAmCoach || isAdmin);
+  // The Chair can attest to the shared current activity to advance the community.
+  const chairCanAttest = isCop && iAmChair && !!activeActivity;
 
   const toggleArchive = async () => {
     if (
@@ -1105,6 +1109,29 @@ export function ThreadPane({
     [activeActivity, dialog, threadId, fetchThread, onPosted]
   );
 
+  // CoP Chair attests to the current activity, advancing the whole community.
+  const attestAdvance = useCallback(async () => {
+    if (!activeActivity) return;
+    const ok = await dialog.confirm(
+      `Mark "${activeActivity.nodeLabel}" complete for the community and advance to the next activity?`,
+      { title: "Attest & advance", confirmText: "Attest & advance" }
+    );
+    if (!ok) return;
+    try {
+      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/activity/attest`), {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error((d as { error?: string }).error || "Couldn't advance");
+      }
+      fetchThread(false);
+      onPosted();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't advance the community.");
+    }
+  }, [activeActivity, dialog, threadId, fetchThread, onPosted]);
+
   // A partner withdraws their own pending submission before the coach reviews it.
   const withdrawSubmission = useCallback(async () => {
     if (
@@ -1327,6 +1354,16 @@ export function ThreadPane({
                   title="Review the partner's contribution"
                 >
                   🔎 <span className="max-w-[160px] truncate">Review contribution</span>
+                </button>
+              )}
+              {chairCanAttest && !archived && (
+                <button
+                  type="button"
+                  onClick={attestAdvance}
+                  className="flex shrink-0 items-center gap-1 rounded-full bg-dewey-accent px-2.5 py-0.5 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+                  title={`Attest "${activeActivity?.nodeLabel}" and advance the community`}
+                >
+                  ✅ <span className="max-w-[180px] truncate">Attest &amp; advance</span>
                 </button>
               )}
               {isAdmin && submissionPending && (
