@@ -886,6 +886,11 @@ export function ThreadPane({
   // coach, or a district leader (server enforces the precise check).
   const canEditCop = isCop && (iAmChair || isAdmin || iAmCoach || iAmDistrictLeader);
   const [editingCop, setEditingCop] = useState(false);
+  // A Chair-built CoP arc has no plan *message*, so drive the header plan links
+  // from the thread's accepted plan (server truth) for a CoP.
+  const copPlanId = isCop ? thread?.accepted_plan_id ?? null : null;
+  const planActive = hasActivePlan || copPlanId != null;
+  const headerPlanId = acceptedPlan?.plan_id ?? copPlanId;
 
   const toggleArchive = async () => {
     if (
@@ -1356,26 +1361,26 @@ export function ThreadPane({
               👥 Community{thread.cop_chair_name ? ` · Chair: ${thread.cop_chair_name}` : ""}
             </span>
           )}
-          {acceptedPlan && (
+          {headerPlanId != null && (
             <>
               <button
                 type="button"
                 className="flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10"
                 onClick={() => {
                   setViewPlanFocus(false);
-                  setViewPlanId(acceptedPlan.plan_id as number);
+                  setViewPlanId(headerPlanId);
                 }}
-                title={acceptedPlan.plan_name ?? "Plan"}
+                title={acceptedPlan?.plan_name ?? thread?.accepted_plan_name ?? "Plan"}
               >
-                🗂️ <span className="max-w-[140px] truncate">View plan</span>
+                🗂️ <span className="max-w-[140px] truncate">{isCop ? "View arc" : "View plan"}</span>
               </button>
-              {hasActivePlan && (
+              {planActive && (
                 <button
                   type="button"
                   className="flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10"
                   onClick={() => {
                     setViewPlanFocus(true);
-                    setViewPlanId(acceptedPlan.plan_id as number);
+                    setViewPlanId(headerPlanId);
                   }}
                   title="Open the current activity"
                 >
@@ -1414,13 +1419,15 @@ export function ThreadPane({
               )}
               {canEditCop && <PlanPill icon="✏️" label="Edit community" onClick={() => setEditingCop(true)} />}
               {canManage && !isCop && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
-              {isCop && canManage && !hasActivePlan && (
+              {isCop && canManage && !planActive && (
                 <PlanPill icon="🎨" label="Build a plan" onClick={buildCoPPlan} />
               )}
-              {canManage && !hasActivePlan && (
+              {canManage && !planActive && (
                 <PlanPill icon="➕" label={isCop ? "Use a template" : "Add plan"} onClick={() => setPicking(true)} />
               )}
-              {(isAdmin || !hasLivePlan || archived) && (
+              {/* In a CoP only the Chair/admin/district leader can archive;
+                  elsewhere anyone may archive a plan-less thread (admins always can). */}
+              {(isCop ? iAmChair || isAdmin || iAmDistrictLeader : isAdmin || !hasLivePlan || archived) && (
                 <PlanPill
                   icon="🗄️"
                   label={archived ? "Unarchive" : "Archive"}

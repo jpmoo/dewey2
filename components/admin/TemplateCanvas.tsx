@@ -1169,7 +1169,7 @@ function CanvasInner({
           <span aria-hidden>✂️</span> Remove from phase
         </button>
         <div className="ml-auto flex items-center gap-3">
-          {template.scope === "partnership" && (
+          {template.scope === "partnership" && !copMode && (
             <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
               Message thread copy — saves to this conversation only, not your plan library
             </span>
@@ -1498,7 +1498,9 @@ function CanvasInner({
           <div className="w-full max-w-lg rounded-lg border border-dewey-border bg-dewey-surface p-5 shadow-xl">
             <h2 className="text-base font-semibold text-dewey-ink">Save plan</h2>
             <p className="mt-1 text-sm text-dewey-mute">
-              {template.scope === "partnership"
+              {copMode
+                ? "Save this community's arc. Add a short description so members know what it's for. We've drafted one you can edit."
+                : template.scope === "partnership"
                 ? "This saves the message thread's copy in the conversation only — it won't be added to your plan library. Add a short description so everyone knows what it's for."
                 : "Add a description so coaches know what this plan is for. We've drafted one you can edit."}
             </p>
@@ -1528,7 +1530,7 @@ function CanvasInner({
               onChange={(e) => setDescDraft(e.target.value)}
               placeholder={descLoading ? "Drafting a description…" : "Describe this plan…"}
             />
-            {template.scope === "partnership" && (
+            {template.scope === "partnership" && !copMode && (
               <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 ⚠️ Saving sends this plan back to everyone in the message thread for re-approval —
                 it won't be active again until each participant re-accepts it.

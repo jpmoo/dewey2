@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { messageScope, requireUser } from "@/lib/guard";
 import {
   canAccessThread,
+  getCopMeta,
   logThreadEvent,
   setThreadArchivedForAll,
 } from "@/lib/messages";
@@ -23,6 +24,19 @@ export async function POST(
   const userId = Number(session.user.id);
   if (!(await canAccessThread(id, userId, isAdmin, overseeDistrictId))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // A Community of Practice is archived only by its Chair, an admin, or an
+  // overseeing district leader — not by an ordinary member.
+  const cop = await getCopMeta(id);
+  if (cop) {
+    const mayManage = isAdmin || canOversee || cop.chairId === userId;
+    if (!mayManage) {
+      return NextResponse.json(
+        { error: "Only the Chair can archive this community." },
+        { status: 403 }
+      );
+    }
   }
 
   const body = await request.json().catch(() => ({}));
