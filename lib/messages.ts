@@ -1324,6 +1324,28 @@ export interface CopMeta {
   schoolId: number | null;
 }
 
+/** All Communities of Practice, for admin document placement. */
+export async function listCoPs(): Promise<
+  { id: number; subject: string | null; districtName: string | null; schoolName: string | null }[]
+> {
+  await ensureSchema();
+  const pool = getPool();
+  const res = await pool.query(
+    `SELECT t.id, t.subject, d.name AS district_name, s.name AS school_name
+       FROM message_threads t
+       LEFT JOIN districts d ON d.id = t.cop_district_id
+       LEFT JOIN schools s ON s.id = t.cop_school_id
+      WHERE t.kind = 'cop' AND t.deleted_at IS NULL
+      ORDER BY COALESCE(t.subject, '')`
+  );
+  return res.rows.map((r) => ({
+    id: r.id as number,
+    subject: (r.subject as string | null) ?? null,
+    districtName: (r.district_name as string | null) ?? null,
+    schoolName: (r.school_name as string | null) ?? null,
+  }));
+}
+
 /** CoP metadata for a thread, or null if the thread isn't a Community of Practice. */
 export async function getCopMeta(threadId: number): Promise<CopMeta | null> {
   await ensureSchema();

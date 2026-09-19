@@ -250,12 +250,13 @@ function placementLabel(r: {
   district_name: string | null;
   school_name: string | null;
   cop_id: number | null;
+  cop_subject?: string | null;
 }): string {
   if (r.level === "system") return "System-wide";
   if (r.level === "district") return r.district_name ?? "District";
   if (r.level === "school")
     return r.school_name ? `${r.district_name ? r.district_name + " · " : ""}${r.school_name}` : "School";
-  if (r.level === "cop") return `Community of Practice #${r.cop_id ?? "?"}`;
+  if (r.level === "cop") return `CoP · ${r.cop_subject || `#${r.cop_id ?? "?"}`}`;
   return r.level;
 }
 
@@ -265,10 +266,11 @@ async function placementsFor(docIds: number[]): Promise<Map<number, RagPlacement
   const pool = getPool();
   const res = await pool.query(
     `SELECT pl.id, pl.document_id, pl.level, pl.district_id, pl.school_id, pl.cop_id,
-            di.name AS district_name, s.name AS school_name
+            di.name AS district_name, s.name AS school_name, mt.subject AS cop_subject
        FROM rag_document_placements pl
        LEFT JOIN districts di ON di.id = pl.district_id
        LEFT JOIN schools s ON s.id = pl.school_id
+       LEFT JOIN message_threads mt ON mt.id = pl.cop_id
       WHERE pl.document_id = ANY($1::bigint[])
       ORDER BY pl.id`,
     [docIds]

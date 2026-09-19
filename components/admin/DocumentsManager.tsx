@@ -41,8 +41,15 @@ type Sample = {
 };
 type DocDetail = DocSummary & { filename: string | null; mime: string | null; extractedChars: number; samplesList: Sample[] };
 
-/** New placement being composed in the picker (system / district / school). */
-type DraftPlacement = { level: "system" | "district" | "school"; districtId: number | null; schoolId: number | null };
+type Cop = { id: number; subject: string | null; districtName: string | null; schoolName: string | null };
+
+/** New placement being composed in the picker (system / district / school / CoP). */
+type DraftPlacement = {
+  level: "system" | "district" | "school" | "cop";
+  districtId: number | null;
+  schoolId: number | null;
+  copId: number | null;
+};
 
 const chip = "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]";
 
@@ -73,6 +80,7 @@ export function DocumentsManager() {
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [districts, setDistricts] = useState<District[]>([]);
+  const [cops, setCops] = useState<Cop[]>([]);
   const [ragOk, setRagOk] = useState(true);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
@@ -92,9 +100,11 @@ export function DocumentsManager() {
     Promise.all([
       apiFetch<{ categories: Category[] }>("/api/admin/rag/categories"),
       apiFetch<{ districts: District[] }>("/api/admin/districts"),
-    ]).then(([c, o]) => {
+      apiFetch<{ cops: Cop[] }>("/api/admin/cops").catch(() => ({ cops: [] })),
+    ]).then(([c, o, p]) => {
       setCategories(c.categories);
       setDistricts(o.districts);
+      setCops(p.cops);
     });
   }, []);
 
@@ -155,7 +165,8 @@ export function DocumentsManager() {
         <h2 className="text-lg font-semibold">Documents</h2>
         <p className="text-sm text-dewey-mute">
           The source library for retrieval. Documents are embedded once and can be placed at one or
-          more units (system, district, or school); lower levels inherit from above.
+          more units (system, district, school, or a Community of Practice); lower levels inherit
+          from above.
         </p>
       </div>
 
@@ -252,6 +263,7 @@ export function DocumentsManager() {
         <UploadModal
           categories={categories}
           districts={districts}
+          cops={cops}
           onClose={() => setUploadOpen(false)}
           onDone={() => {
             setUploadOpen(false);
@@ -264,6 +276,7 @@ export function DocumentsManager() {
           docId={detailId}
           categories={categories}
           districts={districts}
+          cops={cops}
           onClose={() => {
             setDetailId(null);
             loadDocs(q);
@@ -279,25 +292,32 @@ export function DocumentsManager() {
 function PlacementRow({
   value,
   districts,
+  cops,
   onChange,
   onRemove,
 }: {
   value: DraftPlacement;
   districts: District[];
+  cops: Cop[];
   onChange: (v: DraftPlacement) => void;
   onRemove: () => void;
 }) {
   const schools = districts.find((d) => d.id === value.districtId)?.schools ?? [];
+  const copLabel = (c: Cop) =>
+    `${c.subject || `Community #${c.id}`}${c.schoolName ? ` · ${c.schoolName}` : c.districtName ? ` · ${c.districtName}` : ""}`;
   return (
     <div className="flex flex-wrap items-center gap-2">
       <select
         className="dewey-input w-auto"
         value={value.level}
-        onChange={(e) => onChange({ level: e.target.value as DraftPlacement["level"], districtId: null, schoolId: null })}
+        onChange={(e) =>
+          onChange({ level: e.target.value as DraftPlacement["level"], districtId: null, schoolId: null, copId: null })
+        }
       >
         <option value="system">System-wide</option>
         <option value="district">District</option>
         <option value="school">School</option>
+        <option value="cop">Community of Practice</option>
       </select>
       {(value.level === "district" || value.level === "school") && (
         <select
@@ -323,6 +343,18 @@ function PlacementRow({
           ))}
         </select>
       )}
+      {value.level === "cop" && (
+        <select
+          className="dewey-input w-auto"
+          value={value.copId ?? ""}
+          onChange={(e) => onChange({ ...value, copId: Number(e.target.value) || null })}
+        >
+          <option value="">Choose community…</option>
+          {cops.map((c) => (
+            <option key={c.id} value={c.id}>{copLabel(c)}</option>
+          ))}
+        </select>
+      )}
       <button type="button" className="text-xs text-red-700 hover:underline" onClick={onRemove}>
         Remove
       </button>
@@ -335,7 +367,8 @@ function validPlacements(drafts: DraftPlacement[]): DraftPlacement[] {
     (p) =>
       p.level === "system" ||
       (p.level === "district" && p.districtId != null) ||
-      (p.level === "school" && p.districtId != null && p.schoolId != null)
+      (p.level === "school" && p.districtId != null && p.schoolId != null) ||
+      (p.level === "cop" && p.copId != null)
   );
 }
 
@@ -344,18 +377,20 @@ function validPlacements(drafts: DraftPlacement[]): DraftPlacement[] {
 function UploadModal({
   categories,
   districts,
+  cops,
   onClose,
   onDone,
 }: {
   categories: Category[];
   districts: District[];
+  cops: Cop[];
   onClose: () => void;
   onDone: () => void;
 }) {
   const dialog = useDialog();
   const [title, setTitle] = useState("");
   const [catIds, setCatIds] = useState<number[]>([]);
-  const [placements, setPlacements] = useState<DraftPlacement[]>([{ level: "system", districtId: null, schoolId: null }]);
+  const [placements, setPlacements] = useState<DraftPlacement[]>([{ level: "system", districtId: null, schoolId: null, copId: null }]);
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
   const [mode, setMode] = useState<"file" | "text">("file");
@@ -434,11 +469,12 @@ function UploadModal({
                 key={i}
                 value={p}
                 districts={districts}
+                cops={cops}
                 onChange={(v) => setPlacements((cur) => cur.map((x, j) => (j === i ? v : x)))}
                 onRemove={() => setPlacements((cur) => cur.filter((_, j) => j !== i))}
               />
             ))}
-            <button type="button" className="text-xs text-dewey-accent hover:underline" onClick={() => setPlacements((c) => [...c, { level: "system", districtId: null, schoolId: null }])}>
+            <button type="button" className="text-xs text-dewey-accent hover:underline" onClick={() => setPlacements((c) => [...c, { level: "system", districtId: null, schoolId: null, copId: null }])}>
               + Add placement
             </button>
           </div>
@@ -462,11 +498,13 @@ function DetailModal({
   docId,
   categories,
   districts,
+  cops,
   onClose,
 }: {
   docId: number;
   categories: Category[];
   districts: District[];
+  cops: Cop[];
   onClose: () => void;
 }) {
   const dialog = useDialog();
@@ -474,7 +512,7 @@ function DetailModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [catIds, setCatIds] = useState<number[]>([]);
-  const [newPlacement, setNewPlacement] = useState<DraftPlacement>({ level: "system", districtId: null, schoolId: null });
+  const [newPlacement, setNewPlacement] = useState<DraftPlacement>({ level: "system", districtId: null, schoolId: null, copId: null });
   const [newSample, setNewSample] = useState("");
 
   const load = useCallback(async () => {
@@ -506,7 +544,7 @@ function DetailModal({
     const [v] = validPlacements([newPlacement]);
     if (!v) return dialog.alert("Choose a valid placement.");
     await apiFetch(`/api/admin/rag/documents/${docId}/placements`, { method: "POST", body: v });
-    setNewPlacement({ level: "system", districtId: null, schoolId: null });
+    setNewPlacement({ level: "system", districtId: null, schoolId: null, copId: null });
     load();
   };
   const removePlacement = async (id: number) => {
@@ -571,7 +609,7 @@ function DetailModal({
               {doc.placements.length === 0 && <span className="text-xs text-dewey-mute">No placements — this document isn't visible anywhere.</span>}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <PlacementRow value={newPlacement} districts={districts} onChange={setNewPlacement} onRemove={() => setNewPlacement({ level: "system", districtId: null, schoolId: null })} />
+              <PlacementRow value={newPlacement} districts={districts} cops={cops} onChange={setNewPlacement} onRemove={() => setNewPlacement({ level: "system", districtId: null, schoolId: null, copId: null })} />
               <button type="button" className="dewey-btn-secondary" onClick={addPlacement}>
                 <span aria-hidden>➕</span> Add here too
               </button>
