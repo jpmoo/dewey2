@@ -142,6 +142,15 @@ function normalizeDeweyMention(body: string): string {
 }
 
 /**
+ * Preserve a human message's line breaks when rendering as Markdown: a single
+ * newline becomes a hard break (Markdown would otherwise fold it into a space),
+ * while blank-line paragraph breaks are left intact.
+ */
+function withHardBreaks(body: string): string {
+  return body.replace(/(?<!\n)\n(?!\n)/g, "  \n");
+}
+
+/**
  * Shared message center for coaches and admins. Two panes: a thread list and the
  * active conversation with a composer that supports file attachments (images and
  * PDFs preview inline). Admins see every thread for oversight.
@@ -1877,14 +1886,15 @@ function MessageBubble({
               mine ? "bg-dewey-accent/15 text-dewey-ink" : "bg-dewey-surface text-dewey-ink"
             } border border-dewey-border`}
           >
-            {m.body &&
-              (m.is_ai ? (
-                <div className="chat-md text-sm">
-                  <ReactMarkdown>{normalizeDeweyMention(m.body)}</ReactMarkdown>
-                </div>
-              ) : (
-                <p className="whitespace-pre-wrap">{normalizeDeweyMention(m.body)}</p>
-              ))}
+            {m.body && (
+              <div className="chat-md text-sm">
+                <ReactMarkdown>
+                  {m.is_ai
+                    ? normalizeDeweyMention(m.body)
+                    : withHardBreaks(normalizeDeweyMention(m.body))}
+                </ReactMarkdown>
+              </div>
+            )}
             {m.attachments.length > 0 && (
               <div className="mt-2 space-y-2">
                 {m.attachments.map((a) => (
