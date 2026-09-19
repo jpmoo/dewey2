@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCoachOrAdmin } from "@/lib/guard";
+import { requireUser } from "@/lib/guard";
 import { chatStream, complianceCheck, summarizeConversation, type ChatMessage } from "@/lib/ai";
-import { queryRagDefault, formatRagContext, uniqueSources } from "@/lib/rag";
-import { reportComplianceFlag } from "@/lib/messages";
+import { queryRagDefault, queryRag, formatRagContext, uniqueSources } from "@/lib/rag";
+import { getCopMeta, getThreadUnitScope, reportComplianceFlag } from "@/lib/messages";
 import { allowAiRequest } from "@/lib/rate-limit";
 import {
   buildCanvasPlanPrompt,
@@ -32,7 +32,7 @@ const RECENT_KEEP = 6;
  * shows prior turns when reopened. Returns the conversation id and messages.
  */
 export async function GET(request: NextRequest) {
-  const guard = await requireCoachOrAdmin();
+  const guard = await requireUser();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
   const ownerId = Number(session.user.id);
@@ -66,9 +66,21 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const guard = await requireCoachOrAdmin();
+  const guard = await requireUser();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
+  const meId = Number(session.user.id);
+  const role = session.user.system_role;
+
+  // Authorization: coach/admin/district-leader normally; for a Community of
+  // Practice arc, also the CoP's Chair (who may be any role).
+  const rawThreadId = Number((await request.clone().json().catch(() => ({}))).threadId);
+  const copThreadId = Number.isFinite(rawThreadId) && rawThreadId > 0 ? rawThreadId : null;
+  const cop = copThreadId ? await getCopMeta(copThreadId) : null;
+  const staff = role === "coach" || role === "admin" || role === "district_leader";
+  if (!(staff || (cop && cop.chairId === meId))) {
+    return NextResponse.json({ error: "Not allowed" }, { status: 403 });
+  }
 
   if (!allowAiRequest(Number(session.user.id))) {
     return NextResponse.json(
@@ -108,10 +120,30 @@ export async function POST(request: NextRequest) {
   // and as the live context for the model.
   const priorMessages = await getMessagesAfter(conversationId, conv.summarized_through);
 
-  // Ground the call in the org's documents via RAGDoll (default collections).
+  // Ground the call in the org's documents. For a CoP, scope to the community's
+  // units + goal and build an attestation-only, problem-solving plan.
   const tStart = Date.now();
   let system = buildCanvasPlanPrompt();
-  const chunks = await queryRagDefault(message).catch(() => []);
+  if (cop) {
+    system +=
+      `\n\nThis plan is the arc for a COMMUNITY OF PRACTICE — a group working together on a shared ` +
+      `goal, led by a Chair (not a coach).` +
+      (cop.goal ? `\nThe community's goal / problem of practice is:\n"""\n${cop.goal}\n"""` : "") +
+      `\nDesign a sequence of activities that help the community UNDERSTAND and ACT ON this goal ` +
+      `(e.g. examine current reality and data, learn from evidence, try and study changes, reflect). ` +
+      `Every activity is completed by the Chair's attestation — set all activities to OPEN gating. ` +
+      `Do NOT include coach review, feedback, endorsement, or "discuss with your coach" steps, and ` +
+      `do not reference a coach; address the community.`;
+  }
+  const chunks = cop
+    ? await queryRag(message, {
+        ...(await getThreadUnitScope(copThreadId!).catch(() => ({
+          districtId: null,
+          schoolIds: [] as number[],
+          copId: null,
+        }))),
+      }).catch(() => [])
+    : await queryRagDefault(message).catch(() => []);
   const tRag = Date.now();
   const sources = uniqueSources(chunks);
   if (chunks.length > 0) {

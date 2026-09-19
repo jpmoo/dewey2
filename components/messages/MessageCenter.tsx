@@ -1137,6 +1137,18 @@ export function ThreadPane({
     [dialog, threadId, fetchThread]
   );
 
+  // CoP: create a blank arc and open the canvas for the Chair to draw it.
+  const buildCoPPlan = useCallback(async () => {
+    try {
+      const { planId } = await apiFetch<{ planId: number }>(`/api/cops/${threadId}/plan`, {
+        method: "POST",
+      });
+      setEditPlanId(planId);
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't start a plan.");
+    }
+  }, [dialog, threadId]);
+
   // CoP Chair attests to the current activity, advancing the whole community.
   const attestAdvance = useCallback(async () => {
     if (!activeActivity) return;
@@ -1402,8 +1414,11 @@ export function ThreadPane({
               )}
               {canEditCop && <PlanPill icon="✏️" label="Edit community" onClick={() => setEditingCop(true)} />}
               {canManage && !isCop && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
+              {isCop && canManage && !hasActivePlan && (
+                <PlanPill icon="🎨" label="Build a plan" onClick={buildCoPPlan} />
+              )}
               {canManage && !hasActivePlan && (
-                <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
+                <PlanPill icon="➕" label={isCop ? "Use a template" : "Add plan"} onClick={() => setPicking(true)} />
               )}
               {(isAdmin || !hasLivePlan || archived) && (
                 <PlanPill
@@ -1599,6 +1614,8 @@ export function ThreadPane({
         <TemplateCanvas
           templateId={editPlanId}
           templatesBase="/api/partnership-plans"
+          copGoal={isCop ? thread?.cop_goal ?? null : null}
+          copThreadId={isCop ? threadId : null}
           onClose={() => {
             setEditPlanId(null);
             fetchThread(false);

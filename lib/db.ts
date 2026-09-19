@@ -1816,6 +1816,32 @@ export async function editThreadPlan(
     return { ok: false, error: "You don't manage this plan." };
   }
 
+  // A Community of Practice arc has no per-member acceptance: the Chair authors
+  // it freely and it stays live. Preserve the current-activity pointer if it
+  // still exists in the new graph, else land on the first activity.
+  if (plan.thread_id != null) {
+    const kindRes = await pool.query(
+      "SELECT kind FROM message_threads WHERE id = $1",
+      [plan.thread_id]
+    );
+    if (kindRes.rows[0]?.kind === "cop") {
+      const hasCurrent =
+        plan.current_node_id != null &&
+        params.graph.nodes.some((n) => n.id === plan.current_node_id);
+      const current = hasCurrent ? plan.current_node_id : recomputeCurrent(params.graph, new Set());
+      await deactivatePriorThreadPlans(plan.thread_id, planId);
+      await pool.query(
+        `UPDATE coaching_templates
+            SET graph = $2, name = COALESCE($3, name),
+                accepted_at = COALESCE(accepted_at, NOW()), current_node_id = $4,
+                deactivated_at = NULL, outcome = $5, updated_at = NOW()
+          WHERE id = $1`,
+        [planId, JSON.stringify(params.graph), params.name?.trim() || null, current, current == null ? "finished" : null]
+      );
+      return { ok: true };
+    }
+  }
+
   const done = await getApprovedNodeIds(planId);
   const oldNodes = new Map(plan.graph.nodes.map((n) => [n.id, n]));
   const newNodes = new Map(params.graph.nodes.map((n) => [n.id, n]));

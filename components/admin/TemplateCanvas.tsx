@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -372,6 +381,8 @@ function CanvasInner({
   onClose,
   templatesBase,
   lockedNodeIds = [],
+  copGoal = null,
+  copThreadId = null,
 }: {
   template: CoachingTemplate;
   onClose: () => void;
@@ -379,8 +390,17 @@ function CanvasInner({
   templatesBase: string;
   /** Completed activities that can't be edited/deleted (editing an active plan). */
   lockedNodeIds?: string[];
+  /** Community of Practice arc: the shared goal + thread, for goal-aware AI. */
+  copGoal?: string | null;
+  copThreadId?: number | null;
 }) {
   const dialog = useDialog();
+  const copMode = copThreadId != null;
+  // On opening a *blank* CoP arc, offer to examine the goal and draft a plan.
+  const [copIntroOpen, setCopIntroOpen] = useState(
+    copMode && (template.graph.nodes?.length ?? 0) === 0
+  );
+  const assistantRef = useRef<CanvasAssistantHandle>(null);
   // Completed (approved) activity ids, locked from editing. Stateful so "Reset
   // progress" can unlock everything in place after cancelling progress.
   const [lockedSet, setLockedSet] = useState<Set<string>>(() => new Set(lockedNodeIds));
@@ -1385,17 +1405,55 @@ function CanvasInner({
       </div>
 
       <CanvasAssistant
+        ref={assistantRef}
         buildGraph={buildGraph}
         onApply={applyGraph}
         onAdd={addGraph}
         templateId={savedId}
         canReplace={lockedSet.size === 0}
+        copThreadId={copThreadId}
       />
+
+      {copIntroOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setCopIntroOpen(false)}>
+          <div className="w-full max-w-lg rounded-lg border border-dewey-border bg-dewey-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-2 text-base font-semibold text-dewey-ink">Draw this community&rsquo;s plan</h3>
+            <p className="mb-2 text-sm text-dewey-mute">
+              Build a sequence of activities that help the community understand and act on its goal.
+              Every activity is completed by the Chair&rsquo;s attestation — there is no coach review.
+            </p>
+            {copGoal ? (
+              <div className="mb-3 rounded-md border border-dewey-accent/20 bg-dewey-accent/5 p-3 text-sm text-dewey-ink">
+                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-dewey-mute">Goal / problem of practice</div>
+                {copGoal}
+              </div>
+            ) : (
+              <p className="mb-3 text-sm text-dewey-mute">No goal is set for this community yet.</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <button type="button" className="dewey-btn-secondary px-4 py-2" onClick={() => setCopIntroOpen(false)}>
+                Start blank
+              </button>
+              <button
+                type="button"
+                className="dewey-btn-primary w-auto"
+                onClick={() => {
+                  setCopIntroOpen(false);
+                  assistantRef.current?.draftFromGoal();
+                }}
+              >
+                <span aria-hidden>✨</span> Draft a plan with @dewey
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingNode && (
         <NodeEditModal
           node={editingNode}
           categories={ragCategories}
+          copMode={copMode}
           onSave={(patch) => {
             updateNodeData(editingNode.id, patch);
             setEditingNodeId(null);
@@ -1611,16 +1669,20 @@ function SourceSelectorEditor({
 function NodeEditModal({
   node,
   categories,
+  copMode = false,
   onSave,
   onClose,
 }: {
   node: Node<ActivityNodeData>;
   categories: { id: number; name: string }[];
+  /** Community of Practice arc: attestation-only, so no coach-review gating. */
+  copMode?: boolean;
   onSave: (patch: Partial<ActivityNodeData>) => void;
   onClose: () => void;
 }) {
   const def = ACTIVITY_BY_KEY[node.data.activityKey];
-  const [gating, setGating] = useState<Gating>(node.data.gating);
+  // In a CoP every activity is completed by the Chair's attestation — never review.
+  const [gating, setGating] = useState<Gating>(copMode ? "OPEN" : node.data.gating);
   const [instructions, setInstructions] = useState(node.data.instructions);
   const [artifact, setArtifact] = useState(node.data.artifact);
   const [sources, setSources] = useState<SourceSelector | null>(node.data.sources ?? null);
@@ -1641,20 +1703,29 @@ function NodeEditModal({
           </p>
         </div>
 
-        <div>
-          <label className="dewey-label">Completion type</label>
-          <select
-            className="dewey-input"
-            value={gating}
-            onChange={(e) => setGating(e.target.value as Gating)}
-          >
-            <option value="OPEN">{GATING_LABEL.OPEN}</option>
-            <option value="REVIEWED">{GATING_LABEL.REVIEWED}</option>
-          </select>
-          <p className="text-xs text-dewey-mute mt-1">
-            Default for this type: {GATING_LABEL[def?.defaultGating ?? "REVIEWED"]}.
-          </p>
-        </div>
+        {copMode ? (
+          <div>
+            <label className="dewey-label">Completion</label>
+            <p className="text-xs text-dewey-mute mt-1">
+              The Chair attests this activity to advance the community — there is no coach review.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <label className="dewey-label">Completion type</label>
+            <select
+              className="dewey-input"
+              value={gating}
+              onChange={(e) => setGating(e.target.value as Gating)}
+            >
+              <option value="OPEN">{GATING_LABEL.OPEN}</option>
+              <option value="REVIEWED">{GATING_LABEL.REVIEWED}</option>
+            </select>
+            <p className="text-xs text-dewey-mute mt-1">
+              Default for this type: {GATING_LABEL[def?.defaultGating ?? "REVIEWED"]}.
+            </p>
+          </div>
+        )}
 
         <div>
           <label className="dewey-label">Instructions</label>
@@ -1710,21 +1781,25 @@ function NodeEditModal({
 type ChatSource = { name: string; path: string };
 type ChatTurn = { role: "user" | "assistant"; text: string; sources?: ChatSource[] };
 
-function CanvasAssistant({
-  buildGraph,
-  onApply,
-  onAdd,
-  templateId,
-  canReplace = true,
-}: {
-  buildGraph: () => TemplateGraph;
-  onApply: (g: TemplateGraph) => void;
-  onAdd: (g: TemplateGraph) => void;
-  /** The saved plan id (null until first save), used to persist/restore the transcript. */
-  templateId: number | null;
-  /** When false (plan has progress), the AI can only add — not replace the canvas. */
-  canReplace?: boolean;
-}) {
+type CanvasAssistantHandle = { draftFromGoal: () => void };
+
+const CanvasAssistant = forwardRef<
+  CanvasAssistantHandle,
+  {
+    buildGraph: () => TemplateGraph;
+    onApply: (g: TemplateGraph) => void;
+    onAdd: (g: TemplateGraph) => void;
+    /** The saved plan id (null until first save), used to persist/restore the transcript. */
+    templateId: number | null;
+    /** When false (plan has progress), the AI can only add — not replace the canvas. */
+    canReplace?: boolean;
+    /** When set, this is a CoP arc: the assistant is goal-aware and attestation-only. */
+    copThreadId?: number | null;
+  }
+>(function CanvasAssistant(
+  { buildGraph, onApply, onAdd, templateId, canReplace = true, copThreadId = null },
+  ref
+) {
   const dialog = useDialog();
   const [open, setOpen] = useState(true);
   const [messages, setMessages] = useState<ChatTurn[]>([]);
@@ -1797,8 +1872,8 @@ function CanvasAssistant({
     [transcriptHeight]
   );
 
-  const send = useCallback(async () => {
-    const q = input.trim();
+  const send = useCallback(async (explicit?: string) => {
+    const q = (explicit ?? input).trim();
     if (!q || loading) return;
     setInput("");
     setProposed(null);
@@ -1834,6 +1909,7 @@ function CanvasAssistant({
           message: q,
           conversationId: conversationId.current,
           templateId,
+          threadId: copThreadId,
         }),
       });
       if (!res.ok || !res.body) {
@@ -1916,7 +1992,21 @@ function CanvasAssistant({
       setLoading(false);
       setConstructing(false);
     }
-  }, [input, loading, buildGraph, dialog, templateId]);
+  }, [input, loading, buildGraph, dialog, templateId, copThreadId]);
+
+  // Let the canvas trigger an AI plan draft from the CoP goal (server injects it).
+  useImperativeHandle(
+    ref,
+    () => ({
+      draftFromGoal: () => {
+        setOpen(true);
+        void send(
+          "Draft this community's plan: a sequence of short, actionable activities that help us understand and act on our shared goal/problem of practice. The community advances by attestation only — do not include any coach review, feedback, or endorsement steps."
+        );
+      },
+    }),
+    [send]
+  );
 
   return (
     <div className="border-t border-dewey-border bg-dewey-surface">
@@ -2028,7 +2118,7 @@ function CanvasAssistant({
             <button
               type="button"
               className="dewey-btn-primary w-auto"
-              onClick={send}
+              onClick={() => send()}
               disabled={loading || !input.trim()}
             >
               <span aria-hidden>➤</span> {loading ? "Thinking…" : "Send"}
@@ -2038,7 +2128,7 @@ function CanvasAssistant({
       )}
     </div>
   );
-}
+});
 
 // ---- Proposed-graph preview -------------------------------------------------
 
@@ -2164,11 +2254,16 @@ export function TemplateCanvas({
   templateId,
   onClose,
   templatesBase = "/api/admin/templates",
+  copGoal = null,
+  copThreadId = null,
 }: {
   templateId: number | null; // null = a new, not-yet-saved template
   onClose: () => void;
   /** CRUD base. Defaults to the admin namespace; coaches pass "/api/coach/templates". */
   templatesBase?: string;
+  /** When set, this is a Community of Practice arc: goal-aware, attestation-only. */
+  copGoal?: string | null;
+  copThreadId?: number | null;
 }) {
   const [template, setTemplate] = useState<CoachingTemplate | null>(
     templateId === null
@@ -2235,6 +2330,8 @@ export function TemplateCanvas({
         onClose={onClose}
         templatesBase={templatesBase}
         lockedNodeIds={lockedNodeIds}
+        copGoal={copGoal}
+        copThreadId={copThreadId}
       />
     </ReactFlowProvider>
   );
