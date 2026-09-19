@@ -584,6 +584,9 @@ async function ensureRagSchema(): Promise<void> {
       ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS status_detail TEXT;
       ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS chunk_total INTEGER;
       ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ;
+      -- Source web page for a URL-ingested document; citations link here instead
+      -- of the in-house viewer.
+      ALTER TABLE rag_documents ADD COLUMN IF NOT EXISTS source_url TEXT;
       -- A job left mid-flight by a server restart can never finish; mark it failed
       -- so the admin can retry it rather than see it spin forever.
       UPDATE rag_documents SET status = 'error',

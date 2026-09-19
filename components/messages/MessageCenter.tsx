@@ -117,9 +117,10 @@ function SourcePill({ name, path }: { name: string; path?: string }) {
   const cls =
     "inline-block max-w-[180px] truncate rounded-full border px-2 py-0.5 text-[11px]";
   if (path) {
+    const href = /^https?:\/\//.test(path) ? path : pathWithBase(path);
     return (
       <a
-        href={pathWithBase(path)}
+        href={href}
         target="_blank"
         rel="noopener noreferrer"
         title={`Open ${name}`}

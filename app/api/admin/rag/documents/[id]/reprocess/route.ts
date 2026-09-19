@@ -20,15 +20,18 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
   const pool = getPool();
   const res = await pool.query(
-    "SELECT filename, mime, bytes, extracted_text FROM rag_documents WHERE id = $1 AND deleted_at IS NULL",
+    "SELECT filename, mime, bytes, extracted_text, source_url FROM rag_documents WHERE id = $1 AND deleted_at IS NULL",
     [docId]
   );
   const row = res.rows[0];
   if (!row) return NextResponse.json({ error: "Document not found" }, { status: 404 });
 
   const bytes: Buffer | null = row.bytes ?? null;
-  const pastedText: string | null = bytes ? null : (row.extracted_text as string | null) ?? null;
-  if (!bytes && !pastedText) {
+  const sourceUrl: string | null = (row.source_url as string | null) ?? null;
+  // A URL doc re-fetches; a file re-extracts from bytes; else re-chunk stored text.
+  const pastedText: string | null =
+    bytes || sourceUrl ? null : (row.extracted_text as string | null) ?? null;
+  if (!bytes && !pastedText && !sourceUrl) {
     return NextResponse.json(
       { error: "Nothing to re-process — the original content is no longer stored." },
       { status: 400 }
@@ -44,6 +47,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     mime: (row.mime as string | null) ?? null,
     bytes,
     pastedText,
+    sourceUrl,
   }).catch(async (e) => {
     await pool
       .query("UPDATE rag_documents SET status = 'error', status_detail = $2 WHERE id = $1", [

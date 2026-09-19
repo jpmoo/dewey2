@@ -5,6 +5,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { extractText } from "@/lib/extract";
+import { htmlToPlainText } from "@/lib/html-sanitize";
 import { getSystemSettings } from "@/lib/settings";
 
 /**
@@ -214,6 +215,60 @@ async function describe(
 
 function sanitize(name: string): string {
   return (name || "").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+}
+
+/** Reject non-http(s) URLs and obvious internal/loopback hosts (basic SSRF guard). */
+export function isSafePublicUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+  const host = u.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) return false;
+  // Block IP-literal hosts in private/loopback/link-local ranges.
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+    const [a, b] = host.split(".").map(Number);
+    if (a === 127 || a === 10 || a === 0) return false;
+    if (a === 192 && b === 168) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 169 && b === 254) return false;
+  }
+  if (host === "::1" || host.startsWith("fe80") || host.startsWith("fc") || host.startsWith("fd")) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Fetch a web page (or a linked PDF) and return its readable text. Best-effort
+ * and safe: only public http(s) URLs, capped size, short timeout.
+ */
+export async function fetchUrlText(url: string): Promise<{ text: string; title: string | null }> {
+  if (!isSafePublicUrl(url)) throw new Error("That URL isn't allowed.");
+  const res = await fetch(url, {
+    redirect: "follow",
+    headers: { "user-agent": "DeweyBot/1.0 (+document ingest)", accept: "text/html,application/pdf,*/*" },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) throw new Error(`The page responded ${res.status}.`);
+  const ctype = (res.headers.get("content-type") ?? "").toLowerCase();
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > 20 * 1024 * 1024) throw new Error("That page is too large to ingest.");
+
+  // A linked PDF goes through the normal document pipeline.
+  if (ctype.includes("application/pdf") || url.toLowerCase().endsWith(".pdf")) {
+    const ex = await extractDocument(url.split("/").pop() || "page.pdf", "application/pdf", buf);
+    return { text: ex.text, title: null };
+  }
+
+  const html = buf.toString("utf8");
+  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+  const title = titleMatch ? titleMatch[1].replace(/\s+/g, " ").trim().slice(0, 200) : null;
+  const text = htmlToPlainText(html);
+  return { text, title: title || null };
 }
 
 export async function extractDocument(

@@ -66,7 +66,7 @@ export async function queryRag(prompt: string, scope: RagScope = {}, limit = 8):
 
   try {
     const res = await pool.query(
-      `SELECT c.text, d.id AS doc_id, d.title,
+      `SELECT c.text, d.id AS doc_id, d.title, d.source_url,
               1 - (c.embedding <=> $1::vector) AS similarity
          FROM rag_chunks c
          JOIN rag_documents d ON d.id = c.document_id AND d.deleted_at IS NULL
@@ -106,7 +106,8 @@ export async function queryRag(prompt: string, scope: RagScope = {}, limit = 8):
       .map((r) => ({
         text: (r.text as string) ?? "",
         source: (r.title as string) ?? "source",
-        sourceUrl: `/api/rag/documents/${r.doc_id}`,
+        // A URL-ingested doc links to its live web page; others to the in-house viewer.
+        sourceUrl: (r.source_url as string | null) || `/api/rag/documents/${r.doc_id}`,
         group: (r.level as string) ?? "",
         similarity: typeof r.similarity === "number" ? r.similarity : 0,
       }))

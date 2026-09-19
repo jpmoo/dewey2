@@ -393,7 +393,8 @@ function UploadModal({
   const [placements, setPlacements] = useState<DraftPlacement[]>([{ level: "system", districtId: null, schoolId: null, copId: null }]);
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
-  const [mode, setMode] = useState<"file" | "text">("file");
+  const [url, setUrl] = useState("");
+  const [mode, setMode] = useState<"file" | "text" | "url">("file");
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
@@ -401,6 +402,7 @@ function UploadModal({
     if (places.length === 0) return dialog.alert("Add at least one valid placement.");
     if (mode === "file" && !file) return dialog.alert("Choose a file, or switch to pasting text.");
     if (mode === "text" && !text.trim()) return dialog.alert("Paste some text, or switch to a file.");
+    if (mode === "url" && !/^https?:\/\/\S+/i.test(url.trim())) return dialog.alert("Enter a valid http(s) URL.");
     setBusy(true);
     try {
       const form = new FormData();
@@ -409,6 +411,7 @@ function UploadModal({
       form.append("placements", JSON.stringify(places));
       if (mode === "file" && file) form.append("file", file);
       if (mode === "text") form.append("text", text);
+      if (mode === "url") form.append("url", url.trim());
       const res = await fetch(pathWithBase("/api/admin/rag/documents"), { method: "POST", body: form });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Ingest failed");
@@ -431,11 +434,19 @@ function UploadModal({
           <button type="button" className={`rounded-full px-3 py-1 ${mode === "text" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => setMode("text")}>
             Paste text
           </button>
+          <button type="button" className={`rounded-full px-3 py-1 ${mode === "url" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => setMode("url")}>
+            From URL
+          </button>
         </div>
         {mode === "file" ? (
           <input type="file" className="dewey-input" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        ) : (
+        ) : mode === "text" ? (
           <textarea className="dewey-input min-h-[120px]" placeholder="Paste the document text…" value={text} onChange={(e) => setText(e.target.value)} />
+        ) : (
+          <div>
+            <input className="dewey-input" placeholder="https://en.wikipedia.org/wiki/…" value={url} onChange={(e) => setUrl(e.target.value)} />
+            <p className="mt-1 text-xs text-dewey-mute">The page is fetched and ingested; citations link back to it.</p>
+          </div>
         )}
         <div>
           <label className="dewey-label">Title</label>

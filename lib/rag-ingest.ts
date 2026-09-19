@@ -1,6 +1,6 @@
 import { getPool } from "@/lib/pg";
 import { ragAvailable } from "@/lib/db";
-import { extractDocument } from "@/lib/rag-extract";
+import { extractDocument, fetchUrlText } from "@/lib/rag-extract";
 import { embedText, toVectorLiteral } from "@/lib/embeddings";
 import { chatComplete } from "@/lib/ai";
 import { getSystemSettings } from "@/lib/settings";
@@ -24,6 +24,8 @@ export interface IngestParams {
   bytes?: Buffer | null;
   /** Pre-extracted text (e.g. a typed/pasted document); else extracted from bytes. */
   extractedText?: string | null;
+  /** Source web page to fetch + ingest (citations link here). */
+  sourceUrl?: string | null;
   categoryIds: number[];
   /** Where the document is available (one or more units). */
   placements: RagPlacement[];
@@ -187,8 +189,8 @@ export async function startIngest(params: IngestParams): Promise<StartIngestResu
 
   const res = await pool.query(
     `INSERT INTO rag_documents
-       (title, description, filename, mime, bytes, extracted_text, uploaded_by, status, status_detail)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'processing','Queued…')
+       (title, description, filename, mime, bytes, extracted_text, source_url, uploaded_by, status, status_detail)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'processing','Queued…')
      RETURNING id`,
     [
       params.title.trim() || params.filename || "Untitled",
@@ -197,6 +199,7 @@ export async function startIngest(params: IngestParams): Promise<StartIngestResu
       params.mime ?? null,
       params.bytes ?? null,
       params.extractedText?.trim() || null,
+      params.sourceUrl?.trim() || null,
       params.uploadedBy ?? null,
     ]
   );
@@ -223,6 +226,7 @@ export async function startIngest(params: IngestParams): Promise<StartIngestResu
     mime: params.mime ?? null,
     bytes: params.bytes ?? null,
     pastedText: params.extractedText ?? null,
+    sourceUrl: params.sourceUrl ?? null,
   }).catch(async (e) => {
     await setStatus(documentId, "error", e instanceof Error ? e.message : "Ingest failed").catch(() => {});
   });
@@ -236,6 +240,8 @@ export interface ProcessSource {
   bytes: Buffer | null;
   /** Pre-supplied text (pasted document); when present, extraction is skipped. */
   pastedText: string | null;
+  /** A web page to fetch + extract when there's no pasted text or bytes. */
+  sourceUrl?: string | null;
 }
 
 /**
@@ -266,6 +272,12 @@ export async function processDocument(documentId: number, src: ProcessSource): P
         storeBytes = ex.pdfBytes;
         storeMime = "application/pdf";
       }
+    } else if (!text && src.sourceUrl) {
+      // Fetch + extract a web page (or linked PDF).
+      await setStatus(documentId, "processing", "Fetching page…");
+      const fetched = await fetchUrlText(src.sourceUrl);
+      text = fetched.text.trim();
+      methods = ["web"];
     }
 
     // Clear any chunks from a prior run (retry / re-process) before re-chunking.

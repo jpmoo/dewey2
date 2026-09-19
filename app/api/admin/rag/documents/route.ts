@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
 import { ragAvailable, logUserEvent } from "@/lib/db";
 import { startIngest, type RagPlacement } from "@/lib/rag-ingest";
+import { isSafePublicUrl } from "@/lib/rag-extract";
 import { listRagDocuments } from "@/lib/rag-manage";
 
 /** List the RAG document library (system admin). Optional ?q= search. */
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
   const title = String(form.get("title") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
   const pastedText = String(form.get("text") ?? "").trim();
+  const sourceUrl = String(form.get("url") ?? "").trim();
   const categoryIds = parseNums(form.get("categoryIds"));
   const placements = parsePlacements(form.get("placements"));
 
@@ -49,20 +51,24 @@ export async function POST(request: NextRequest) {
     filename = file.name;
     mime = file.type || null;
   }
-  if (!bytes && !pastedText) {
-    return NextResponse.json({ error: "Attach a file or paste some text." }, { status: 400 });
+  if (!bytes && !pastedText && !sourceUrl) {
+    return NextResponse.json({ error: "Attach a file, paste text, or give a URL." }, { status: 400 });
+  }
+  if (sourceUrl && !isSafePublicUrl(sourceUrl)) {
+    return NextResponse.json({ error: "Enter a valid public http(s) URL." }, { status: 400 });
   }
 
   try {
     // Returns as soon as the row exists; extraction + embedding run in the
     // background and the client polls the list for status/progress.
     const { documentId } = await startIngest({
-      title: title || filename || "Untitled",
+      title: title || filename || sourceUrl || "Untitled",
       description,
       filename,
       mime,
       bytes,
       extractedText: pastedText || null,
+      sourceUrl: sourceUrl || null,
       categoryIds,
       placements,
       uploadedBy: Number(session.user.id),
