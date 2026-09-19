@@ -841,8 +841,12 @@ export function ThreadPane({
   // Open the plan straight to its current activity ("Current activity" pill).
   const [viewPlanFocus, setViewPlanFocus] = useState(false);
   const [editPlanId, setEditPlanId] = useState<number | null>(null);
+  // In a Community of Practice, the Chair (any role) leads the arc in place of a
+  // coach — they can add/manage the plan and review contributions.
+  const iAmChair =
+    thread?.kind === "cop" && thread.cop_chair_id != null && thread.cop_chair_id === meId;
   // A coach can add/manage plans in any thread they're in; coach or admin can rename.
-  const canManage = iAmCoach || isAdmin;
+  const canManage = iAmCoach || isAdmin || iAmChair;
   // A plan submission awaiting an admin decision.
   const submissionPending =
     thread?.kind === "template_submission" && (thread?.status == null || thread?.status === "open");
@@ -865,10 +869,11 @@ export function ThreadPane({
   // Submission flow: a partner (non-coach, non-admin) can mark a message while an
   // activity is active and nothing's pending review; a pending review freezes the
   // partner's composer and surfaces a Review button to coaches.
-  const iAmPartner = !iAmCoach && !isAdmin;
+  // A CoP member (not the Chair) contributes like a partner; the Chair reviews.
+  const iAmPartner = !iAmCoach && !isAdmin && !iAmChair;
   const canSubmit = !!activeActivity && !activeActivity.pendingReview && iAmPartner;
   const partnerFrozen = !!activeActivity?.pendingReview && iAmPartner;
-  const coachCanReview = !!activeActivity?.pendingReview && (iAmCoach || isAdmin);
+  const coachCanReview = !!activeActivity?.pendingReview && (iAmCoach || isAdmin || iAmChair);
 
   const toggleArchive = async () => {
     if (
@@ -1392,7 +1397,7 @@ export function ThreadPane({
                   message={m}
                   mine={m.sender_id === meId}
                   meId={meId}
-                  iAmCoach={iAmCoach}
+                  iAmCoach={iAmCoach || iAmChair}
                   isAdmin={isAdmin}
                   senderIsCoach={m.sender_id != null && coachIds.has(m.sender_id)}
                   canSubmit={canSubmit && m.sender_id === meId && m.plan_id == null && !m.is_ai}
@@ -1491,6 +1496,7 @@ export function ThreadPane({
         <AddPlanModal
           threadId={threadId}
           isAdmin={isAdmin}
+          chairOnly={iAmChair && !iAmCoach && !isAdmin}
           onClose={() => setPicking(false)}
           onAdded={() => {
             setPicking(false);
@@ -2664,11 +2670,14 @@ type PlanOption = { id: number; name: string; scope: string; description: string
 function AddPlanModal({
   threadId,
   isAdmin = false,
+  chairOnly = false,
   onClose,
   onAdded,
 }: {
   threadId: number;
   isAdmin?: boolean;
+  /** The user manages this thread only as a CoP Chair (no coach template library). */
+  chairOnly?: boolean;
   onClose: () => void;
   onAdded: () => void;
 }) {
@@ -2678,12 +2687,18 @@ function AddPlanModal({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // Admins pick from their own library (drafts + globals); coaches from theirs.
-    apiFetch<{ templates: PlanOption[] }>(isAdmin ? "/api/admin/templates" : "/api/coach/templates")
+    // Admins pick from their own library (drafts + globals); coaches from theirs;
+    // a CoP Chair who isn't a coach picks from the shared (global) library.
+    const url = isAdmin
+      ? "/api/admin/templates"
+      : chairOnly
+      ? "/api/cops/templates"
+      : "/api/coach/templates";
+    apiFetch<{ templates: PlanOption[] }>(url)
       .then((d) => setPlans(d.templates))
       .catch(() => setPlans([]))
       .finally(() => setLoading(false));
-  }, [isAdmin]);
+  }, [isAdmin, chairOnly]);
 
   const add = async (sourcePlanId: number) => {
     setBusy(true);

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/guard";
-import { addPlanToPartnership, logThreadEvent } from "@/lib/messages";
+import { addPlanToPartnership, getCopMeta, logThreadEvent } from "@/lib/messages";
 
-/** Embed a plan in a thread (coach or admin). Body: { sourcePlanId }. */
+/** Embed a plan in a thread (coach/admin/district leader, or a CoP's Chair). Body: { sourcePlanId }. */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
@@ -10,13 +10,21 @@ export async function POST(
   const guard = await requireUser();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
-  const role = session.user.system_role;
-  if (role !== "coach" && role !== "admin" && role !== "district_leader") {
-    return NextResponse.json({ error: "Only a coach can add a plan" }, { status: 403 });
-  }
   const { threadId } = await params;
   const id = parseInt(threadId, 10);
   if (!Number.isFinite(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+
+  const me = Number(session.user.id);
+  const role = session.user.system_role;
+  let allowed = role === "coach" || role === "admin" || role === "district_leader";
+  if (!allowed) {
+    // In a Community of Practice, the Chair (any role) assigns the arc.
+    const cop = await getCopMeta(id);
+    allowed = cop?.chairId === me;
+  }
+  if (!allowed) {
+    return NextResponse.json({ error: "Only a coach or the community's Chair can add a plan" }, { status: 403 });
+  }
 
   const body = await request.json().catch(() => ({}));
   const sourcePlanId = Number(body.sourcePlanId);
@@ -24,7 +32,6 @@ export async function POST(
     return NextResponse.json({ error: "Choose a plan" }, { status: 400 });
   }
 
-  const me = Number(session.user.id);
   const result = await addPlanToPartnership(id, me, sourcePlanId);
   if (!result.ok) {
     return NextResponse.json({ error: result.error || "Couldn't add the plan" }, { status: 403 });

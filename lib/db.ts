@@ -2151,6 +2151,32 @@ export async function recordPlanAcceptance(
 }
 
 /**
+ * Activate a thread plan immediately, bypassing the all-participants acceptance
+ * gate. Used for a Community of Practice, where the Chair assigns the community's
+ * arc (there is no per-member plan contract to accept). Lands on the first
+ * not-done activity and supersedes any prior plan in the thread.
+ */
+export async function activateThreadPlan(planId: number): Promise<boolean> {
+  const pool = getPool();
+  await ensureSchema();
+  const plan = await getTemplate(planId);
+  if (!plan || plan.deleted_at || plan.scope !== "partnership" || plan.thread_id == null) {
+    return false;
+  }
+  const done = await getApprovedNodeIds(planId);
+  const current = recomputeCurrent(plan.graph, done);
+  await deactivatePriorThreadPlans(plan.thread_id, planId);
+  await pool.query(
+    `UPDATE coaching_templates
+        SET accepted_at = NOW(), current_node_id = $2, deactivated_at = NULL,
+            outcome = $3, updated_at = NOW()
+      WHERE id = $1`,
+    [planId, current, current == null ? "finished" : null]
+  );
+  return true;
+}
+
+/**
  * Revise an embedded plan in place (e.g. @dewey adjusting it on request).
  * Replaces the graph and resets acceptance (clears all acceptances) so everyone
  * re-accepts the revised plan. Returns the updated plan, or null if not owned by

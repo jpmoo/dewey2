@@ -1,5 +1,6 @@
 import { getPool } from "@/lib/pg";
 import {
+  activateThreadPlan,
   deactivatePriorThreadPlans,
   duplicatePlanForPartnership,
   recordPlanAcceptance,
@@ -1385,7 +1386,7 @@ export async function addPlanToPartnership(
   const pool = getPool();
   await ensureSchema();
   const meta = await pool.query(
-    `SELECT t.id,
+    `SELECT t.id, t.kind,
             EXISTS (SELECT 1 FROM thread_participants p WHERE p.thread_id = t.id AND p.user_id = $2) AS member
        FROM message_threads t WHERE t.id = $1 AND t.deleted_at IS NULL`,
     [threadId, coachId]
@@ -1396,22 +1397,31 @@ export async function addPlanToPartnership(
   if (await threadHasAcceptedPlan(threadId)) {
     return { ok: false, error: "A plan has already been accepted for this conversation and is locked." };
   }
+  const isCop = t.kind === "cop";
 
   const copy = await duplicatePlanForPartnership(sourcePlanId, coachId, threadId);
   if (!copy) return { ok: false, error: "Plan not available" };
   // A newly added plan supersedes any earlier plan in the thread.
   await deactivatePriorThreadPlans(threadId, copy.id);
-  // Post it like an @dewey suggestion so it has the same accept/edit/dismiss
-  // affordances and the coach can ask @dewey to adjust it.
+  // Post it like an @dewey suggestion so it has the same edit affordances and the
+  // Chair/coach can ask @dewey to adjust it.
   await postMessage({
     threadId,
     senderId: null,
     isAi: true,
-    body: `Here's the plan "${copy.name}" from the library. Accept, edit, or dismiss it — or ask me to adjust it.`,
+    body: isCop
+      ? `The Chair has assigned the plan "${copy.name}" to guide this community's work.`
+      : `Here's the plan "${copy.name}" from the library. Accept, edit, or dismiss it — or ask me to adjust it.`,
     planId: copy.id,
   });
-  // The coach who added it is implicitly committed — everyone else still accepts.
-  await recordPlanAcceptance(copy.id, coachId);
+  if (isCop) {
+    // A CoP's arc is set by the Chair — activate it immediately (no per-member
+    // acceptance gate).
+    await activateThreadPlan(copy.id);
+  } else {
+    // The coach who added it is implicitly committed — everyone else still accepts.
+    await recordPlanAcceptance(copy.id, coachId);
+  }
   return { ok: true };
 }
 
