@@ -488,12 +488,19 @@ function DetailModal({
     load();
   }, [load]);
 
-  const saveMeta = async () => {
+  // Persist metadata without reloading — reloading here reset local state
+  // mid-edit, which broke multi-select and dropped the category highlights.
+  // Accepts an override so a category toggle can save the exact next set
+  // instead of the not-yet-committed state value.
+  const saveMeta = async (over?: { title?: string; description?: string; categoryIds?: number[] }) => {
     await apiFetch(`/api/admin/rag/documents/${docId}`, {
       method: "PATCH",
-      body: { title, description, categoryIds: catIds },
+      body: {
+        title: over?.title ?? title,
+        description: over?.description ?? description,
+        categoryIds: over?.categoryIds ?? catIds,
+      },
     });
-    load();
   };
   const addPlacement = async () => {
     const [v] = validPlacements([newPlacement]);
@@ -522,7 +529,7 @@ function DetailModal({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="dewey-label">Title</label>
-              <input className="dewey-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={saveMeta} />
+              <input className="dewey-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => saveMeta()} />
             </div>
             <div>
               <label className="dewey-label">Categories</label>
@@ -536,8 +543,8 @@ function DetailModal({
                       onClick={() => {
                         const next = on ? catIds.filter((x) => x !== c.id) : [...catIds, c.id];
                         setCatIds(next);
+                        saveMeta({ categoryIds: next });
                       }}
-                      onMouseLeave={saveMeta}
                       className={`${chip} ${on ? "border-dewey-accent bg-dewey-accent/10 text-dewey-accent" : "border-dewey-border text-dewey-mute"}`}
                     >
                       {on ? "✓ " : ""}{c.name}
