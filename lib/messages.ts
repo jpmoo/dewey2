@@ -1150,7 +1150,7 @@ export async function getThreadMessages(
           WHERE s.message_id = m.id ORDER BY s.id DESC LIMIT 1
        ) sub ON TRUE
       WHERE m.thread_id = $1 AND m.deleted_at IS NULL ${restrictClause}
-      ORDER BY m.created_at`,
+      ORDER BY m.created_at, m.id`,
     args
   );
   const messages = res.rows;
