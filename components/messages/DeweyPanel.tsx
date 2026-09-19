@@ -43,23 +43,80 @@ export function DeweyPanel({
       const q = text.trim();
       if (!q || loading) return;
       setInput("");
-      setTurns((t) => [...t, { role: "user", content: q }]);
+      // Optimistic user turn + an empty assistant turn we stream into.
+      setTurns((t) => [...t, { role: "user", content: q }, { role: "assistant", content: "" }]);
       setLoading(true);
+      const patchAssistant = (patch: Partial<Turn>) =>
+        setTurns((t) => {
+          const c = t.slice();
+          c[c.length - 1] = { ...c[c.length - 1], role: "assistant", ...patch };
+          return c;
+        });
       try {
-        const r = await apiFetch<{ reply: string; sources: { name: string; path: string }[] }>(
-          `/api/messages/threads/${threadId}/dewey`,
-          { method: "POST", body: { message: q } }
-        );
-        setTurns((t) => [...t, { role: "assistant", content: r.reply, sources: r.sources }]);
+        const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/dewey`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: q }),
+        });
+        if (!res.ok || !res.body) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error((d as { error?: string }).error || `HTTP ${res.status}`);
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        let live = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let sep: number;
+          while ((sep = buf.indexOf("\n\n")) !== -1) {
+            const frame = buf.slice(0, sep);
+            buf = buf.slice(sep + 2);
+            const line = frame.split("\n").find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            let ev: { type?: string; text?: string; sources?: { name: string; path: string }[]; error?: string };
+            try {
+              ev = JSON.parse(line.slice(5).trim());
+            } catch {
+              continue;
+            }
+            if (ev.type === "text" && ev.text) {
+              live += ev.text;
+              patchAssistant({ content: live });
+            } else if (ev.type === "sources") {
+              patchAssistant({ sources: ev.sources });
+            } else if (ev.type === "error") {
+              throw new Error(ev.error || "Assistant error");
+            }
+          }
+        }
+        if (!live.trim()) patchAssistant({ content: "Sorry — I couldn't reach the model just now." });
       } catch (e) {
         dialog.alert(e instanceof Error ? e.message : "Couldn't reach Dewey.");
-        setTurns((t) => t.slice(0, -1)); // drop the optimistic user turn
+        setTurns((t) => (t.length && t[t.length - 1].role === "assistant" && !t[t.length - 1].content ? t.slice(0, -1) : t));
       } finally {
         setLoading(false);
       }
     },
     [threadId, loading, dialog]
   );
+
+  const clear = async () => {
+    if (turns.length === 0) return;
+    if (!(await dialog.confirm(
+      "Clear this Dewey conversation? Snapshots you've already shared stay; any live share becomes empty.",
+      { title: "Clear conversation", confirmText: "Clear", danger: true }
+    ))) return;
+    try {
+      await apiFetch(`/api/messages/threads/${threadId}/dewey`, { method: "DELETE" });
+      setTurns([]);
+      onShared();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't clear.");
+    }
+  };
 
   // Auto-send a question deposited from the main composer (also when a new one
   // arrives while the panel is already open).
@@ -97,7 +154,14 @@ export function DeweyPanel({
           <span className="text-sm font-semibold text-dewey-ink">Chat with Dewey</span>
           <span className="rounded-full bg-dewey-surface-2 px-2 py-0.5 text-[10px] text-dewey-mute">Private</span>
         </div>
-        <button type="button" className="text-dewey-mute hover:text-dewey-ink" onClick={onClose}>✕</button>
+        <div className="flex items-center gap-3">
+          {turns.length > 0 && (
+            <button type="button" className="text-xs text-dewey-mute hover:text-red-700" onClick={clear}>
+              Clear
+            </button>
+          )}
+          <button type="button" className="text-dewey-mute hover:text-dewey-ink" onClick={onClose}>✕</button>
+        </div>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">

@@ -41,16 +41,25 @@ export async function getDeweyConversationTurns(conversationId: number): Promise
 
 const SYSTEM = `You are @dewey, an AI coaching companion inside a private side chat for one person, attached to their coaching conversation. Be a warm, concise thinking partner: ask good questions, reflect, and help them reason through their work. Ground your advice in the organization's documents and the conversation's goal when relevant, and name the source. You never speak to the wider group here — this is the person's private space until they choose to share it.`;
 
+export interface PreparedDewey {
+  conversationId: number;
+  system: string;
+  messages: ChatMessage[];
+  sources: { name: string; path: string }[];
+  /** Set when the inbound message was refused by the compliance screen. */
+  blocked?: string;
+}
+
 /**
- * Ask Dewey in the private pane: grounds the reply in the thread's goal + RAG
- * scope + recent transcript, persists both turns to the user's private
- * conversation, and returns the reply. Compliance-screened.
+ * Prepare a streamed Dewey reply: compliance-screen the message, persist the
+ * user turn, and assemble the grounded system prompt + working history + sources.
+ * The caller streams the reply and then calls finishDeweyPane to persist it.
  */
-export async function askDeweyPane(params: {
+export async function prepareDeweyPane(params: {
   threadId: number;
   userId: number;
   message: string;
-}): Promise<{ conversationId: number; reply: string; sources: { name: string; path: string }[] }> {
+}): Promise<PreparedDewey> {
   const { threadId, userId, message } = params;
   let conv = await getConversationForContext(userId, CTX, threadId);
   if (!conv) conv = await createConversation({ ownerId: userId, contextType: CTX, contextId: threadId });
@@ -60,7 +69,7 @@ export async function askDeweyPane(params: {
     await appendMessage(conv.id, "user", message, true);
     const refusal = "I can't help with that here — try rephrasing it as a problem of practice.";
     await appendMessage(conv.id, "assistant", refusal, true);
-    return { conversationId: conv.id, reply: refusal, sources: [] };
+    return { conversationId: conv.id, system: "", messages: [], sources: [], blocked: refusal };
   }
   await appendMessage(conv.id, "user", message);
 
@@ -94,25 +103,30 @@ export async function askDeweyPane(params: {
     system += `\n\nFor context, the recent group conversation this person is part of:\n${transcript}`;
   }
 
-  // The private pane's own turns are the working chat history.
   const paneTurns = await getMessages(conv.id);
   const messages: ChatMessage[] = paneTurns.map((m) => ({
     role: m.role as "user" | "assistant",
     content: m.content,
   }));
+  return { conversationId: conv.id, system, messages, sources };
+}
 
-  let reply = "";
-  try {
-    const result = await chatComplete({ system, messages, maxTokens: 2048 });
-    reply = result.text.trim() || "(no response)";
-  } catch (e) {
-    reply = "Sorry — I couldn't reach the model just now. Please try again.";
-    console.warn("[dewey-pane] model call failed", e instanceof Error ? e.message : e);
-  }
-  const outbound = await complianceCheck(reply).catch(() => ({ allowed: true }));
-  if (!outbound.allowed) reply = "I'm not able to help with that here.";
-  await appendMessage(conv.id, "assistant", reply);
-  return { conversationId: conv.id, reply, sources: outbound.allowed ? sources : [] };
+/** Persist the streamed assistant reply. */
+export async function finishDeweyPane(conversationId: number, reply: string): Promise<void> {
+  await appendMessage(conversationId, "assistant", reply.trim() || "(no response)");
+}
+
+/**
+ * Clear a user's private Dewey conversation for a thread. Snapshots already
+ * shared are frozen copies and are untouched; any "live" shared bubble that
+ * pointed at this conversation goes empty (the sharing is effectively cleared).
+ */
+export async function clearDeweyPane(threadId: number, userId: number): Promise<void> {
+  const conv = await getConversationForContext(userId, CTX, threadId);
+  if (!conv) return;
+  const pool = getPool();
+  await pool.query("DELETE FROM ai_messages WHERE conversation_id = $1", [conv.id]);
+  await pool.query("DELETE FROM ai_conversations WHERE id = $1", [conv.id]);
 }
 
 async function summarizeTurns(turns: { role: string; content: string }[]): Promise<string> {
