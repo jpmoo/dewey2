@@ -44,16 +44,29 @@ export function chunkText(text: string, target = 1200, overlap = 150): string[] 
     const c = cur.trim();
     if (c) chunks.push(c);
   };
+  // Take the trailing ~overlap chars of a chunk to prepend to the next one, but
+  // snap the start to a clean boundary so it never begins mid-word (prefer the
+  // start of a sentence, else the next whole word).
+  const overlapTail = (s: string): string => {
+    let tail = s.slice(Math.max(0, s.length - overlap));
+    const sentence = tail.search(/[.!?]["')\]]?\s+/);
+    if (sentence >= 0) return tail.slice(sentence + 1).replace(/^["')\]\s]+/, "");
+    const space = tail.search(/\s/);
+    return space >= 0 ? tail.slice(space + 1) : tail;
+  };
   for (let p of paras) {
     while (p.length > target * 1.5) {
       if (cur) flush();
       chunks.push(p.slice(0, target).trim());
+      // Continue after an overlap, snapped to the next word boundary.
       p = p.slice(target - overlap);
+      const space = p.search(/\s/);
+      if (space >= 0) p = p.slice(space + 1);
       cur = "";
     }
     if (cur && (cur.length + p.length + 2) > target) {
       flush();
-      const tail = cur.slice(Math.max(0, cur.length - overlap));
+      const tail = overlapTail(cur);
       cur = tail ? tail + "\n\n" + p : p;
     } else {
       cur = cur ? cur + "\n\n" + p : p;
