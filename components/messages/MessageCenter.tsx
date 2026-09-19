@@ -9,6 +9,7 @@ import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
 import { Avatar } from "@/components/Avatar";
 import { CreateCoPModal } from "@/components/messages/CreateCoPModal";
+import { EditCoPModal } from "@/components/messages/EditCoPModal";
 import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
 
 // Loaded only when a partnership plan is opened/edited (React Flow is heavy).
@@ -398,6 +399,7 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
                 archived={showArchived}
                 isAdmin={isAdmin}
                 iAmCoach={session?.user?.system_role === "coach"}
+                iAmDistrictLeader={session?.user?.system_role === "district_leader"}
                 onPreview={setPreview}
                 onBack={() => setActiveId(null)}
                 onPosted={loadThreads}
@@ -795,6 +797,7 @@ export function ThreadPane({
   archived,
   isAdmin = false,
   iAmCoach = false,
+  iAmDistrictLeader = false,
   onPreview,
   onBack,
   onPosted,
@@ -807,6 +810,7 @@ export function ThreadPane({
   archived: boolean;
   isAdmin?: boolean;
   iAmCoach?: boolean;
+  iAmDistrictLeader?: boolean;
   onPreview: (a: AttachmentMeta) => void;
   /** Mobile: return to the conversation list. */
   onBack?: () => void;
@@ -878,6 +882,10 @@ export function ThreadPane({
   const coachCanReview = !isCop && !!activeActivity?.pendingReview && (iAmCoach || isAdmin);
   // The Chair can attest to the shared current activity to advance the community.
   const chairCanAttest = isCop && iAmChair && !!activeActivity;
+  // Who can edit the CoP (goal/Chair/name): the Chair, an admin, the creating
+  // coach, or a district leader (server enforces the precise check).
+  const canEditCop = isCop && (iAmChair || isAdmin || iAmCoach || iAmDistrictLeader);
+  const [editingCop, setEditingCop] = useState(false);
 
   const toggleArchive = async () => {
     if (
@@ -1392,7 +1400,8 @@ export function ThreadPane({
                   <PlanPill icon="🚫" label="Reject" onClick={() => decideSubmission("reject")} />
                 </>
               )}
-              {canManage && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
+              {canEditCop && <PlanPill icon="✏️" label="Edit community" onClick={() => setEditingCop(true)} />}
+              {canManage && !isCop && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
               {canManage && !hasActivePlan && (
                 <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
               )}
@@ -1560,6 +1569,21 @@ export function ThreadPane({
           onAdded={() => {
             setPicking(false);
             fetchThread(false);
+          }}
+        />
+      )}
+      {editingCop && thread && (
+        <EditCoPModal
+          threadId={threadId}
+          initialSubject={thread.subject ?? ""}
+          initialGoal={thread.cop_goal ?? ""}
+          initialChairId={thread.cop_chair_id ?? null}
+          participants={thread.participants}
+          onClose={() => setEditingCop(false)}
+          onSaved={() => {
+            setEditingCop(false);
+            fetchThread(false);
+            onPosted();
           }}
         />
       )}
