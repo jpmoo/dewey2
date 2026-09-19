@@ -556,7 +556,7 @@ function DetailModal({
           </div>
           <div>
             <label className="dewey-label">Description</label>
-            <textarea className="dewey-input min-h-[50px]" value={description} onChange={(e) => setDescription(e.target.value)} onBlur={saveMeta} />
+            <textarea className="dewey-input min-h-[50px]" value={description} onChange={(e) => setDescription(e.target.value)} onBlur={() => saveMeta()} />
           </div>
 
           <div>
