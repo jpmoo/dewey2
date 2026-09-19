@@ -102,6 +102,14 @@ export function AdminSettings() {
   const [defaultTheme, setDefaultTheme] = useState("light");
   const [perms, setPerms] = useState<MessagePermissions>(EMPTY_PERMS);
   const [copPerms, setCopPerms] = useState<CopCreatePermissions>({});
+  // Messaging-permissions tester.
+  const [testUsers, setTestUsers] = useState<{ id: number; full_name: string; system_role: string }[]>([]);
+  const [testUserId, setTestUserId] = useState<number | null>(null);
+  const [testResult, setTestResult] = useState<
+    | { user: { full_name: string; system_role: string }; recipients: { id: number; full_name: string; system_role: string }[] }
+    | null
+  >(null);
+  const [testing, setTesting] = useState(false);
 
   // Live Ollama model list.
   const [models, setModels] = useState<string[]>([]);
@@ -207,6 +215,33 @@ export function AdminSettings() {
       const cur = p[role] ?? { school: false, district: false };
       return { ...p, [role]: { ...cur, [key]: !cur[key] } };
     });
+
+  // Load users for the permissions tester (lazy: first time the panel loads).
+  useEffect(() => {
+    apiFetch<{ users: { id: number; full_name: string; system_role: string }[] }>("/api/admin/users")
+      .then((d) => setTestUsers(d.users))
+      .catch(() => setTestUsers([]));
+  }, []);
+
+  const runPermTest = useCallback(async () => {
+    if (testUserId == null) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await apiFetch<{
+        user: { full_name: string; system_role: string };
+        recipients: { id: number; full_name: string; system_role: string }[];
+      }>("/api/admin/message-permissions/test", {
+        method: "POST",
+        body: { userId: testUserId, message_permissions: perms },
+      });
+      setTestResult(r);
+    } catch {
+      setTestResult(null);
+    } finally {
+      setTesting(false);
+    }
+  }, [testUserId, perms]);
 
   if (loading) return <p className="text-dewey-mute">Loading settings…</p>;
 
@@ -505,6 +540,58 @@ export function AdminSettings() {
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* Permissions tester */}
+          <div className="mt-3 rounded-md border border-dewey-border bg-dewey-surface-2 p-3">
+            <div className="text-sm font-medium text-dewey-ink">Test permissions</div>
+            <p className="mb-2 text-xs text-dewey-mute">
+              Pick anyone to see exactly who they could start a conversation with under the settings
+              above (uses your unsaved changes).
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                className="dewey-input w-auto"
+                value={testUserId ?? ""}
+                onChange={(e) => setTestUserId(Number(e.target.value) || null)}
+              >
+                <option value="">Choose a person…</option>
+                {testUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} · {u.system_role}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="dewey-btn-secondary"
+                onClick={runPermTest}
+                disabled={testUserId == null || testing}
+              >
+                {testing ? "Testing…" : "Run test"}
+              </button>
+            </div>
+            {testResult && (
+              <div className="mt-3 text-sm">
+                <div className="mb-1 text-dewey-ink">
+                  <span className="font-medium">{testResult.user.full_name}</span>{" "}
+                  <span className="text-xs text-dewey-mute">({testResult.user.system_role})</span> can
+                  start a conversation with {testResult.recipients.length} {testResult.recipients.length === 1 ? "person" : "people"}:
+                </div>
+                {testResult.recipients.length === 0 ? (
+                  <p className="text-xs text-dewey-mute">No one (besides being able to reply within existing threads).</p>
+                ) : (
+                  <ul className="max-h-48 overflow-auto rounded border border-dewey-border bg-dewey-surface p-2 text-xs">
+                    {testResult.recipients.map((r) => (
+                      <li key={r.id} className="flex justify-between gap-3 py-0.5">
+                        <span className="text-dewey-ink">{r.full_name}</span>
+                        <span className="text-dewey-mute">{r.system_role}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
