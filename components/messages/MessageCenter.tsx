@@ -165,6 +165,7 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
   const [preview, setPreview] = useState<AttachmentMeta | null>(null);
   const [composing, setComposing] = useState(false);
   const [copOpen, setCopOpen] = useState(false);
+  const [canCreateCoP, setCanCreateCoP] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   // Collapse the left conversation list to give the chat more room.
@@ -230,6 +231,13 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
     fetch(pathWithBase("/api/admin/ai/warmup"), { method: "POST" }).catch(() => {});
   }, []);
 
+  // Can this user create a Community of Practice (per-role setting)?
+  useEffect(() => {
+    apiFetch<{ canCreate: boolean }>("/api/cops/permissions")
+      .then((d) => setCanCreateCoP(!!d.canCreate))
+      .catch(() => setCanCreateCoP(false));
+  }, []);
+
   // Reload (debounced) when the search or archived view changes, and poll.
   useEffect(() => {
     const t = setTimeout(() => loadThreads(), 200);
@@ -260,10 +268,7 @@ export function MessageCenter({ openThreadId }: { openThreadId?: number | null }
           <h2 className="text-lg font-semibold">Messages</h2>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {(() => {
-            const role = session?.user?.system_role;
-            return role === "admin" || role === "coach" || role === "district_leader";
-          })() && (
+          {canCreateCoP && (
             <button
               type="button"
               className="inline-flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-3 py-1 text-xs text-dewey-accent hover:bg-dewey-accent/10"

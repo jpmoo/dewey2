@@ -11,6 +11,16 @@ type RolePerms = {
   coach_district: boolean;
 };
 type MessagePermissions = { coach: RolePerms; partner: RolePerms };
+type CopPerm = { school: boolean; district: boolean };
+type CopCreatePermissions = Record<string, CopPerm>;
+
+const COP_ROLE_ROWS: { key: string; label: string }[] = [
+  { key: "coach", label: "Coach" },
+  { key: "district_leader", label: "District leader" },
+  { key: "site_leader", label: "Site leader" },
+  { key: "deputy_site_leader", label: "Deputy site leader" },
+  { key: "partner", label: "Partner" },
+];
 
 type SettingsView = {
   ollama_url: string | null;
@@ -24,6 +34,7 @@ type SettingsView = {
   rag_default_threshold: number;
   default_theme: string;
   message_permissions: MessagePermissions;
+  cop_create_permissions: CopCreatePermissions;
   anthropic_api_key_set: boolean;
   anthropic_api_key_from_env: boolean;
 };
@@ -90,6 +101,7 @@ export function AdminSettings() {
   const [ragThreshold, setRagThreshold] = useState(0.5);
   const [defaultTheme, setDefaultTheme] = useState("light");
   const [perms, setPerms] = useState<MessagePermissions>(EMPTY_PERMS);
+  const [copPerms, setCopPerms] = useState<CopCreatePermissions>({});
 
   // Live Ollama model list.
   const [models, setModels] = useState<string[]>([]);
@@ -110,6 +122,7 @@ export function AdminSettings() {
       setRagThreshold(settings.rag_default_threshold ?? 0.5);
       setDefaultTheme(settings.default_theme ?? "light");
       if (settings.message_permissions) setPerms(settings.message_permissions);
+      if (settings.cop_create_permissions) setCopPerms(settings.cop_create_permissions);
       setKeyFromEnv(settings.anthropic_api_key_from_env);
       setKeyIsSet(settings.anthropic_api_key_set);
     } catch (e) {
@@ -157,6 +170,7 @@ export function AdminSettings() {
         rag_default_threshold: ragThreshold,
         default_theme: defaultTheme,
         message_permissions: perms,
+        cop_create_permissions: copPerms,
       };
       // Only send the key when the admin actually typed one.
       if (anthropicKey.trim() !== "") body.anthropic_api_key = anthropicKey;
@@ -182,11 +196,17 @@ export function AdminSettings() {
     ragThreshold,
     defaultTheme,
     perms,
+    copPerms,
     load,
   ]);
 
   const togglePerm = (role: "coach" | "partner", key: keyof RolePerms) =>
     setPerms((p) => ({ ...p, [role]: { ...p[role], [key]: !p[role][key] } }));
+  const toggleCop = (role: string, key: keyof CopPerm) =>
+    setCopPerms((p) => {
+      const cur = p[role] ?? { school: false, district: false };
+      return { ...p, [role]: { ...cur, [key]: !cur[key] } };
+    });
 
   if (loading) return <p className="text-dewey-mute">Loading settings…</p>;
 
@@ -485,6 +505,42 @@ export function AdminSettings() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Community of Practice creation */}
+        <div>
+          <label className="dewey-label">Who can create Communities of Practice</label>
+          <p className="mb-2 text-xs text-dewey-mute">
+            By role, whether a person can create a community anchored to a school and/or district-wide.
+            Admins can always create both.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="text-sm">
+              <thead>
+                <tr className="text-left text-xs text-dewey-mute">
+                  <th className="py-1 pr-4">Role</th>
+                  <th className="px-3">School-anchored</th>
+                  <th className="px-3">District-wide</th>
+                </tr>
+              </thead>
+              <tbody>
+                {COP_ROLE_ROWS.map((r) => {
+                  const cur = copPerms[r.key] ?? { school: false, district: false };
+                  return (
+                    <tr key={r.key} className="border-t border-dewey-border">
+                      <td className="py-1.5 pr-4 text-dewey-ink">{r.label}</td>
+                      <td className="px-3 text-center">
+                        <input type="checkbox" checked={cur.school} onChange={() => toggleCop(r.key, "school")} />
+                      </td>
+                      <td className="px-3 text-center">
+                        <input type="checkbox" checked={cur.district} onChange={() => toggleCop(r.key, "district")} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

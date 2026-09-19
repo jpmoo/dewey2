@@ -31,6 +31,7 @@ export async function GET() {
       rag_default_threshold: s.rag_default_threshold,
       default_theme: s.default_theme,
       message_permissions: s.message_permissions,
+      cop_create_permissions: s.cop_create_permissions,
       // Key is write-only from the client's perspective.
       anthropic_api_key_set: !!getEffectiveAnthropicKey(s.anthropic_api_key),
       anthropic_api_key_from_env: anthropicKeyFromEnv,
@@ -83,6 +84,14 @@ export async function PATCH(request: NextRequest) {
       coach_district: r?.coach_district === true,
     });
     update.message_permissions = { coach: role(mp.coach), partner: role(mp.partner) };
+  }
+  if (body.cop_create_permissions && typeof body.cop_create_permissions === "object") {
+    const cp = body.cop_create_permissions as Record<string, Record<string, unknown>>;
+    const out: Record<string, { school: boolean; district: boolean }> = {};
+    for (const [k, v] of Object.entries(cp)) {
+      out[k] = { school: v?.school === true, district: v?.district === true };
+    }
+    update.cop_create_permissions = out;
   }
   // Only overwrite the key when a non-empty value is provided.
   if (typeof body.anthropic_api_key === "string" && body.anthropic_api_key.trim() !== "") {

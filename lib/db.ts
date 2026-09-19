@@ -186,6 +186,8 @@ export function ensureSchema(): Promise<void> {
         -- Contextual Retrieval: use the ingest model to write a situating header
         -- per chunk before embedding. Improves recall on long documents.
         ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS rag_contextual_retrieval BOOLEAN NOT NULL DEFAULT TRUE;
+        -- Per-role permissions for creating school-/district-anchored CoPs.
+        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS cop_create_permissions JSONB NOT NULL DEFAULT '{}';
 
         -- Per-user audit log. user_id is the subject; actor_id is who did it
         -- (null for system/self events). Cascades away with the user.

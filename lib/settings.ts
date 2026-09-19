@@ -50,6 +50,54 @@ function coercePerms(v: unknown): MessagePermissions {
   };
 }
 
+/** Whether a role may create a CoP anchored to a school and/or a district. */
+export interface CopCreatePerms {
+  school: boolean;
+  district: boolean;
+}
+/** Per-role CoP creation permissions (admins always may; not listed here). */
+export type CopCreatePermissions = Record<string, CopCreatePerms>;
+
+/** Non-admin roles that can be granted CoP creation. */
+export const COP_CREATOR_ROLES = [
+  "coach",
+  "district_leader",
+  "site_leader",
+  "deputy_site_leader",
+  "partner",
+] as const;
+
+export const DEFAULT_COP_CREATE_PERMISSIONS: CopCreatePermissions = {
+  coach: { school: true, district: true },
+  district_leader: { school: true, district: true },
+  site_leader: { school: false, district: false },
+  deputy_site_leader: { school: false, district: false },
+  partner: { school: false, district: false },
+};
+
+function coerceCopPerms(v: unknown): CopCreatePermissions {
+  const obj = (v ?? {}) as Record<string, unknown>;
+  const out: CopCreatePermissions = {};
+  for (const role of COP_CREATOR_ROLES) {
+    const r = (obj[role] ?? {}) as Record<string, unknown>;
+    const d = DEFAULT_COP_CREATE_PERMISSIONS[role];
+    out[role] = {
+      school: role in obj ? r.school === true : d.school,
+      district: role in obj ? r.district === true : d.district,
+    };
+  }
+  return out;
+}
+
+/** The anchor levels a role may create a CoP at (admins always may both). */
+export function copCreateLevels(
+  role: string,
+  perms: CopCreatePermissions
+): CopCreatePerms {
+  if (role === "admin") return { school: true, district: true };
+  return perms[role] ?? { school: false, district: false };
+}
+
 export interface SystemSettings {
   ollama_url: string | null;
   ollama_compliance_model: string | null;
@@ -72,6 +120,8 @@ export interface SystemSettings {
   rag_default_threshold: number;
   default_theme: string;
   message_permissions: MessagePermissions;
+  /** Which non-admin roles may create school- / district-anchored CoPs. */
+  cop_create_permissions: CopCreatePermissions;
   /** How many days of daily DB/file backups to keep on the server. */
   backup_retention_days: number;
   settings: Record<string, unknown>;
@@ -93,6 +143,7 @@ function rowToSettings(row: Record<string, unknown>): SystemSettings {
       row.rag_default_threshold != null ? Number(row.rag_default_threshold) : 0.5,
     default_theme: (row.default_theme as string | null) ?? "light",
     message_permissions: coercePerms(row.message_permissions),
+    cop_create_permissions: coerceCopPerms(row.cop_create_permissions),
     backup_retention_days:
       row.backup_retention_days != null ? Number(row.backup_retention_days) : 30,
     settings: (row.settings as Record<string, unknown>) ?? {},
@@ -132,6 +183,7 @@ export interface UpdateSystemSettingsParams {
   rag_default_threshold?: number;
   default_theme?: string;
   message_permissions?: MessagePermissions;
+  cop_create_permissions?: CopCreatePermissions;
   backup_retention_days?: number;
   settings?: Record<string, unknown>;
 }
@@ -175,6 +227,8 @@ export async function updateSystemSettings(
   if (params.default_theme !== undefined) push("default_theme", params.default_theme);
   if (params.message_permissions !== undefined)
     push("message_permissions", JSON.stringify(params.message_permissions));
+  if (params.cop_create_permissions !== undefined)
+    push("cop_create_permissions", JSON.stringify(coerceCopPerms(params.cop_create_permissions)));
   if (params.settings !== undefined) push("settings", JSON.stringify(params.settings));
 
   if (sets.length === 0) return getSystemSettings();

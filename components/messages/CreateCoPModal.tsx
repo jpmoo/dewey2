@@ -35,7 +35,8 @@ export function CreateCoPModal({
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [chairId, setChairId] = useState<number>(meId);
-  const [anchorLevel, setAnchorLevel] = useState<"district" | "school">("district");
+  const [anchorLevel, setAnchorLevel] = useState<"district" | "school">("school");
+  const [allowed, setAllowed] = useState<{ school: boolean; district: boolean }>({ school: true, district: true });
   const [districtId, setDistrictId] = useState<number | null>(null);
   const [schoolId, setSchoolId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,12 +46,18 @@ export function CreateCoPModal({
   useEffect(() => {
     Promise.all([
       apiFetch<{ recipients: Recipient[] }>("/api/messages/recipients").catch(() => ({ recipients: [] })),
-      apiFetch<{ districts: District[] }>("/api/cops/anchors").catch(() => ({ districts: [] })),
+      apiFetch<{ districts: District[]; allowedLevels?: { school: boolean; district: boolean } }>(
+        "/api/cops/anchors"
+      ).catch(() => ({ districts: [], allowedLevels: { school: true, district: true } })),
     ])
       .then(([r, a]) => {
         setRecipients(r.recipients);
         setDistricts(a.districts);
         if (a.districts.length === 1) setDistrictId(a.districts[0].id);
+        const lv = a.allowedLevels ?? { school: true, district: true };
+        setAllowed(lv);
+        // Default to an allowed anchor level.
+        setAnchorLevel(lv.school ? "school" : "district");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -169,12 +176,16 @@ export function CreateCoPModal({
               <div>
                 <label className="dewey-label">Anchor</label>
                 <div className="flex gap-3 text-sm">
-                  <label className="flex items-center gap-1">
-                    <input type="radio" checked={anchorLevel === "district"} onChange={() => { setAnchorLevel("district"); setSchoolId(null); }} /> District
-                  </label>
-                  <label className="flex items-center gap-1">
-                    <input type="radio" checked={anchorLevel === "school"} onChange={() => setAnchorLevel("school")} /> School
-                  </label>
+                  {allowed.district && (
+                    <label className="flex items-center gap-1">
+                      <input type="radio" checked={anchorLevel === "district"} onChange={() => { setAnchorLevel("district"); setSchoolId(null); }} /> District
+                    </label>
+                  )}
+                  {allowed.school && (
+                    <label className="flex items-center gap-1">
+                      <input type="radio" checked={anchorLevel === "school"} onChange={() => setAnchorLevel("school")} /> School
+                    </label>
+                  )}
                 </div>
               </div>
             </div>
