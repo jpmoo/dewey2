@@ -10,6 +10,8 @@ import { useDialog } from "@/components/DialogProvider";
 import { Avatar } from "@/components/Avatar";
 import { CreateCoPModal } from "@/components/messages/CreateCoPModal";
 import { EditCoPModal } from "@/components/messages/EditCoPModal";
+import { DeweyPanel } from "@/components/messages/DeweyPanel";
+import { SharedDeweyModal } from "@/components/messages/SharedDeweyModal";
 import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
 
 // Loaded only when a partnership plan is opened/edited (React Flow is heavy).
@@ -53,6 +55,9 @@ type MessageView = {
   submission_status: "pending" | "approved" | "returned" | null;
   restricted: boolean;
   event: "advance" | "finish" | null;
+  dewey_conversation_id: number | null;
+  dewey_mode: "snapshot" | "live" | null;
+  dewey_summary: string | null;
 };
 type ActiveActivity = {
   planId: number;
@@ -841,6 +846,9 @@ export function ThreadPane({
   const [messages, setMessages] = useState<MessageView[]>([]);
   const [activeActivity, setActiveActivity] = useState<ActiveActivity | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [deweyOpen, setDeweyOpen] = useState(false);
+  const [deweySeed, setDeweySeed] = useState<string | null>(null);
+  const [sharedDeweyMsg, setSharedDeweyMsg] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Only auto-scroll on new messages when already near the bottom.
@@ -1406,6 +1414,7 @@ export function ThreadPane({
           )}
           {!readOnly && (
             <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              <PlanPill icon="💬" label="Ask Dewey" onClick={() => { setDeweySeed(null); setDeweyOpen(true); }} />
               {coachCanReview && (
                 <button
                   type="button"
@@ -1520,6 +1529,7 @@ export function ThreadPane({
                   onReply={(t) => setReplyTarget(t)}
                   isCop={isCop}
                   onShare={shareExchange}
+                  onOpenSharedDewey={(id) => setSharedDeweyMsg(id)}
                 />
               </div>
             ))
@@ -1581,6 +1591,32 @@ export function ThreadPane({
             setDeweyThinking(pending);
             if (pending) stick.current = true;
           }}
+          onAskDewey={(q) => {
+            setDeweySeed(q || null);
+            setDeweyOpen(true);
+          }}
+        />
+      )}
+
+      {deweyOpen && (
+        <DeweyPanel
+          threadId={threadId}
+          seed={deweySeed}
+          onClose={() => {
+            setDeweyOpen(false);
+            setDeweySeed(null);
+          }}
+          onShared={() => {
+            setDeweySeed(null);
+            fetchThread(false);
+          }}
+        />
+      )}
+      {sharedDeweyMsg != null && (
+        <SharedDeweyModal
+          threadId={threadId}
+          messageId={sharedDeweyMsg}
+          onClose={() => setSharedDeweyMsg(null)}
         />
       )}
 
@@ -1691,6 +1727,7 @@ function MessageBubble({
   onReply,
   isCop = false,
   onShare,
+  onOpenSharedDewey,
 }: {
   message: MessageView;
   mine: boolean;
@@ -1714,6 +1751,8 @@ function MessageBubble({
   isCop?: boolean;
   /** Share a private CoP exchange with the whole community. */
   onShare?: (messageId: number) => void;
+  /** Open a shared Dewey-conversation bubble. */
+  onOpenSharedDewey?: (messageId: number) => void;
 }) {
   const senderLabel = m.is_ai ? "Dewey" : m.sender_name ?? "Unknown";
   // Per-plan acceptance state (multi-party): any coach in the thread manages the
@@ -1795,7 +1834,29 @@ function MessageBubble({
             )}
           </div>
         )}
-        {m.plan_id != null ? (
+        {m.dewey_summary != null ? (
+          // Shared Dewey conversation: a clickable summary bubble.
+          <button
+            type="button"
+            onClick={() => onOpenSharedDewey?.(m.id)}
+            className="flex w-full items-start gap-2 rounded-lg border border-dewey-accent/40 bg-dewey-accent/5 p-3 text-left hover:bg-dewey-accent/10"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={pathWithBase("/logo.png")} alt="" className="mt-0.5 h-5 w-5 shrink-0 object-contain" />
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <span className="text-xs font-medium text-dewey-accent">
+                  {senderLabel} shared a chat with Dewey
+                </span>
+                <span className="rounded-full bg-dewey-surface-2 px-1.5 py-0.5 text-[9px] uppercase text-dewey-mute">
+                  {m.dewey_mode === "live" ? "live" : "snapshot"}
+                </span>
+              </span>
+              <span className="mt-0.5 block text-sm text-dewey-ink">{m.dewey_summary}</span>
+              <span className="mt-0.5 block text-[11px] text-dewey-accent">Open conversation →</span>
+            </span>
+          </button>
+        ) : m.plan_id != null ? (
           // Specialized plan bubble. "View plan" opens the plan preview directly.
           <div
             className={`rounded-lg border p-3 ${
@@ -2017,6 +2078,7 @@ function Composer({
   onSent,
   onRefresh,
   onDeweyPending,
+  onAskDewey,
 }: {
   threadId: number;
   replyTarget: ReplyTarget | null;
@@ -2024,6 +2086,8 @@ function Composer({
   onSent: () => void;
   onRefresh: () => void;
   onDeweyPending: (pending: boolean) => void;
+  /** Route an @dewey question into the private Dewey side panel instead of the thread. */
+  onAskDewey: (question: string) => void;
 }) {
   const dialog = useDialog();
   const [body, setBody] = useState("");
@@ -2113,10 +2177,18 @@ function Composer({
   const send = async () => {
     if (sending) return;
     if (!body.trim() && files.length === 0) return;
-    // @dewey generates within the request, so show the typing indicator until
-    // the response (which includes the AI reply) returns — also when replying
-    // to an @dewey message (that's a prompt back to the AI).
-    const willDewey = /(^|\s)@dewey\b/i.test(body) || replyTarget?.isAi === true;
+    // @dewey now lives in a private side panel: route the question there instead
+    // of posting it to the thread.
+    if (/(^|\s)@dewey\b/i.test(body)) {
+      const q = body.replace(/(^|\s)@dewey\b/gi, " ").replace(/\s+/g, " ").trim();
+      onAskDewey(q || body.trim());
+      setBody("");
+      setFiles([]);
+      onClearReply();
+      return;
+    }
+    // Replying to an older inline @dewey message still runs the in-thread AI.
+    const willDewey = replyTarget?.isAi === true;
     // Snapshot the outgoing content, then clear the composer immediately so the
     // message doesn't linger in the box while a (slow, synchronous @dewey) send
     // is in flight. Restore it if the send fails.

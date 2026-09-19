@@ -351,6 +351,13 @@ export function ensureSchema(): Promise<void> {
         -- activity/phase was completed) or 'finish' (the whole plan finished).
         -- Drives the chat-window fireworks. NULL for ordinary messages.
         ALTER TABLE messages ADD COLUMN IF NOT EXISTS event TEXT;
+        -- A "shared Dewey conversation" bubble: links to the private ai_conversation
+        -- it was shared from, a mode ('snapshot' = frozen copy, 'live' = keeps
+        -- updating), a short summary, and (for snapshots) the captured turns.
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS dewey_conversation_id BIGINT;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS dewey_mode TEXT;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS dewey_summary TEXT;
+        ALTER TABLE messages ADD COLUMN IF NOT EXISTS dewey_snapshot JSONB;
 
         -- Activity submissions: a partner marks one chat message as the active
         -- activity's submission. One live row per (plan, node); approved rows are

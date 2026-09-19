@@ -87,6 +87,10 @@ export interface MessageView {
   restricted: boolean;
   /** Celebratory progress marker: 'advance' | 'finish' | null. */
   event: "advance" | "finish" | null;
+  /** Shared Dewey-conversation bubble (else null). */
+  dewey_conversation_id: number | null;
+  dewey_mode: "snapshot" | "live" | null;
+  dewey_summary: string | null;
 }
 
 export interface ThreadSummary {
@@ -1134,6 +1138,10 @@ export async function getThreadMessages(
             m.sources,
             m.event,
             (m.audience IS NOT NULL) AS restricted,
+            m.dewey_conversation_id,
+            m.dewey_mode,
+            m.dewey_summary,
+            m.dewey_snapshot,
             sub.status AS submission_status,
             m.reply_to,
             LEFT(rm.body, 2000) AS reply_excerpt,
@@ -1210,6 +1218,9 @@ export async function getThreadMessages(
       (m.submission_status as "pending" | "approved" | "returned" | null) ?? null,
     restricted: m.restricted === true,
     event: (m.event as "advance" | "finish" | null) ?? null,
+    dewey_conversation_id: m.dewey_conversation_id != null ? Number(m.dewey_conversation_id) : null,
+    dewey_mode: (m.dewey_mode as "snapshot" | "live" | null) ?? null,
+    dewey_summary: (m.dewey_summary as string | null) ?? null,
   }));
 }
 
