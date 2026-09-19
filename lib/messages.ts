@@ -623,6 +623,35 @@ export async function createCoP(params: {
   return threadId;
 }
 
+/**
+ * Reveal a private CoP @dewey exchange to the whole community. Clears the
+ * audience restriction on the given message, its paired question/reply, and any
+ * direct replies to it. Only the owner (a user in the audience) or an admin may.
+ */
+export async function shareCopExchange(
+  threadId: number,
+  messageId: number,
+  userId: number,
+  isAdmin: boolean
+): Promise<boolean> {
+  const pool = getPool();
+  const r = await pool.query(
+    "SELECT reply_to, audience FROM messages WHERE id = $1 AND thread_id = $2 AND deleted_at IS NULL",
+    [messageId, threadId]
+  );
+  const m = r.rows[0];
+  if (!m) return false;
+  const audience = (m.audience as number[] | null) ?? null;
+  if (!isAdmin && !(audience && audience.includes(userId))) return false;
+  await pool.query(
+    `UPDATE messages SET audience = NULL
+      WHERE thread_id = $1 AND deleted_at IS NULL
+        AND (id = $2 OR id = $3 OR reply_to = $2)`,
+    [threadId, messageId, (m.reply_to as number | null) ?? -1]
+  );
+  return true;
+}
+
 /** Update a CoP's editable fields (goal, chair, subject). Chair must be a member. */
 export async function updateCoP(
   threadId: number,

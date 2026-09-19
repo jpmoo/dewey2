@@ -3,6 +3,7 @@ import { messageScope, requireUser } from "@/lib/guard";
 import {
   addAttachment,
   canAccessThread,
+  getCopMeta,
   getMessageBrief,
   getUserAttachmentBytes,
   logThreadEvent,
@@ -89,11 +90,19 @@ export async function POST(
     }
   }
 
+  // In a Community of Practice, a member's @dewey exchange (their question and
+  // @dewey's reply) is private to that member by default; they can share it later.
+  const me0 = Number(session.user.id);
+  const invokesDewey = mentionsDewey(body) || replyToAi;
+  const cop = invokesDewey ? await getCopMeta(id) : null;
+  const privateExchange = !!cop && invokesDewey;
+
   const messageId = await postMessage({
     threadId: id,
-    senderId: Number(session.user.id),
+    senderId: me0,
     body,
     replyTo,
+    audience: privateExchange ? [me0] : undefined,
   });
   let docCount = 0;
   let fileCount = 0;
@@ -130,7 +139,7 @@ export async function POST(
   // Rate-limited per user so the LLM can't be hammered; the message itself is
   // already saved, so over-limit just skips the AI reply.
   let aiThrottled = false;
-  if (mentionsDewey(body) || replyToAi) {
+  if (invokesDewey) {
     if (allowAiRequest(me)) {
       await runDeweyForThread({
         threadId: id,
@@ -138,6 +147,8 @@ export async function POST(
         invokerName: session.user.nickname || session.user.name || session.user.username || "A user",
         invokerIsCoach: session.user.system_role === "coach",
         invokingMessage: body,
+        invokingMessageId: messageId,
+        restrictToInvoker: privateExchange,
       }).catch((e) => console.warn("[dewey] failed", e instanceof Error ? e.message : e));
     } else {
       aiThrottled = true;

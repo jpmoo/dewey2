@@ -74,8 +74,15 @@ export async function runDeweyForThread(params: {
   invokerName: string;
   invokerIsCoach: boolean;
   invokingMessage: string;
+  /** The id of the message that invoked @dewey (to pair the private reply). */
+  invokingMessageId?: number;
+  /** In a CoP, keep the exchange private to the invoking member by default. */
+  restrictToInvoker?: boolean;
 }): Promise<void> {
   const { threadId, invokerId, invokerName, invokerIsCoach, invokingMessage } = params;
+  // When private, every AI reply in this exchange is visible only to the invoker
+  // (and admins) until they "Share with group".
+  const replyAudience = params.restrictToInvoker ? [invokerId] : undefined;
   const meta = await getThreadMeta(threadId);
   if (!meta) return;
   // The invoking coach owns any plan @dewey attaches or builds.
@@ -96,6 +103,7 @@ export async function runDeweyForThread(params: {
       senderId: null,
       isAi: true,
       body: "I can't respond to that — the message was flagged by the compliance screen. Try rephrasing it as a problem of practice.",
+      audience: replyAudience,
     });
     return;
   }
@@ -227,6 +235,7 @@ export async function runDeweyForThread(params: {
       senderId: null,
       isAi: true,
       body: "Sorry — I couldn't reach the model just now. Please try again.",
+      audience: replyAudience,
     });
     console.warn("[dewey] model call failed", e instanceof Error ? e.message : e);
     return;
@@ -291,6 +300,9 @@ export async function runDeweyForThread(params: {
     isAi: true,
     body: prose,
     sources: outbound.allowed ? sources : null,
+    audience: replyAudience,
+    // Pair the reply to the question so "Share with group" can reveal both.
+    replyTo: params.restrictToInvoker ? params.invokingMessageId ?? null : null,
   });
 
   // Plan directives only apply when the coach invoked @dewey (they own the copy).

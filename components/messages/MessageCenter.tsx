@@ -1109,6 +1109,26 @@ export function ThreadPane({
     [activeActivity, dialog, threadId, fetchThread, onPosted]
   );
 
+  // Reveal a private CoP @dewey exchange to the whole community.
+  const shareExchange = useCallback(
+    async (messageId: number) => {
+      try {
+        const res = await fetch(
+          pathWithBase(`/api/messages/threads/${threadId}/messages/${messageId}/share`),
+          { method: "POST" }
+        );
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error((d as { error?: string }).error || "Couldn't share");
+        }
+        fetchThread(false);
+      } catch (e) {
+        dialog.alert(e instanceof Error ? e.message : "Couldn't share that with the group.");
+      }
+    },
+    [dialog, threadId, fetchThread]
+  );
+
   // CoP Chair attests to the current activity, advancing the whole community.
   const attestAdvance = useCallback(async () => {
     if (!activeActivity) return;
@@ -1452,6 +1472,8 @@ export function ThreadPane({
                   onDismissPlan={dismissPlan}
                   onRevivePlan={revivePlan}
                   onReply={(t) => setReplyTarget(t)}
+                  isCop={isCop}
+                  onShare={shareExchange}
                 />
               </div>
             ))
@@ -1603,6 +1625,8 @@ function MessageBubble({
   onDismissPlan,
   onRevivePlan,
   onReply,
+  isCop = false,
+  onShare,
 }: {
   message: MessageView;
   mine: boolean;
@@ -1622,6 +1646,10 @@ function MessageBubble({
   onDismissPlan: (messageId: number) => void;
   onRevivePlan: (messageId: number) => void;
   onReply: (t: ReplyTarget) => void;
+  /** This thread is a Community of Practice (restricted = private, not coach-only). */
+  isCop?: boolean;
+  /** Share a private CoP exchange with the whole community. */
+  onShare?: (messageId: number) => void;
 }) {
   const senderLabel = m.is_ai ? "Dewey" : m.sender_name ?? "Unknown";
   // Per-plan acceptance state (multi-party): any coach in the thread manages the
@@ -1688,8 +1716,18 @@ function MessageBubble({
             )}
             {m.restricted && (
               <span className="inline-flex items-center gap-1 rounded-full bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute">
-                🔒 Coaches &amp; partner
+                🔒 {isCop ? "Private to you" : "Coaches & partner"}
               </span>
+            )}
+            {m.restricted && isCop && onShare && (
+              <button
+                type="button"
+                onClick={() => onShare(m.id)}
+                className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
+                title="Make this @dewey exchange visible to the whole community"
+              >
+                👥 Share with group
+              </button>
             )}
           </div>
         )}
