@@ -27,15 +27,14 @@ export type MessageRole = (typeof MESSAGE_ROLES)[number];
 export type MessagePermissions = Record<string, Record<string, MessageReach>>;
 
 export const DEFAULT_MESSAGE_PERMISSIONS: MessagePermissions = {
-  // Coaches reach their coachees in shared buildings, and other coaches/leaders district-wide.
-  coach: { coach: "district", district_leader: "district", site_leader: "school", deputy_site_leader: "school", partner: "school" },
-  // District leaders can reach anyone in their district.
+  // Coaches and district leaders can reach anyone in their district.
+  coach: { coach: "district", district_leader: "district", site_leader: "district", deputy_site_leader: "district", partner: "district" },
   district_leader: { coach: "district", district_leader: "district", site_leader: "district", deputy_site_leader: "district", partner: "district" },
-  // Site/deputy leaders reach staff in their building and their coaches.
-  site_leader: { coach: "school", district_leader: "district", site_leader: "school", deputy_site_leader: "school", partner: "school" },
-  deputy_site_leader: { coach: "school", district_leader: "district", site_leader: "school", deputy_site_leader: "school", partner: "school" },
-  // Partners can start with a coach in their building.
-  partner: { coach: "school", district_leader: "none", site_leader: "none", deputy_site_leader: "none", partner: "none" },
+  // Site/deputy leaders reach staff and leaders district-wide, and partners in their building.
+  site_leader: { coach: "district", district_leader: "district", site_leader: "district", deputy_site_leader: "district", partner: "school" },
+  deputy_site_leader: { coach: "district", district_leader: "district", site_leader: "district", deputy_site_leader: "district", partner: "school" },
+  // Partners can start with a coach or a site/deputy leader in their building.
+  partner: { coach: "school", district_leader: "none", site_leader: "school", deputy_site_leader: "school", partner: "none" },
 };
 
 function coerceReach(v: unknown): MessageReach {
