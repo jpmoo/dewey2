@@ -6,48 +6,57 @@ import { ensureSchema, ensureSystemSettingsRow } from "@/lib/db";
  * the Ollama connection + selected models, the Anthropic key, RAG config, and
  * the default theme. Updated in place; never inserted twice.
  */
-/** Which scopes a role may message, per target role. */
-export interface RoleMessagePerms {
-  partner_same_school: boolean;
-  partner_district: boolean;
-  coach_same_school: boolean;
-  coach_district: boolean;
-}
-export interface MessagePermissions {
-  coach: RoleMessagePerms;
-  partner: RoleMessagePerms;
-}
+/**
+ * How far a sender role may reach a given target role: not at all, only within a
+ * shared building, or anywhere in the district. Admins are always reachable and
+ * can always message anyone, so they're not part of this matrix.
+ */
+export type MessageReach = "none" | "school" | "district";
+
+/** The non-admin roles that participate in the messaging matrix (as sender + target). */
+export const MESSAGE_ROLES = [
+  "coach",
+  "district_leader",
+  "site_leader",
+  "deputy_site_leader",
+  "partner",
+] as const;
+export type MessageRole = (typeof MESSAGE_ROLES)[number];
+
+/** sender role → target role → reach. */
+export type MessagePermissions = Record<string, Record<string, MessageReach>>;
 
 export const DEFAULT_MESSAGE_PERMISSIONS: MessagePermissions = {
-  coach: {
-    partner_same_school: true,
-    partner_district: false,
-    coach_same_school: true,
-    coach_district: true,
-  },
-  partner: {
-    partner_same_school: false,
-    partner_district: false,
-    coach_same_school: true,
-    coach_district: false,
-  },
+  // Coaches reach their coachees in shared buildings, and other coaches/leaders district-wide.
+  coach: { coach: "district", district_leader: "district", site_leader: "school", deputy_site_leader: "school", partner: "school" },
+  // District leaders can reach anyone in their district.
+  district_leader: { coach: "district", district_leader: "district", site_leader: "district", deputy_site_leader: "district", partner: "district" },
+  // Site/deputy leaders reach staff in their building and their coaches.
+  site_leader: { coach: "school", district_leader: "district", site_leader: "school", deputy_site_leader: "school", partner: "school" },
+  deputy_site_leader: { coach: "school", district_leader: "district", site_leader: "school", deputy_site_leader: "school", partner: "school" },
+  // Partners can start with a coach in their building.
+  partner: { coach: "school", district_leader: "none", site_leader: "none", deputy_site_leader: "none", partner: "none" },
 };
 
+function coerceReach(v: unknown): MessageReach {
+  return v === "school" || v === "district" ? v : "none";
+}
+
 function coercePerms(v: unknown): MessagePermissions {
-  const role = (r: unknown, d: RoleMessagePerms): RoleMessagePerms => {
-    const o = (r ?? {}) as Record<string, unknown>;
-    return {
-      partner_same_school: o.partner_same_school === true,
-      partner_district: o.partner_district === true,
-      coach_same_school: o.coach_same_school === true,
-      coach_district: o.coach_district === true,
-    };
-  };
-  const obj = (v ?? {}) as Record<string, unknown>;
-  return {
-    coach: role(obj.coach, DEFAULT_MESSAGE_PERMISSIONS.coach),
-    partner: role(obj.partner, DEFAULT_MESSAGE_PERMISSIONS.partner),
-  };
+  const obj = (v ?? {}) as Record<string, Record<string, unknown>>;
+  const out: MessagePermissions = {};
+  for (const sender of MESSAGE_ROLES) {
+    const row = (obj[sender] ?? {}) as Record<string, unknown>;
+    const def = DEFAULT_MESSAGE_PERMISSIONS[sender];
+    // A row is "new-shape" only if it carries at least one target-role key; older
+    // stored data used a different shape, so fall back to defaults for that role.
+    const isNewShape = MESSAGE_ROLES.some((t) => t in row);
+    out[sender] = {};
+    for (const target of MESSAGE_ROLES) {
+      out[sender][target] = isNewShape ? coerceReach(row[target]) : def[target];
+    }
+  }
+  return out;
 }
 
 /** Whether a role may create a CoP anchored to a school and/or a district. */
@@ -226,7 +235,7 @@ export async function updateSystemSettings(
     push("rag_default_threshold", params.rag_default_threshold);
   if (params.default_theme !== undefined) push("default_theme", params.default_theme);
   if (params.message_permissions !== undefined)
-    push("message_permissions", JSON.stringify(params.message_permissions));
+    push("message_permissions", JSON.stringify(coercePerms(params.message_permissions)));
   if (params.cop_create_permissions !== undefined)
     push("cop_create_permissions", JSON.stringify(coerceCopPerms(params.cop_create_permissions)));
   if (params.settings !== undefined) push("settings", JSON.stringify(params.settings));

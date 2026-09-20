@@ -1,7 +1,8 @@
 import { getPool } from "@/lib/pg";
 import { hashPassword } from "@/lib/password";
 import type { CoachingTemplate, TemplateGraph, TemplateScope } from "@/lib/templates";
-import type { MessagePermissions, RoleMessagePerms } from "@/lib/settings";
+import type { MessagePermissions } from "@/lib/settings";
+import { MESSAGE_ROLES } from "@/lib/settings";
 import { EMPTY_GRAPH } from "@/lib/templates";
 import { nextNodeId, isLastInPhase, phaseIdOfNode, recomputeCurrent } from "@/lib/plan-graph";
 
@@ -1286,40 +1287,18 @@ export async function getMessageRecipients(
 
   // A district leader can start a conversation with anyone in their district
   // (district-wide access), regardless of the same-school messaging matrix.
-  if (me.system_role === "district_leader" && me.district_id != null) {
-    const rows = await getDistrictUsersWithBuildings(me.district_id, meId, [
-      "coach",
-      "district_leader",
-      ...PARTNER_ROLES,
-    ]);
-    for (const r of rows) {
-      out.set(r.id, {
-        id: r.id,
-        full_name: r.full_name,
-        username: r.username,
-        system_role: r.system_role,
-        district_name: r.district_name,
-        school_names: r.school_names,
-      });
-    }
-    return Array.from(out.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
-  }
-
-  // Coach-family roles use the "coach" permission set; leadership roles use "partner".
-  const permRole: "coach" | "partner" | null =
-    COACH_ROLES.includes(me.system_role) ? "coach" : PARTNER_ROLES.includes(me.system_role) ? "partner" : null;
-  const perms: RoleMessagePerms | undefined = permRole ? permissions[permRole] : undefined;
-  if (perms && me.district_id != null) {
+  // Everyone else is governed by the sender→target reach matrix, within their
+  // own district. reach: 'district' = anyone of that role in the district;
+  // 'school' = only those sharing a building; 'none' = not reachable.
+  const row = permissions[me.system_role];
+  if (row && me.district_id != null) {
     const myBuildings = new Set(me.school_ids);
-    const rows = await getDistrictUsersWithBuildings(me.district_id, meId, ["coach", ...PARTNER_ROLES]);
+    const rows = await getDistrictUsersWithBuildings(me.district_id, meId, [...MESSAGE_ROLES] as SystemRole[]);
     for (const r of rows) {
-      const role = r.system_role === "coach" ? "coach" : "partner";
-      const districtAllowed = perms[`${role}_district`];
-      const sameSchoolAllowed = perms[`${role}_same_school`];
-      // "Same school" = genuinely shares a building (assign all buildings to
-      // reach everyone in the district).
+      const reach = row[r.system_role] ?? "none";
+      if (reach === "none") continue;
       const sharesBuilding = r.school_ids.some((s) => myBuildings.has(s));
-      if (districtAllowed || (sameSchoolAllowed && sharesBuilding)) {
+      if (reach === "district" || (reach === "school" && sharesBuilding)) {
         out.set(r.id, {
           id: r.id,
           full_name: r.full_name,

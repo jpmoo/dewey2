@@ -76,14 +76,9 @@ export async function PATCH(request: NextRequest) {
     update.rag_default_threshold = body.rag_default_threshold;
   if (typeof body.default_theme === "string") update.default_theme = body.default_theme;
   if (body.message_permissions && typeof body.message_permissions === "object") {
-    const mp = body.message_permissions as Record<string, Record<string, unknown>>;
-    const role = (r: Record<string, unknown> | undefined) => ({
-      partner_same_school: r?.partner_same_school === true,
-      partner_district: r?.partner_district === true,
-      coach_same_school: r?.coach_same_school === true,
-      coach_district: r?.coach_district === true,
-    });
-    update.message_permissions = { coach: role(mp.coach), partner: role(mp.partner) };
+    // sender → target → reach ('none'|'school'|'district'). updateSystemSettings
+    // coerces/validates against the role matrix, so pass it through.
+    update.message_permissions = body.message_permissions as typeof update.message_permissions;
   }
   if (body.cop_create_permissions && typeof body.cop_create_permissions === "object") {
     const cp = body.cop_create_permissions as Record<string, Record<string, unknown>>;

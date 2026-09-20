@@ -4,13 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
 import { BackupSettings } from "@/components/admin/BackupSettings";
 
-type RolePerms = {
-  partner_same_school: boolean;
-  partner_district: boolean;
-  coach_same_school: boolean;
-  coach_district: boolean;
-};
-type MessagePermissions = { coach: RolePerms; partner: RolePerms };
+type MessageReach = "none" | "school" | "district";
+type MessagePermissions = Record<string, Record<string, MessageReach>>;
+
+const MESSAGE_ROLE_ROWS: { key: string; label: string }[] = [
+  { key: "coach", label: "Coach" },
+  { key: "district_leader", label: "District leader" },
+  { key: "site_leader", label: "Site leader" },
+  { key: "deputy_site_leader", label: "Deputy site leader" },
+  { key: "partner", label: "Partner" },
+];
+const REACH_OPTIONS: { value: MessageReach; label: string }[] = [
+  { value: "none", label: "No one" },
+  { value: "school", label: "Shared building" },
+  { value: "district", label: "District-wide" },
+];
 type CopPerm = { school: boolean; district: boolean };
 type CopCreatePermissions = Record<string, CopPerm>;
 
@@ -52,28 +60,6 @@ const NUM_CTX_OPTIONS: { value: number; label: string }[] = [
   { value: 131072, label: "128K" },
 ];
 
-const EMPTY_PERMS: MessagePermissions = {
-  coach: {
-    partner_same_school: false,
-    partner_district: false,
-    coach_same_school: false,
-    coach_district: false,
-  },
-  partner: {
-    partner_same_school: false,
-    partner_district: false,
-    coach_same_school: false,
-    coach_district: false,
-  },
-};
-
-const PERM_ROWS: { key: keyof RolePerms; label: string }[] = [
-  { key: "partner_same_school", label: "Any partner in a shared building" },
-  { key: "partner_district", label: "Any partner district-wide" },
-  { key: "coach_same_school", label: "Any coach in a shared building" },
-  { key: "coach_district", label: "Any coach district-wide" },
-];
-
 /** Claude options for the coaching model. The Ollama coaching model is ignored when one of these is selected. */
 const CLAUDE_COACHING_MODELS = [
   { id: "claude:claude-opus-4-8", label: "Claude Opus 4.8" },
@@ -100,16 +86,8 @@ export function AdminSettings() {
   const [anthropicKey, setAnthropicKey] = useState("");
   const [ragThreshold, setRagThreshold] = useState(0.5);
   const [defaultTheme, setDefaultTheme] = useState("light");
-  const [perms, setPerms] = useState<MessagePermissions>(EMPTY_PERMS);
+  const [perms, setPerms] = useState<MessagePermissions>({});
   const [copPerms, setCopPerms] = useState<CopCreatePermissions>({});
-  // Messaging-permissions tester.
-  const [testUsers, setTestUsers] = useState<{ id: number; full_name: string; system_role: string }[]>([]);
-  const [testUserId, setTestUserId] = useState<number | null>(null);
-  const [testResult, setTestResult] = useState<
-    | { user: { full_name: string; system_role: string }; recipients: { id: number; full_name: string; system_role: string }[] }
-    | null
-  >(null);
-  const [testing, setTesting] = useState(false);
 
   // Live Ollama model list.
   const [models, setModels] = useState<string[]>([]);
@@ -208,40 +186,13 @@ export function AdminSettings() {
     load,
   ]);
 
-  const togglePerm = (role: "coach" | "partner", key: keyof RolePerms) =>
-    setPerms((p) => ({ ...p, [role]: { ...p[role], [key]: !p[role][key] } }));
+  const setReach = (sender: string, target: string, reach: MessageReach) =>
+    setPerms((p) => ({ ...p, [sender]: { ...(p[sender] ?? {}), [target]: reach } }));
   const toggleCop = (role: string, key: keyof CopPerm) =>
     setCopPerms((p) => {
       const cur = p[role] ?? { school: false, district: false };
       return { ...p, [role]: { ...cur, [key]: !cur[key] } };
     });
-
-  // Load users for the permissions tester (lazy: first time the panel loads).
-  useEffect(() => {
-    apiFetch<{ users: { id: number; full_name: string; system_role: string }[] }>("/api/admin/users")
-      .then((d) => setTestUsers(d.users))
-      .catch(() => setTestUsers([]));
-  }, []);
-
-  const runPermTest = useCallback(async () => {
-    if (testUserId == null) return;
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const r = await apiFetch<{
-        user: { full_name: string; system_role: string };
-        recipients: { id: number; full_name: string; system_role: string }[];
-      }>("/api/admin/message-permissions/test", {
-        method: "POST",
-        body: { userId: testUserId, message_permissions: perms },
-      });
-      setTestResult(r);
-    } catch {
-      setTestResult(null);
-    } finally {
-      setTesting(false);
-    }
-  }, [testUserId, perms]);
 
   if (loading) return <p className="text-dewey-mute">Loading settings…</p>;
 
@@ -514,84 +465,41 @@ export function AdminSettings() {
         <div>
           <label className="dewey-label">Messaging permissions</label>
           <p className="mb-2 text-xs text-dewey-mute">
-            Who coaches and partners can start a message with. Everyone can always message an admin,
-            and admins can message anyone.
+            For each role (rows), how far they can reach each other role (columns) to start a new
+            conversation: no one, only people in a shared building, or anyone of that role
+            district-wide. Everyone can always message an admin, and admins can message anyone.
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {(["coach", "partner"] as const).map((role) => (
-              <div key={role} className="rounded-md border border-dewey-border p-3">
-                <div className="mb-2 text-sm font-medium capitalize text-dewey-ink">
-                  A {role} can message:
-                </div>
-                <div className="space-y-1.5">
-                  {PERM_ROWS.map((row) => (
-                    <label
-                      key={row.key}
-                      className="flex items-center gap-2 text-sm text-dewey-ink"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={perms[role][row.key]}
-                        onChange={() => togglePerm(role, row.key)}
-                      />
-                      {row.label}
-                    </label>
+          <div className="overflow-x-auto">
+            <table className="text-sm">
+              <thead>
+                <tr className="text-left text-xs text-dewey-mute">
+                  <th className="py-1 pr-3">Sender ↓ / Target →</th>
+                  {MESSAGE_ROLE_ROWS.map((t) => (
+                    <th key={t.key} className="px-2 font-medium">{t.label}</th>
                   ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Permissions tester */}
-          <div className="mt-3 rounded-md border border-dewey-border bg-dewey-surface-2 p-3">
-            <div className="text-sm font-medium text-dewey-ink">Test permissions</div>
-            <p className="mb-2 text-xs text-dewey-mute">
-              Pick anyone to see exactly who they could start a conversation with under the settings
-              above (uses your unsaved changes).
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                className="dewey-input w-auto"
-                value={testUserId ?? ""}
-                onChange={(e) => setTestUserId(Number(e.target.value) || null)}
-              >
-                <option value="">Choose a person…</option>
-                {testUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} · {u.system_role}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="dewey-btn-secondary"
-                onClick={runPermTest}
-                disabled={testUserId == null || testing}
-              >
-                {testing ? "Testing…" : "Run test"}
-              </button>
-            </div>
-            {testResult && (
-              <div className="mt-3 text-sm">
-                <div className="mb-1 text-dewey-ink">
-                  <span className="font-medium">{testResult.user.full_name}</span>{" "}
-                  <span className="text-xs text-dewey-mute">({testResult.user.system_role})</span> can
-                  start a conversation with {testResult.recipients.length} {testResult.recipients.length === 1 ? "person" : "people"}:
-                </div>
-                {testResult.recipients.length === 0 ? (
-                  <p className="text-xs text-dewey-mute">No one (besides being able to reply within existing threads).</p>
-                ) : (
-                  <ul className="max-h-48 overflow-auto rounded border border-dewey-border bg-dewey-surface p-2 text-xs">
-                    {testResult.recipients.map((r) => (
-                      <li key={r.id} className="flex justify-between gap-3 py-0.5">
-                        <span className="text-dewey-ink">{r.full_name}</span>
-                        <span className="text-dewey-mute">{r.system_role}</span>
-                      </li>
+                </tr>
+              </thead>
+              <tbody>
+                {MESSAGE_ROLE_ROWS.map((s) => (
+                  <tr key={s.key} className="border-t border-dewey-border">
+                    <td className="py-1.5 pr-3 font-medium text-dewey-ink">{s.label}</td>
+                    {MESSAGE_ROLE_ROWS.map((t) => (
+                      <td key={t.key} className="px-2 py-1">
+                        <select
+                          className="dewey-input w-auto py-1 text-xs"
+                          value={perms[s.key]?.[t.key] ?? "none"}
+                          onChange={(e) => setReach(s.key, t.key, e.target.value as MessageReach)}
+                        >
+                          {REACH_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                      </td>
                     ))}
-                  </ul>
-                )}
-              </div>
-            )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 

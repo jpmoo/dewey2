@@ -83,7 +83,10 @@ export function BackupSettings() {
       <h3 className="text-sm font-semibold text-dewey-ink">Backups</h3>
       <p className="mt-1 text-xs text-dewey-mute">
         Once per day (checked at login) the server saves a full database dump (which includes all
-        uploaded files) to <code>backups/&lt;date&gt;/</code> in the project root.
+        uploaded files) to <code>backups/&lt;date&gt;/</code> in the project root. &ldquo;Days to keep&rdquo;
+        is a maximum age, not a target count — one backup is saved on each day someone signs in
+        (days with no sign-in are skipped), and backups older than the window are pruned. So a new or
+        lightly-used deployment will show only a few until more days accrue.
       </p>
 
       <div className="mt-3 flex flex-wrap items-end gap-3">
