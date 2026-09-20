@@ -78,9 +78,9 @@ export const COP_CREATOR_ROLES = [
 export const DEFAULT_COP_CREATE_PERMISSIONS: CopCreatePermissions = {
   coach: { school: true, district: true },
   district_leader: { school: true, district: true },
-  site_leader: { school: false, district: false },
-  deputy_site_leader: { school: false, district: false },
-  partner: { school: false, district: false },
+  site_leader: { school: true, district: true },
+  deputy_site_leader: { school: true, district: false },
+  partner: { school: true, district: false },
 };
 
 function coerceCopPerms(v: unknown): CopCreatePermissions {
