@@ -98,7 +98,8 @@ export function DocumentsManager() {
 
   useEffect(() => {
     Promise.all([
-      apiFetch<{ categories: Category[] }>("/api/admin/rag/categories"),
+      // Categories fail when the RAG tables are missing; don't lose the org pickers too.
+      apiFetch<{ categories: Category[] }>("/api/admin/rag/categories").catch(() => ({ categories: [] })),
       apiFetch<{ districts: District[] }>("/api/admin/districts"),
       apiFetch<{ cops: Cop[] }>("/api/admin/cops").catch(() => ({ cops: [] })),
     ]).then(([c, o, p]) => {
