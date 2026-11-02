@@ -394,6 +394,35 @@ function sortFolderFiles(list: FileList | null): { ready: File[]; skipped: strin
   return { ready, skipped };
 }
 
+function CategoryChips({
+  categories,
+  isOn,
+  onToggle,
+}: {
+  categories: Category[];
+  isOn: (id: number) => boolean;
+  onToggle: (id: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {categories.map((c) => {
+        const on = isOn(c.id);
+        return (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => onToggle(c.id)}
+            className={`${chip} ${on ? "border-dewey-accent bg-dewey-accent/10 text-dewey-accent" : "border-dewey-border text-dewey-mute"}`}
+            title={c.description ?? undefined}
+          >
+            {on ? "✓ " : ""}{c.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function UploadModal({
   categories,
   districts,
@@ -412,6 +441,8 @@ function UploadModal({
   const [catIds, setCatIds] = useState<number[]>([]);
   const [placements, setPlacements] = useState<DraftPlacement[]>([{ level: "system", districtId: null, schoolId: null, copId: null }]);
   const [files, setFiles] = useState<File[]>([]);
+  // Categories for each entry in `files`, used when uploading more than one.
+  const [fileCats, setFileCats] = useState<number[][]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
@@ -422,10 +453,27 @@ function UploadModal({
   const usesFiles = mode === "file" || mode === "folder";
   const isBatch = mode === "folder" || (mode === "file" && files.length > 1);
 
+  const chooseFiles = (chosen: File[]) => {
+    setFiles(chosen);
+    setFileCats(chosen.map(() => [...catIds]));
+  };
+
   const switchMode = (next: typeof mode) => {
     setMode(next);
-    setFiles([]);
+    chooseFiles([]);
     setSkipped([]);
+  };
+
+  const toggleFileCat = (index: number, id: number) =>
+    setFileCats((cur) =>
+      cur.map((ids, i) => (i !== index ? ids : ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]))
+    );
+
+  const onAllFiles = (id: number) => fileCats.length > 0 && fileCats.every((ids) => ids.includes(id));
+
+  const toggleCatForAll = (id: number) => {
+    const remove = onAllFiles(id);
+    setFileCats((cur) => cur.map((ids) => (remove ? ids.filter((x) => x !== id) : ids.includes(id) ? ids : [...ids, id])));
   };
 
   const submit = async () => {
@@ -437,10 +485,10 @@ function UploadModal({
     if (mode === "url" && !/^https?:\/\/\S+/i.test(url.trim())) return dialog.alert("Enter a valid http(s) URL.");
     setBusy(true);
 
-    const send = async (docTitle: string, file: File | null) => {
+    const send = async (docTitle: string, file: File | null, docCats: number[]) => {
       const form = new FormData();
       form.append("title", docTitle);
-      form.append("categoryIds", JSON.stringify(catIds));
+      form.append("categoryIds", JSON.stringify(docCats));
       form.append("placements", JSON.stringify(places));
       if (file) form.append("file", file);
       if (mode === "text") form.append("text", text);
@@ -457,7 +505,7 @@ function UploadModal({
       for (let i = 0; i < files.length; i++) {
         setSent(i + 1);
         try {
-          await send(files[i].name, files[i]);
+          await send(files[i].name, files[i], fileCats[i] ?? []);
         } catch (e) {
           failed.push(`${files[i].name}: ${e instanceof Error ? e.message : "Couldn't start the upload"}`);
         }
@@ -470,7 +518,7 @@ function UploadModal({
     }
 
     try {
-      await send(title.trim() || (files[0]?.name ?? ""), usesFiles ? files[0] : null);
+      await send(title.trim() || (files[0]?.name ?? ""), usesFiles ? files[0] : null, catIds);
       // Extraction + embedding continue in the background; close now and let the
       // list show progress and any error on the new document's row.
       onDone();
@@ -498,7 +546,7 @@ function UploadModal({
           </button>
         </div>
         {mode === "file" ? (
-          <input type="file" multiple className="dewey-input" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+          <input type="file" multiple className="dewey-input" onChange={(e) => chooseFiles(Array.from(e.target.files ?? []))} />
         ) : mode === "folder" ? (
           <div>
             <input
@@ -507,7 +555,7 @@ function UploadModal({
               {...({ webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
               onChange={(e) => {
                 const { ready, skipped: left } = sortFolderFiles(e.target.files);
-                setFiles(ready);
+                chooseFiles(ready);
                 setSkipped(left);
               }}
             />
@@ -535,7 +583,7 @@ function UploadModal({
           </div>
         )}
         {isBatch ? (
-          <p className="text-xs text-dewey-mute">Each document is titled from its file name and gets its own automatic description; you can edit them afterward. The categories and placements below apply to all of them.</p>
+          <p className="text-xs text-dewey-mute">Each document is titled from its file name and gets its own automatic description; you can edit them afterward. Categories are set per file; the placements below apply to all of them.</p>
         ) : (
           <div>
             <label className="dewey-label">Title</label>
@@ -545,22 +593,34 @@ function UploadModal({
         )}
         <div>
           <label className="dewey-label">Categories</label>
-          <div className="flex flex-wrap gap-2">
-            {categories.map((c) => {
-              const on = catIds.includes(c.id);
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setCatIds((cur) => (on ? cur.filter((x) => x !== c.id) : [...cur, c.id]))}
-                  className={`${chip} ${on ? "border-dewey-accent bg-dewey-accent/10 text-dewey-accent" : "border-dewey-border text-dewey-mute"}`}
-                  title={c.description ?? undefined}
-                >
-                  {on ? "✓ " : ""}{c.name}
-                </button>
-              );
-            })}
-          </div>
+          {isBatch ? (
+            files.length > 0 && (
+              <div className="space-y-3">
+                <div>
+                  <p className="mb-1 text-xs font-medium">All files</p>
+                  <CategoryChips categories={categories} isOn={onAllFiles} onToggle={toggleCatForAll} />
+                </div>
+                <ul className="max-h-64 space-y-3 overflow-y-auto border-t border-dewey-border pt-3">
+                  {files.map((f, i) => (
+                    <li key={`${f.webkitRelativePath || f.name}-${i}`}>
+                      <p className="mb-1 break-words text-xs font-medium">{f.webkitRelativePath || f.name}</p>
+                      <CategoryChips
+                        categories={categories}
+                        isOn={(id) => (fileCats[i] ?? []).includes(id)}
+                        onToggle={(id) => toggleFileCat(i, id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          ) : (
+            <CategoryChips
+              categories={categories}
+              isOn={(id) => catIds.includes(id)}
+              onToggle={(id) => setCatIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))}
+            />
+          )}
         </div>
         <div>
           <label className="dewey-label">Placements (where it's available)</label>
