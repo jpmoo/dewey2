@@ -110,14 +110,15 @@ Edit `.env`:
 ```ini
 PORT=3032
 
-# Must match the Caddy prefix and the NEXTAUTH_URL path. Leading slash, no trailing slash.
+# Must match the Caddy prefix and the start of the NEXTAUTH_URL path. Leading slash, no trailing slash.
 NEXT_PUBLIC_BASE_PATH=/dewey
 
 DATABASE_URL=postgres://dewey2:CHANGE_ME@localhost:5432/dewey2
 
 # Generate with: openssl rand -base64 32
 NEXTAUTH_SECRET=your-generated-secret
-NEXTAUTH_URL=https://home-server.tailce6f0c.ts.net/dewey
+# With a base path, include the full auth route, as NextAuth treats any path here as its auth route.
+NEXTAUTH_URL=https://home-server.tailce6f0c.ts.net/dewey/api/auth
 ```
 
 `NEXT_PUBLIC_BASE_PATH` is baked in at build time, so it must be set **before**
@@ -235,8 +236,8 @@ up. Other `.env` changes only need `systemctl --user restart dewey2`.
 | Symptom | Likely cause |
 |---|---|
 | Page loads but **no CSS/JS** (unstyled, console 404s on `/dewey/_next/...`) | Caddy is stripping the prefix. Use `reverse_proxy /dewey*`, not `handle_path`. |
-| **Sign-in loops or 404s** on `/dewey/api/auth/...` | `NEXTAUTH_URL` path, `NEXT_PUBLIC_BASE_PATH`, and the Caddy prefix don't all match `/dewey`. Rebuild after fixing. |
-| Google sign-in shows **`Error 400: redirect_uri_mismatch`** | The OAuth client whose ID is in `GOOGLE_CLIENT_ID` doesn't list `https://<host>/dewey/api/auth/callback/google` exactly. Google's **error details** link shows the URI the app sent. |
+| **Sign-in loops or 404s** on `/dewey/api/auth/...` | `NEXTAUTH_URL` isn't `https://<host>/dewey/api/auth`, or `NEXT_PUBLIC_BASE_PATH` and the Caddy prefix don't match `/dewey`. Rebuild after changing the base path; `NEXTAUTH_URL` only needs a service restart. |
+| Google sign-in shows **`Error 400: redirect_uri_mismatch`** | Google's **error details** link shows the URI the app sent. If it's `/dewey/callback/google`, `NEXTAUTH_URL` is missing `/api/auth`. Otherwise, the OAuth client whose ID is in `GOOGLE_CLIENT_ID` doesn't list `https://<host>/dewey/api/auth/callback/google` exactly, including any `www`. |
 | Build fails with **`Failed to fetch ... from Google Fonts`** (`EAI_AGAIN`) | The server can't resolve or reach `fonts.googleapis.com`. Fix DNS or outbound access, then re-run `./restart.sh`. |
 | Setup screen shows **"Database unavailable"** (503) | `DATABASE_URL` wrong, Postgres not running, or role/password mismatch. Re-run the `psql "postgres://..."` test from §2. |
 | `permission denied for schema public` on first launch (Postgres error `42501`) | Postgres 15+ restricts who can create objects in schema `public`. The role isn't the schema owner. Fix without recreating the DB: `sudo -u postgres psql -d dewey2 -c "ALTER SCHEMA public OWNER TO dewey2;" -c "GRANT ALL ON SCHEMA public TO dewey2;"` then re-hit `/api/setup-status` (the app retries the bootstrap automatically). |

@@ -9,17 +9,20 @@ export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  // With Google available, username/password stays collapsed until asked for.
+  const [showPassword, setShowPassword] = useState(!googleEnabled);
 
   // Surface an OAuth failure redirected back as ?error= (e.g. an unlinked Google
   // account is denied by the signIn callback → AccessDenied).
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get("error");
     if (!code) return;
-    setError(
-      code === "AccessDenied"
-        ? "That Google account isn't linked to a Dewey account. Ask your admin to add your email to your account."
-        : "Couldn't sign in with Google. Please try again or use your username and password."
-    );
+    if (code === "AccessDenied") {
+      setError("That Google account isn't linked to a Dewey account. Ask your admin to add your email to your account.");
+    } else {
+      setError("Couldn't sign in with Google. Please try again or use your username and password.");
+      setShowPassword(true);
+    }
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -46,50 +49,15 @@ export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="rounded-xl border border-dewey-border bg-dewey-surface/60 p-6 text-left space-y-4"
-    >
+    <div className="rounded-xl border border-dewey-border bg-dewey-surface/60 p-6 text-left space-y-4">
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <div>
-        <label htmlFor="username" className="dewey-label">Username</label>
-        <input
-          id="username"
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-          autoComplete="username"
-          className="dewey-input"
-        />
-      </div>
-      <div>
-        <label htmlFor="password" className="dewey-label">Password</label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          autoComplete="current-password"
-          className="dewey-input"
-        />
-      </div>
-      <button type="submit" disabled={loading} className="dewey-btn-primary">
-        <span aria-hidden>🔑</span> {loading ? "Signing in…" : "Sign in"}
-      </button>
 
       {googleEnabled && (
         <>
-          <div className="flex items-center gap-3 text-xs text-dewey-mute">
-            <span className="h-px flex-1 bg-dewey-border" />
-            or
-            <span className="h-px flex-1 bg-dewey-border" />
-          </div>
           <button
             type="button"
             onClick={() => signIn("google", { callbackUrl: rootPath })}
-            className="flex w-full items-center justify-center gap-2 rounded-full border border-dewey-border bg-white px-4 py-2.5 text-sm font-medium text-[#3c4043] hover:bg-gray-50"
+            className="flex w-full items-center justify-center gap-2 rounded-full border border-dewey-border bg-white px-4 py-3 text-base font-medium text-[#3c4043] shadow-sm hover:bg-gray-50"
           >
             <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden>
               <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z" />
@@ -99,8 +67,49 @@ export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }
             </svg>
             Sign in with Google
           </button>
+          <button
+            type="button"
+            onClick={() => setShowPassword((open) => !open)}
+            aria-expanded={showPassword}
+            aria-controls="password-sign-in"
+            className="w-full text-center text-sm text-dewey-mute underline-offset-2 hover:underline"
+          >
+            {showPassword ? "Hide username and password" : "Use username and password instead"}
+          </button>
         </>
       )}
-    </form>
+
+      {showPassword && (
+        <form id="password-sign-in" onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="username" className="dewey-label">Username</label>
+            <input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoComplete="username"
+              className="dewey-input"
+            />
+          </div>
+          <div>
+            <label htmlFor="password" className="dewey-label">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="current-password"
+              className="dewey-input"
+            />
+          </div>
+          <button type="submit" disabled={loading} className="dewey-btn-primary">
+            <span aria-hidden>🔑</span> {loading ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+      )}
+    </div>
   );
 }
