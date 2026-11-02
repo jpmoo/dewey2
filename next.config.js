@@ -4,6 +4,8 @@
 const basePath = (process.env.NEXT_PUBLIC_BASE_PATH || "").replace(/\/$/, "");
 const nextConfig = {
   ...(basePath && { basePath, assetPrefix: basePath }),
+  // restart.sh builds beside the live .next, then swaps the result in.
+  ...(process.env.NEXT_DIST_DIR && { distDir: process.env.NEXT_DIST_DIR }),
   async headers() {
     return [
       {

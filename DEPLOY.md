@@ -123,6 +123,10 @@ NEXTAUTH_URL=https://home-server.tailce6f0c.ts.net/dewey
 `NEXT_PUBLIC_BASE_PATH` is baked in at build time, so it must be set **before**
 you build.
 
+For "Sign in with Google", also set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`,
+and add this authorized redirect URI to the OAuth client in Google Cloud:
+`https://home-server.tailce6f0c.ts.net/dewey/api/auth/callback/google`
+
 ---
 
 ## 4. Build
@@ -214,11 +218,15 @@ From the repo directory:
 ./restart.sh
 ```
 
-It pulls, frees the port, runs a clean `npm ci && npm run build`, and restarts
-the `dewey2` service (falling back to a backgrounded `next start` if the service
-isn't installed). Because `NEXT_PUBLIC_BASE_PATH` is build-time, always restart
-via this script (or a manual rebuild) after changing it — restarting the process
-alone won't pick it up.
+It pulls, runs `npm ci` if `package-lock.json` changed, builds into `.next-build`,
+and only then swaps that build in and restarts the `dewey2` service (falling back
+to a backgrounded `next start` if the service isn't installed). If the build fails,
+the running app and its current build are left alone. The build downloads fonts
+from Google, so the server needs working DNS and outbound HTTPS.
+
+Because `NEXT_PUBLIC_BASE_PATH` is build-time, always restart via this script (or
+a manual rebuild) after changing it — restarting the process alone won't pick it
+up. Other `.env` changes only need `systemctl --user restart dewey2`.
 
 ---
 
@@ -228,6 +236,8 @@ alone won't pick it up.
 |---|---|
 | Page loads but **no CSS/JS** (unstyled, console 404s on `/dewey/_next/...`) | Caddy is stripping the prefix. Use `reverse_proxy /dewey*`, not `handle_path`. |
 | **Sign-in loops or 404s** on `/dewey/api/auth/...` | `NEXTAUTH_URL` path, `NEXT_PUBLIC_BASE_PATH`, and the Caddy prefix don't all match `/dewey`. Rebuild after fixing. |
+| Google sign-in shows **`Error 400: redirect_uri_mismatch`** | The OAuth client whose ID is in `GOOGLE_CLIENT_ID` doesn't list `https://<host>/dewey/api/auth/callback/google` exactly. Google's **error details** link shows the URI the app sent. |
+| Build fails with **`Failed to fetch ... from Google Fonts`** (`EAI_AGAIN`) | The server can't resolve or reach `fonts.googleapis.com`. Fix DNS or outbound access, then re-run `./restart.sh`. |
 | Setup screen shows **"Database unavailable"** (503) | `DATABASE_URL` wrong, Postgres not running, or role/password mismatch. Re-run the `psql "postgres://..."` test from §2. |
 | `permission denied for schema public` on first launch (Postgres error `42501`) | Postgres 15+ restricts who can create objects in schema `public`. The role isn't the schema owner. Fix without recreating the DB: `sudo -u postgres psql -d dewey2 -c "ALTER SCHEMA public OWNER TO dewey2;" -c "GRANT ALL ON SCHEMA public TO dewey2;"` then re-hit `/api/setup-status` (the app retries the bootstrap automatically). |
 | Port already in use on restart | `lsof -ti tcp:3032 \| xargs kill -9`, then re-run `./restart.sh`. |
