@@ -221,7 +221,7 @@ export async function startIngest(params: IngestParams): Promise<StartIngestResu
 
   // Fire-and-forget: this deploys as a long-running Node server, so the promise
   // keeps running after the response is sent. Errors are captured onto the row.
-  void processDocument(documentId, {
+  void queueProcessDocument(documentId, {
     filename: params.filename ?? null,
     mime: params.mime ?? null,
     bytes: params.bytes ?? null,
@@ -242,6 +242,18 @@ export interface ProcessSource {
   pastedText: string | null;
   /** A web page to fetch + extract when there's no pasted text or bytes. */
   sourceUrl?: string | null;
+}
+
+let ingestTail: Promise<void> = Promise.resolve();
+
+/**
+ * Run ingest jobs one at a time, in order. A folder upload can start many at once,
+ * and running them together would overload LibreOffice, OCR, and Ollama.
+ */
+export function queueProcessDocument(documentId: number, src: ProcessSource): Promise<void> {
+  const run = ingestTail.then(() => processDocument(documentId, src));
+  ingestTail = run.catch(() => {});
+  return run;
 }
 
 /**

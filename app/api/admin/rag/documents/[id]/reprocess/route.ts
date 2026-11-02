@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
 import { ragAvailable } from "@/lib/db";
 import { getPool } from "@/lib/pg";
-import { processDocument } from "@/lib/rag-ingest";
+import { queueProcessDocument } from "@/lib/rag-ingest";
 
 /**
  * Re-run ingest for a document from its stored bytes (or pasted text) — used to
@@ -42,7 +42,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     "UPDATE rag_documents SET status = 'processing', status_detail = 'Queued…' WHERE id = $1",
     [docId]
   );
-  void processDocument(docId, {
+  void queueProcessDocument(docId, {
     filename: (row.filename as string | null) ?? null,
     mime: (row.mime as string | null) ?? null,
     bytes,

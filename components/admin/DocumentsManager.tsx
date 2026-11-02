@@ -375,6 +375,25 @@ function validPlacements(drafts: DraftPlacement[]): DraftPlacement[] {
 
 // ---- Upload modal -----------------------------------------------------------
 
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Matches the ingest route's limit.
+const INGESTABLE = /\.(pdf|docx?|pptx?|xlsx?|odt|odp|ods|rtf|txt|md|markdown|csv|tsv|json|log|html?|png|jpe?g|gif|webp|bmp|tiff?)$/i;
+
+/** Split a chosen folder into files to ingest and files skipped (with why). */
+function sortFolderFiles(list: FileList | null): { ready: File[]; skipped: string[] } {
+  const ready: File[] = [];
+  const skipped: string[] = [];
+  for (const f of Array.from(list ?? [])) {
+    const path = f.webkitRelativePath || f.name;
+    // System files, hidden folders, and Office lock files aren't documents.
+    if (path.split("/").some((part) => part.startsWith(".") || part.startsWith("~$"))) continue;
+    if (/^(thumbs\.db|desktop\.ini)$/i.test(f.name)) continue;
+    if (!INGESTABLE.test(f.name)) skipped.push(`${path} (unsupported type)`);
+    else if (f.size > MAX_UPLOAD_BYTES) skipped.push(`${path} (over 25 MB)`);
+    else ready.push(f);
+  }
+  return { ready, skipped };
+}
+
 function UploadModal({
   categories,
   districts,
@@ -392,30 +411,66 @@ function UploadModal({
   const [title, setTitle] = useState("");
   const [catIds, setCatIds] = useState<number[]>([]);
   const [placements, setPlacements] = useState<DraftPlacement[]>([{ level: "system", districtId: null, schoolId: null, copId: null }]);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [skipped, setSkipped] = useState<string[]>([]);
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
-  const [mode, setMode] = useState<"file" | "text" | "url">("file");
+  const [mode, setMode] = useState<"file" | "folder" | "text" | "url">("file");
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(0);
+
+  const usesFiles = mode === "file" || mode === "folder";
+  const isBatch = mode === "folder" || (mode === "file" && files.length > 1);
+
+  const switchMode = (next: typeof mode) => {
+    setMode(next);
+    setFiles([]);
+    setSkipped([]);
+  };
 
   const submit = async () => {
     const places = validPlacements(placements);
     if (places.length === 0) return dialog.alert("Add at least one valid placement.");
-    if (mode === "file" && !file) return dialog.alert("Choose a file, or switch to pasting text.");
+    if (mode === "file" && files.length === 0) return dialog.alert("Choose a file, or switch to pasting text.");
+    if (mode === "folder" && files.length === 0) return dialog.alert("Choose a folder with at least one supported file.");
     if (mode === "text" && !text.trim()) return dialog.alert("Paste some text, or switch to a file.");
     if (mode === "url" && !/^https?:\/\/\S+/i.test(url.trim())) return dialog.alert("Enter a valid http(s) URL.");
     setBusy(true);
-    try {
+
+    const send = async (docTitle: string, file: File | null) => {
       const form = new FormData();
-      form.append("title", title.trim() || (file?.name ?? ""));
+      form.append("title", docTitle);
       form.append("categoryIds", JSON.stringify(catIds));
       form.append("placements", JSON.stringify(places));
-      if (mode === "file" && file) form.append("file", file);
+      if (file) form.append("file", file);
       if (mode === "text") form.append("text", text);
       if (mode === "url") form.append("url", url.trim());
       const res = await fetch(pathWithBase("/api/admin/rag/documents"), { method: "POST", body: form });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(d.error || "Ingest failed");
+    };
+
+    if (isBatch) {
+      // One request at a time, so a large folder doesn't flood the server. A failed
+      // file doesn't stop the rest; failures are listed once the batch is done.
+      const failed: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        setSent(i + 1);
+        try {
+          await send(files[i].name, files[i]);
+        } catch (e) {
+          failed.push(`${files[i].name}: ${e instanceof Error ? e.message : "Couldn't start the upload"}`);
+        }
+      }
+      if (failed.length > 0) {
+        await dialog.alert(`${failed.length} of ${files.length} files couldn't be added:\n\n${failed.join("\n")}`);
+      }
+      onDone();
+      return;
+    }
+
+    try {
+      await send(title.trim() || (files[0]?.name ?? ""), usesFiles ? files[0] : null);
       // Extraction + embedding continue in the background; close now and let the
       // list show progress and any error on the new document's row.
       onDone();
@@ -428,19 +483,49 @@ function UploadModal({
   return (
     <Modal title="Add document" onClose={onClose}>
       <div className="space-y-4">
-        <div className="flex gap-2 text-xs">
-          <button type="button" className={`rounded-full px-3 py-1 ${mode === "file" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => setMode("file")}>
-            Upload a file
+        <div className="flex flex-wrap gap-2 text-xs">
+          <button type="button" className={`rounded-full px-3 py-1 ${mode === "file" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => switchMode("file")}>
+            Upload files
           </button>
-          <button type="button" className={`rounded-full px-3 py-1 ${mode === "text" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => setMode("text")}>
+          <button type="button" className={`rounded-full px-3 py-1 ${mode === "folder" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => switchMode("folder")}>
+            Upload a folder
+          </button>
+          <button type="button" className={`rounded-full px-3 py-1 ${mode === "text" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => switchMode("text")}>
             Paste text
           </button>
-          <button type="button" className={`rounded-full px-3 py-1 ${mode === "url" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => setMode("url")}>
+          <button type="button" className={`rounded-full px-3 py-1 ${mode === "url" ? "bg-dewey-accent/10 text-dewey-accent" : "text-dewey-mute"}`} onClick={() => switchMode("url")}>
             From URL
           </button>
         </div>
         {mode === "file" ? (
-          <input type="file" className="dewey-input" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <input type="file" multiple className="dewey-input" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} />
+        ) : mode === "folder" ? (
+          <div>
+            <input
+              type="file"
+              className="dewey-input"
+              {...({ webkitdirectory: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+              onChange={(e) => {
+                const { ready, skipped: left } = sortFolderFiles(e.target.files);
+                setFiles(ready);
+                setSkipped(left);
+              }}
+            />
+            <p className="mt-1 text-xs text-dewey-mute">
+              Includes subfolders. {files.length} {files.length === 1 ? "file" : "files"} ready
+              {skipped.length > 0 ? `, ${skipped.length} skipped` : ""}.
+            </p>
+            {skipped.length > 0 && (
+              <details className="mt-1 text-xs text-dewey-mute">
+                <summary className="cursor-pointer">Show skipped files</summary>
+                <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto">
+                  {skipped.map((s) => (
+                    <li key={s}>{s}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
         ) : mode === "text" ? (
           <textarea className="dewey-input min-h-[120px]" placeholder="Paste the document text…" value={text} onChange={(e) => setText(e.target.value)} />
         ) : (
@@ -449,11 +534,15 @@ function UploadModal({
             <p className="mt-1 text-xs text-dewey-mute">The page is fetched and ingested; citations link back to it.</p>
           </div>
         )}
-        <div>
-          <label className="dewey-label">Title</label>
-          <input className="dewey-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={file?.name ?? "Document title"} />
-          <p className="mt-1 text-xs text-dewey-mute">A description is drafted automatically from the document; you can edit it afterward.</p>
-        </div>
+        {isBatch ? (
+          <p className="text-xs text-dewey-mute">Each document is titled from its file name and gets its own automatic description; you can edit them afterward. The categories and placements below apply to all of them.</p>
+        ) : (
+          <div>
+            <label className="dewey-label">Title</label>
+            <input className="dewey-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={files[0]?.name ?? "Document title"} />
+            <p className="mt-1 text-xs text-dewey-mute">A description is drafted automatically from the document; you can edit it afterward.</p>
+          </div>
+        )}
         <div>
           <label className="dewey-label">Categories</label>
           <div className="flex flex-wrap gap-2">
@@ -496,7 +585,14 @@ function UploadModal({
             <span aria-hidden>✕</span> Cancel
           </button>
           <button type="button" className="dewey-btn-primary w-auto" onClick={submit} disabled={busy}>
-            <span aria-hidden>⬆️</span> {busy ? "Starting…" : "Add document"}
+            <span aria-hidden>⬆️</span>{" "}
+            {busy
+              ? isBatch
+                ? `Sending ${sent} of ${files.length}…`
+                : "Starting…"
+              : isBatch
+                ? `Add ${files.length} ${files.length === 1 ? "document" : "documents"}`
+                : "Add document"}
           </button>
         </div>
       </div>
