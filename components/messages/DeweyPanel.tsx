@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
+import { SourcePill } from "@/components/messages/SourcePill";
 
 type Turn = { role: "user" | "assistant"; content: string; sources?: { name: string; path: string }[] };
 
@@ -188,20 +189,9 @@ export function DeweyPanel({
               )}
               {t.sources && t.sources.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-1 border-t border-dewey-border pt-1.5">
-                  {t.sources.map((s, j) => {
-                    const href = /^https?:\/\//.test(s.path) ? s.path : pathWithBase(s.path);
-                    return (
-                      <a
-                        key={j}
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="max-w-[160px] truncate rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:underline"
-                      >
-                        {s.name}
-                      </a>
-                    );
-                  })}
+                  {t.sources.map((s, j) => (
+                    <SourcePill key={j} name={s.name} path={s.path} />
+                  ))}
                 </div>
               )}
             </div>

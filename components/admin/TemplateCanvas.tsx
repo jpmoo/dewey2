@@ -44,6 +44,7 @@ import ReactMarkdown from "react-markdown";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
+import { SourcePill } from "@/components/messages/SourcePill";
 import { buildPlanPrintHtml } from "@/lib/plan-print";
 import { toPng } from "html-to-image";
 import { getHelperLines, HelperLines } from "./helper-lines";
@@ -2089,13 +2090,7 @@ const CanvasAssistant = forwardRef<
                         <div className="mt-1.5 pt-1.5 border-t border-dewey-border flex flex-wrap items-center gap-1.5">
                           <span className="text-[11px] text-dewey-mute">Sources</span>
                           {m.sources.map((s, j) => (
-                            <span
-                              key={j}
-                              title={s.name}
-                              className="inline-block max-w-[180px] truncate rounded-full border border-dewey-border bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute"
-                            >
-                              {s.name}
-                            </span>
+                            <SourcePill key={j} name={s.name} path={s.path} />
                           ))}
                         </div>
                       )}
