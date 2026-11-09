@@ -17,7 +17,8 @@ export async function POST(request: NextRequest) {
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   // A second submit (double click, another tab) must not create a duplicate,
   // which would make the email ambiguous and lock the person out.
-  if ((await countUsersWithEmail(email)) > 0) return NextResponse.json({ ok: true });
+  const existing = await countUsersWithEmail(email);
+  if (existing.active + existing.archived > 0) return NextResponse.json({ ok: true });
 
   const body = await request.json().catch(() => ({}));
   const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";

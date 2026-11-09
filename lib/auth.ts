@@ -12,6 +12,7 @@ import {
 import type { SystemRole, User } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { maybeRunDailyBackup } from "@/lib/backup";
+import { pathWithBase } from "@/lib/base-path";
 
 /** Google sign-in is available only when its OAuth credentials are configured. */
 export const googleEnabled = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -58,6 +59,11 @@ if (googleEnabled) {
   );
 }
 
+/** A refused sign-in: send them back to the login form with a specific error code. */
+function loginError(code: string): string {
+  return `${pathWithBase("/login")}?error=${code}`;
+}
+
 /** Copy a user's identity onto the JWT. Shared by sign-in and impersonation. */
 function applyUserToToken(token: JWT, user: User): void {
   token.sub = String(user.id);
@@ -75,13 +81,17 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     // Google sign-in is allowed when the verified email maps to exactly one Dewey
     // account, or to none at all (a new person, who signs up on /welcome). An
-    // email shared by several accounts, or held only by a deleted one, is refused.
+    // email shared by several accounts, or held only by an archived one, is
+    // refused, with an error code the login form explains.
     async signIn({ account, profile }) {
       if (account?.provider !== "google") return true;
       const p = profile as { email?: string; email_verified?: boolean } | undefined;
-      if (!p?.email || p.email_verified === false) return false;
+      if (!p?.email || p.email_verified === false) return loginError("GoogleUnverified");
       if (await getUserByEmail(p.email)) return true;
-      return (await countUsersWithEmail(p.email)) === 0; // false → /login?error=AccessDenied
+      const { active, archived } = await countUsersWithEmail(p.email);
+      if (active > 1) return loginError("GoogleDuplicate");
+      if (archived > 0) return loginError("GoogleArchived");
+      return true;
     },
     async jwt({ token, user, account, profile, trigger, session }) {
       // Fresh sign-in via Google: resolve the identity from OUR database by the
@@ -239,9 +249,10 @@ export const authOptions: NextAuthOptions = {
       }
     },
   },
+  // NextAuth redirects to these as-is, so they need the base path.
   pages: {
-    signIn: "/login",
-    error: "/login",
+    signIn: pathWithBase("/login"),
+    error: pathWithBase("/login"),
   },
   session: {
     strategy: "jwt",

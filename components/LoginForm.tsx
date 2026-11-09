@@ -4,6 +4,17 @@ import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { rootPath } from "@/lib/base-path";
 
+/** Why a Google sign-in was refused, by the error code it came back with. */
+const GOOGLE_REFUSALS: Record<string, string> = {
+  GoogleArchived:
+    "The Dewey account for this Google email has been archived. Ask your admin to restore it, or to remove this email from it so you can sign up again.",
+  GoogleDuplicate:
+    "More than one Dewey account uses this Google email, so Dewey can't tell which one to sign in to. Ask your admin to remove the email from the extra account.",
+  GoogleUnverified:
+    "Google hasn't verified this account's email address, so Dewey can't use it to sign in. Verify it with Google, or use another account.",
+  AccessDenied: "That Google account can't sign in to Dewey. Ask your admin for help.",
+};
+
 export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -12,13 +23,13 @@ export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }
   // With Google available, username/password stays collapsed until asked for.
   const [showPassword, setShowPassword] = useState(!googleEnabled);
 
-  // Surface an OAuth failure redirected back as ?error= (e.g. a Google email
-  // shared by several accounts, or held by a deleted one → AccessDenied).
+  // Surface an OAuth failure redirected back as ?error=. The Google* codes come
+  // from the signIn callback in lib/auth.ts.
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get("error");
     if (!code) return;
-    if (code === "AccessDenied") {
-      setError("That Google account can't sign in to Dewey. Ask your admin for help.");
+    if (code in GOOGLE_REFUSALS) {
+      setError(GOOGLE_REFUSALS[code]);
     } else {
       setError("Couldn't sign in with Google. Please try again or use your username and password.");
       setShowPassword(true);
