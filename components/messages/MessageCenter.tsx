@@ -12,6 +12,7 @@ import { CreateCoPModal } from "@/components/messages/CreateCoPModal";
 import { EditCoPModal } from "@/components/messages/EditCoPModal";
 import { DeweyPanel } from "@/components/messages/DeweyPanel";
 import { SourcePill } from "@/components/messages/SourcePill";
+import { PlanThumbnail } from "@/components/messages/PlanThumbnail";
 import { SharedDeweyModal } from "@/components/messages/SharedDeweyModal";
 import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
 
@@ -43,6 +44,11 @@ type MessageView = {
   plan_id: number | null;
   plan_name: string | null;
   plan_phase: string | null;
+  /** Phases in order with their activity counts, for the chat thumbnail. */
+  plan_outline: {
+    phases: { name: string; color: string | null; activities: number }[];
+    unphased: number;
+  } | null;
   plan_accepted: boolean;
   plan_deactivated: boolean;
   plan_owner_id: number | null;
@@ -1930,6 +1936,13 @@ function MessageBubble({
                 </button>
               </div>
             </div>
+            {m.plan_outline && (
+              <PlanThumbnail
+                outline={m.plan_outline}
+                name={m.plan_name ?? "Plan"}
+                onOpen={() => onViewPlan(m.plan_id as number)}
+              />
+            )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <PlanPill icon="🗂️" label="View plan" onClick={() => onViewPlan(m.plan_id as number)} />
               {/* Inactive (superseded, finished, or abandoned): owner can revive it

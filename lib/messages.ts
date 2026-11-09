@@ -54,6 +54,34 @@ export interface AttachmentMeta {
   size_bytes: number;
 }
 
+/** Phases in order with their activity counts (activities outside a phase last). */
+export interface PlanOutline {
+  phases: { name: string; color: string | null; activities: number }[];
+  unphased: number;
+}
+
+function planOutline(graph: unknown): PlanOutline | null {
+  if (!graph || typeof graph !== "object") return null;
+  const g = graph as { phases?: unknown; nodes?: unknown };
+  const phases = Array.isArray(g.phases) ? (g.phases as { id?: string; name?: string; color?: string }[]) : [];
+  const nodes = Array.isArray(g.nodes) ? (g.nodes as { phaseId?: string | null }[]) : [];
+  const counts = new Map<string, number>();
+  let unphased = 0;
+  const phaseIds = new Set(phases.map((p) => p.id));
+  for (const n of nodes) {
+    if (n.phaseId && phaseIds.has(n.phaseId)) counts.set(n.phaseId, (counts.get(n.phaseId) ?? 0) + 1);
+    else unphased++;
+  }
+  return {
+    phases: phases.map((p, i) => ({
+      name: p.name || `Phase ${i + 1}`,
+      color: p.color ?? null,
+      activities: p.id ? counts.get(p.id) ?? 0 : 0,
+    })),
+    unphased,
+  };
+}
+
 export interface MessageView {
   id: number;
   sender_id: number | null;
@@ -65,6 +93,8 @@ export interface MessageView {
   plan_id: number | null;
   plan_name: string | null;
   plan_phase: string | null;
+  /** A compact outline of the attached plan, for its thumbnail in the chat. */
+  plan_outline: PlanOutline | null;
   /** Whether the embedded plan is fully accepted (locked in by everyone). */
   plan_accepted: boolean;
   /** Whether a newer plan has superseded this embedded plan. */
@@ -1172,6 +1202,7 @@ export async function getThreadMessages(
     `SELECT m.id, m.sender_id, m.body, m.created_at, u.full_name AS sender_name, m.is_ai,
             m.plan_id, ct.name AS plan_name,
             ct.graph -> 'phases' -> 0 ->> 'name' AS plan_phase,
+            ct.graph AS plan_graph,
             (ct.accepted_at IS NOT NULL) AS plan_accepted,
             (ct.deactivated_at IS NOT NULL) AS plan_deactivated,
             ct.owner_id AS plan_owner_id,
@@ -1245,6 +1276,7 @@ export async function getThreadMessages(
     plan_id: (m.plan_id as number | null) ?? null,
     plan_name: (m.plan_name as string | null) ?? null,
     plan_phase: (m.plan_phase as string | null) ?? null,
+    plan_outline: m.plan_id != null ? planOutline(m.plan_graph) : null,
     plan_accepted: m.plan_accepted === true,
     plan_deactivated: m.plan_deactivated === true,
     plan_owner_id: (m.plan_owner_id as number | null) ?? null,
