@@ -6,6 +6,7 @@ import {
   getPlanForThreadMember,
   logUserEvent,
 } from "@/lib/db";
+import { postPlanSavedMessage } from "@/lib/messages";
 import type { TemplateGraph } from "@/lib/templates";
 
 /**
@@ -64,6 +65,9 @@ export async function PATCH(
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
+  // A new plan, or an edit to an approved one, posts the plan into the chat
+  // (with its thumbnail) for a new approval round.
+  await postPlanSavedMessage(id, me, result.wasApproved === true);
   await logUserEvent({
     userId: me,
     actorId: me,

@@ -1,6 +1,5 @@
 import { getPool } from "@/lib/pg";
 import {
-  activateThreadPlan,
   deactivatePriorThreadPlans,
   duplicatePlanForPartnership,
   recordPlanAcceptance,
@@ -1489,6 +1488,46 @@ export async function postMessage(params: {
   return Number(res.rows[0].id);
 }
 
+/**
+ * After a thread's plan is saved from the canvas, post it into the chat (with its
+ * thumbnail) as the editor — in a CoP and a coaching conversation alike — when
+ * it's new (no message yet) or was approved before this edit (a new approval
+ * round). A plan still awaiting approval is edited in place: its existing message
+ * shows the new version and the round restarts there, so nothing is posted.
+ */
+export async function postPlanSavedMessage(
+  planId: number,
+  editorId: number,
+  wasApproved: boolean
+): Promise<void> {
+  const pool = getPool();
+  await ensureSchema();
+  const r = await pool.query(
+    `SELECT ct.name, ct.thread_id, t.kind,
+            EXISTS (SELECT 1 FROM messages m WHERE m.plan_id = ct.id AND m.deleted_at IS NULL) AS posted,
+            (SELECT m.plan_id FROM messages m WHERE m.thread_id = ct.thread_id AND m.deleted_at IS NULL
+              ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_plan_id
+       FROM coaching_templates ct JOIN message_threads t ON t.id = ct.thread_id
+      WHERE ct.id = $1 AND ct.deleted_at IS NULL`,
+    [planId]
+  );
+  const row = r.rows[0];
+  if (!row) return;
+  if (row.posted && !wasApproved) return;
+  // Several saves in a row while it's the newest message: don't stack copies.
+  if (row.posted && Number(row.last_plan_id) === planId) return;
+  const name = row.name as string;
+  const isCop = row.kind === "cop";
+  const body = !row.posted
+    ? isCop
+      ? `Set up the arc "${name}" for this community. It starts once every member accepts it.`
+      : `Set up the plan "${name}". Please review it and accept it.`
+    : isCop
+    ? `Updated the arc "${name}". Please review the changes and accept it again.`
+    : `Updated the plan "${name}". Please review the changes and accept it again.`;
+  await postMessage({ threadId: row.thread_id as number, senderId: editorId, body, planId });
+}
+
 /** A message's thread + whether it's an @dewey message (for reply handling). */
 export async function getMessageBrief(
   messageId: number
@@ -1547,18 +1586,13 @@ export async function addPlanToPartnership(
     senderId: null,
     isAi: true,
     body: isCop
-      ? `The Chair has assigned the plan "${copy.name}" to guide this community's work.`
+      ? `The Chair has proposed the plan "${copy.name}" for this community's work. It starts once every member accepts it.`
       : `Here's the plan "${copy.name}" from the library. Accept, edit, or dismiss it — or ask me to adjust it.`,
     planId: copy.id,
   });
-  if (isCop) {
-    // A CoP's arc is set by the Chair — activate it immediately (no per-member
-    // acceptance gate).
-    await activateThreadPlan(copy.id);
-  } else {
-    // The coach who added it is implicitly committed — everyone else still accepts.
-    await recordPlanAcceptance(copy.id, coachId);
-  }
+  // Whoever added it (coach or Chair) is implicitly committed — everyone else
+  // still accepts, in a CoP as in a coaching conversation.
+  await recordPlanAcceptance(copy.id, coachId);
   return { ok: true };
 }
 

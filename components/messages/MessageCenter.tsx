@@ -925,11 +925,22 @@ export function ThreadPane({
   // coach, or a district leader (server enforces the precise check).
   const canEditCop = isCop && (iAmChair || isAdmin || iAmCoach || iAmDistrictLeader);
   const [editingCop, setEditingCop] = useState(false);
-  // A Chair-built CoP arc has no plan *message*, so drive the header plan links
-  // from the thread's accepted plan (server truth) for a CoP.
+  // A CoP arc saved before arcs got a plan message (on first save) has none, so
+  // drive the header plan links from the thread's accepted plan for a CoP.
   const copPlanId = isCop ? thread?.accepted_plan_id ?? null : null;
   const planActive = hasActivePlan || copPlanId != null;
-  const headerPlanId = acceptedPlan?.plan_id ?? copPlanId;
+  // The newest plan still in play (proposed or active), so a coach can open a
+  // proposed plan from the header too.
+  const livePlanMsg = [...messages]
+    .reverse()
+    .find((m) => m.plan_id != null && !m.plan_deactivated && !m.plan_outcome);
+  const headerPlanId = acceptedPlan?.plan_id ?? copPlanId ?? livePlanMsg?.plan_id ?? null;
+  // The header button opens the editor for the Chair (in a CoP) or a coach (in a
+  // coaching conversation); everyone else gets the read-only view.
+  const canEditPlan = !readOnly && (isCop ? iAmChair : iAmCoach);
+  // Each plan's newest message carries its actions; older ones are history.
+  const latestPlanMessageId = new Map<number, number>();
+  for (const m of messages) if (m.plan_id != null) latestPlanMessageId.set(m.plan_id, m.id);
 
   const toggleArchive = async () => {
     if (
@@ -1265,20 +1276,6 @@ export function ThreadPane({
     [dialog, threadId, fetchThread]
   );
 
-  const editPlan = useCallback(
-    async (planId: number) => {
-      if (
-        !(await dialog.confirm("Edit this plan? Your changes update the message thread's copy.", {
-          title: "Edit plan",
-          confirmText: "Edit",
-        }))
-      )
-        return;
-      setEditPlanId(planId);
-    },
-    [dialog]
-  );
-
   const copyPlan = useCallback(
     async (planId: number) => {
       if (
@@ -1406,12 +1403,19 @@ export function ThreadPane({
                 type="button"
                 className="flex shrink-0 items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent hover:bg-dewey-accent/10"
                 onClick={() => {
+                  if (canEditPlan) {
+                    setEditPlanId(headerPlanId);
+                    return;
+                  }
                   setViewPlanFocus(false);
                   setViewPlanId(headerPlanId);
                 }}
-                title={acceptedPlan?.plan_name ?? thread?.accepted_plan_name ?? "Plan"}
+                title={acceptedPlan?.plan_name ?? thread?.accepted_plan_name ?? livePlanMsg?.plan_name ?? "Plan"}
               >
-                🗂️ <span className="max-w-[140px] truncate">{isCop ? "View arc" : "View plan"}</span>
+                {canEditPlan ? "✏️" : "🗂️"}{" "}
+                <span className="max-w-[140px] truncate">
+                  {canEditPlan ? (isCop ? "View/edit Arc" : "View/edit plan") : isCop ? "View arc" : "View plan"}
+                </span>
               </button>
               {planActive && (
                 <button
@@ -1538,7 +1542,7 @@ export function ThreadPane({
                   }}
                   onAcceptPlan={acceptPlan}
                   onSetOutcome={setPlanOutcome}
-                  onEditPlan={editPlan}
+                  isLatestForPlan={m.plan_id == null || latestPlanMessageId.get(m.plan_id) === m.id}
                   onCopyPlan={copyPlan}
                   onDismissPlan={dismissPlan}
                   onRevivePlan={revivePlan}
@@ -1738,7 +1742,7 @@ function MessageBubble({
   onViewPlan,
   onAcceptPlan,
   onSetOutcome,
-  onEditPlan,
+  isLatestForPlan = true,
   onCopyPlan,
   onDismissPlan,
   onRevivePlan,
@@ -1761,7 +1765,8 @@ function MessageBubble({
   onViewPlan: (planId: number) => void;
   onAcceptPlan: (messageId: number) => void;
   onSetOutcome: (messageId: number, outcome: "finished" | "abandoned" | "active") => void;
-  onEditPlan: (planId: number) => void;
+  /** False for an older message about a plan that has a newer one (actions live there). */
+  isLatestForPlan?: boolean;
   onCopyPlan: (planId: number) => void;
   onDismissPlan: (messageId: number) => void;
   onRevivePlan: (messageId: number) => void;
@@ -1801,7 +1806,8 @@ function MessageBubble({
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`flex max-w-[min(85%,760px)] flex-col ${mine ? "items-end" : "items-start"}`}>
-        <div className="mb-0.5 flex items-center gap-2 text-[11px] text-dewey-mute">
+        {/* mb-2 keeps the avatar (and the lead's ring around it) clear of the bubble. */}
+        <div className="mb-2 flex items-center gap-2 text-[11px] text-dewey-mute">
           {m.is_ai ? (
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-dewey-border">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1812,7 +1818,16 @@ function MessageBubble({
               <Avatar userId={m.sender_id} name={m.sender_name} size={36} />
             </div>
           )}
-          <span className="font-medium text-dewey-ink">{senderLabel}</span>
+          {/* The thread's lead (a CoP's Chair, or a coach) is named in the accent
+              color with their role, like the ring on their avatar. */}
+          <span className={senderIsCoach ? "font-semibold text-dewey-accent" : "font-medium text-dewey-ink"}>
+            {senderLabel}
+          </span>
+          {senderIsCoach && (
+            <span className="rounded-full bg-dewey-accent/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-dewey-accent">
+              {isCop ? "Chair" : "Coach"}
+            </span>
+          )}
           <span>{new Date(m.created_at).toLocaleString()}</span>
         </div>
         {/* Quoted reply target (iMessage-style): hover for the full text, click to
@@ -1945,9 +1960,13 @@ function MessageBubble({
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <PlanPill icon="🗂️" label="View plan" onClick={() => onViewPlan(m.plan_id as number)} />
-              {/* Inactive (superseded, finished, or abandoned): owner can revive it
-                  (re-posts as the active plan) or clear it away. */}
-              {planInactive ? (
+              {/* An older message about a plan that was saved again: the newest
+                  message below carries the actions. */}
+              {!isLatestForPlan ? (
+                <span className="px-1 text-xs text-dewey-mute">Updated since — see the latest version below.</span>
+              ) : /* Inactive (superseded, finished, or abandoned): owner can revive it
+                  (re-posts as the active plan) or clear it away. */
+              planInactive ? (
                 canManagePlan && (
                   <>
                     <PlanPill icon="♻️" label="Revive" onClick={() => onRevivePlan(m.id)} />
@@ -1955,11 +1974,10 @@ function MessageBubble({
                   </>
                 )
               ) : m.plan_accepted ? (
-                // Active. Owner can edit the not-done parts in place (the plan goes
-                // back for re-acceptance, progress preserved), or complete/abandon.
+                // Active. The owner completes or abandons it here; editing is from
+                // the header's "View/edit" button.
                 canManagePlan && (
                   <>
-                    <PlanPill icon="✏️" label="Edit" onClick={() => onEditPlan(m.plan_id as number)} />
                     <PlanPill icon="🏁" label="Complete" onClick={() => onSetOutcome(m.id, "finished")} />
                     <PlanPill icon="🚫" label="Abandon" onClick={() => onSetOutcome(m.id, "abandoned")} />
                   </>
@@ -1974,7 +1992,6 @@ function MessageBubble({
                   )}
                   {canManagePlan && (
                     <>
-                      <PlanPill icon="✏️" label="Edit" onClick={() => onEditPlan(m.plan_id as number)} />
                       <PlanPill icon="📋" label="Copy to my plans" onClick={() => onCopyPlan(m.plan_id as number)} />
                       <PlanPill icon="🗑️" label="Dismiss" onClick={() => onDismissPlan(m.id)} />
                     </>
@@ -1985,9 +2002,15 @@ function MessageBubble({
           </div>
         ) : (
           <div
-            className={`rounded-lg px-3 py-2 text-sm ${
-              mine ? "bg-dewey-accent/15 text-dewey-ink" : "bg-dewey-surface text-dewey-ink"
-            } border border-dewey-border`}
+            className={`rounded-lg px-3 py-2 text-sm text-dewey-ink ${
+              // The lead's bubbles (a CoP's Chair, or a coach) stand out: a strong
+              // accent border and tint, whoever is viewing.
+              senderIsCoach
+                ? "border-2 border-dewey-accent/70 bg-dewey-accent/10 shadow-sm"
+                : mine
+                ? "border border-dewey-border bg-dewey-accent/15"
+                : "border border-dewey-border bg-dewey-surface"
+            }`}
           >
             {m.body && (
               <div className="chat-md text-sm">

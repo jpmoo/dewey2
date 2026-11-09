@@ -1981,20 +1981,25 @@ export async function editThreadPlan(
   planId: number,
   userId: number,
   params: { graph: TemplateGraph; name?: string }
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; wasApproved?: boolean }> {
   const pool = getPool();
   await ensureSchema();
   const plan = await getTemplate(planId);
   if (!plan || plan.deleted_at || plan.scope !== "partnership" || plan.deactivated_at || plan.outcome) {
     return { ok: false, error: "This plan can't be edited." };
   }
+  // Editing an approved plan starts a new approval round (the caller posts a
+  // new plan message); editing one still awaiting approval restarts that round
+  // in place on its existing message.
+  const wasApproved = plan.accepted_at != null;
   if (!(await userManagesThreadPlan(planId, userId))) {
     return { ok: false, error: "You don't manage this plan." };
   }
 
-  // A Community of Practice arc has no per-member acceptance: the Chair authors
-  // it freely and it stays live. Preserve the current-activity pointer if it
-  // still exists in the new graph, else land on the first activity.
+  // A Community of Practice arc goes back to every member for approval too. Its
+  // progress is the Chair's attestations (the current-activity pointer, not
+  // approved submissions), so keep that pointer while it's re-approved if the
+  // activity still exists; recordPlanAcceptance resumes from it.
   if (plan.thread_id != null) {
     const kindRes = await pool.query(
       "SELECT kind FROM message_threads WHERE id = $1",
@@ -2004,17 +2009,17 @@ export async function editThreadPlan(
       const hasCurrent =
         plan.current_node_id != null &&
         params.graph.nodes.some((n) => n.id === plan.current_node_id);
-      const current = hasCurrent ? plan.current_node_id : recomputeCurrent(params.graph, new Set());
-      await deactivatePriorThreadPlans(plan.thread_id, planId);
+      await clearPlanAcceptances(planId);
       await pool.query(
         `UPDATE coaching_templates
-            SET graph = $2, name = COALESCE($3, name),
-                accepted_at = COALESCE(accepted_at, NOW()), current_node_id = $4,
-                deactivated_at = NULL, outcome = $5, updated_at = NOW()
+            SET graph = $2, name = COALESCE($3, name), accepted_at = NULL,
+                current_node_id = $4, deactivated_at = NULL, outcome = NULL, updated_at = NOW()
           WHERE id = $1`,
-        [planId, JSON.stringify(params.graph), params.name?.trim() || null, current, current == null ? "finished" : null]
+        [planId, JSON.stringify(params.graph), params.name?.trim() || null, hasCurrent ? plan.current_node_id : null]
       );
-      return { ok: true };
+      // The Chair proposed it, so they've accepted; everyone else accepts.
+      await recordPlanAcceptance(planId, userId);
+      return { ok: true, wasApproved };
     }
   }
 
@@ -2069,7 +2074,7 @@ export async function editThreadPlan(
   );
   // The editor re-proposed it — they're auto-accepted; everyone else re-accepts.
   await recordPlanAcceptance(planId, userId);
-  return { ok: true };
+  return { ok: true, wasApproved };
 }
 
 /**
@@ -2337,8 +2342,14 @@ export async function recordPlanAcceptance(
     // Land on the first not-done activity. For a fresh plan that's the entry
     // node; for one re-accepted after an in-flight edit it skips already-approved
     // activities (and finishes the plan if everything is done).
+    // A re-approved CoP arc keeps the current activity it was on (its progress
+    // is that pointer; there are no approved submissions to recompute from).
     const done = await getApprovedNodeIds(planId);
-    const current = recomputeCurrent(plan.graph, done);
+    const kept =
+      plan.current_node_id != null && plan.graph.nodes.some((n) => n.id === plan.current_node_id)
+        ? plan.current_node_id
+        : null;
+    const current = kept ?? recomputeCurrent(plan.graph, done);
     await deactivatePriorThreadPlans(plan.thread_id, planId);
     await pool.query(
       `UPDATE coaching_templates
@@ -2350,32 +2361,6 @@ export async function recordPlanAcceptance(
     return { locked: true };
   }
   return { locked: false };
-}
-
-/**
- * Activate a thread plan immediately, bypassing the all-participants acceptance
- * gate. Used for a Community of Practice, where the Chair assigns the community's
- * arc (there is no per-member plan contract to accept). Lands on the first
- * not-done activity and supersedes any prior plan in the thread.
- */
-export async function activateThreadPlan(planId: number): Promise<boolean> {
-  const pool = getPool();
-  await ensureSchema();
-  const plan = await getTemplate(planId);
-  if (!plan || plan.deleted_at || plan.scope !== "partnership" || plan.thread_id == null) {
-    return false;
-  }
-  const done = await getApprovedNodeIds(planId);
-  const current = recomputeCurrent(plan.graph, done);
-  await deactivatePriorThreadPlans(plan.thread_id, planId);
-  await pool.query(
-    `UPDATE coaching_templates
-        SET accepted_at = NOW(), current_node_id = $2, deactivated_at = NULL,
-            outcome = $3, updated_at = NOW()
-      WHERE id = $1`,
-    [planId, current, current == null ? "finished" : null]
-  );
-  return true;
 }
 
 /**
