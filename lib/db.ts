@@ -34,6 +34,8 @@ export const PROGRESS_ROLES: SystemRole[] = [
 export interface District {
   id: number;
   name: string;
+  /** Email domains (e.g. "mamkschools.org") whose Google sign-ups join this district. */
+  email_domains: string[];
   created_at: string;
 }
 
@@ -255,11 +257,16 @@ export function ensureSchema(): Promise<void> {
         -- from the audit log. Usernames stay reserved while a deleted account
         -- holds them so a restore can't collide.
         ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+        -- Deleted forever: identity scrubbed to "[deleted]" (see purgeUser). The row
+        -- stays so anything it's linked to survives; it can no longer be restored.
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS purged_at TIMESTAMPTZ;
         -- Widen the system_role check to include the school-leadership roles.
         ALTER TABLE users DROP CONSTRAINT IF EXISTS users_system_role_check;
         ALTER TABLE users ADD CONSTRAINT users_system_role_check
           CHECK (system_role IN ('admin', 'coach', 'partner', 'site_leader', 'deputy_site_leader', 'district_leader'));
         ALTER TABLE districts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+        -- Lowercase email domains whose new Google sign-ups belong to this district.
+        ALTER TABLE districts ADD COLUMN IF NOT EXISTS email_domains TEXT[] NOT NULL DEFAULT '{}';
         ALTER TABLE schools ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         ALTER TABLE coaching_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
@@ -677,20 +684,79 @@ export async function getDistricts(): Promise<District[]> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    "SELECT id, name, created_at FROM districts WHERE deleted_at IS NULL ORDER BY name"
+    "SELECT id, name, email_domains, created_at FROM districts WHERE deleted_at IS NULL ORDER BY name"
   );
-  return res.rows.map((r) => ({ id: r.id, name: r.name, created_at: toIso(r.created_at) }));
+  return res.rows.map(rowToDistrict);
+}
+
+function rowToDistrict(r: Record<string, unknown>): District {
+  return {
+    id: r.id as number,
+    name: r.name as string,
+    email_domains: Array.isArray(r.email_domains) ? (r.email_domains as string[]) : [],
+    created_at: toIso(r.created_at),
+  };
+}
+
+/** Lowercase a domain and drop any leading "@"; null if it isn't a plausible domain. */
+export function normalizeEmailDomain(raw: string): string | null {
+  const d = raw.trim().toLowerCase().replace(/^@+/, "");
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(d) ? d : null;
+}
+
+/**
+ * Replace a district's sign-up email domains. A domain can belong to only one
+ * (visible) district, since it decides where a new account lands.
+ */
+export async function setDistrictEmailDomains(id: number, domains: string[]): Promise<District> {
+  const pool = getPool();
+  await ensureSchema();
+  const clean: string[] = [];
+  for (const raw of domains) {
+    const d = normalizeEmailDomain(raw);
+    if (!d) throw new Error(`"${raw}" isn't a valid email domain.`);
+    if (!clean.includes(d)) clean.push(d);
+  }
+  const clash = await pool.query(
+    `SELECT name, email_domains FROM districts
+      WHERE id <> $1 AND deleted_at IS NULL AND email_domains && $2::text[]`,
+    [id, clean]
+  );
+  if (clash.rows[0]) {
+    const taken = clean.filter((d) => (clash.rows[0].email_domains as string[]).includes(d));
+    throw new Error(`${taken.join(", ")} already belongs to ${clash.rows[0].name}.`);
+  }
+  const res = await pool.query(
+    `UPDATE districts SET email_domains = $2 WHERE id = $1 AND deleted_at IS NULL
+     RETURNING id, name, email_domains, created_at`,
+    [id, clean]
+  );
+  if (!res.rows[0]) throw new Error("District not found");
+  return rowToDistrict(res.rows[0]);
+}
+
+/**
+ * The district a new account with this email joins: the one listing its
+ * domain. Until any district lists a domain, a lone district takes everyone
+ * (how a single-district install works). Null = no district fits.
+ */
+export async function districtForEmail(email: string): Promise<District | null> {
+  const domain = email.trim().toLowerCase().split("@")[1] ?? "";
+  const districts = await getDistricts();
+  const match = districts.find((d) => d.email_domains.includes(domain));
+  if (match) return match;
+  const anyDomains = districts.some((d) => d.email_domains.length > 0);
+  return !anyDomains && districts.length === 1 ? districts[0] : null;
 }
 
 export async function createDistrict(name: string): Promise<District> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    "INSERT INTO districts (name) VALUES ($1) RETURNING id, name, created_at",
+    "INSERT INTO districts (name) VALUES ($1) RETURNING id, name, email_domains, created_at",
     [name.trim()]
   );
-  const r = res.rows[0];
-  return { id: r.id, name: r.name, created_at: toIso(r.created_at) };
+  return rowToDistrict(res.rows[0]);
 }
 
 /** Soft-delete a district (hide it). Its schools/users keep their references. */
@@ -1085,10 +1151,57 @@ export async function restoreUser(id: number): Promise<boolean> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    "UPDATE users SET deleted_at = NULL, updated_at = NOW() WHERE id = $1",
+    "UPDATE users SET deleted_at = NULL, updated_at = NOW() WHERE id = $1 AND purged_at IS NULL",
     [id]
   );
   return (res.rowCount ?? 0) > 0;
+}
+
+/** Shown wherever a deleted-forever account's name would appear. */
+export const PURGED_NAME = "[deleted]";
+
+/**
+ * Delete an archived account forever. Rather than drop the row (which would
+ * cascade away plans, templates, and threads it's linked to), scrub everything
+ * that identifies the person: name, nickname, email, username, password, title,
+ * about, settings, photo, buildings, and their own audit history. Messages and
+ * other items they're linked to stay, and show the name as "[deleted]". The
+ * email and username are freed, so the person can sign up again.
+ */
+export async function purgeUser(id: number): Promise<boolean> {
+  await ensureSchema();
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const res = await client.query(
+      `UPDATE users
+          SET full_name = $2, nickname = NULL, email = NULL, username = 'deleted-' || id,
+              password_hash = '', role = NULL, about = NULL, settings = '{}',
+              district_id = NULL, school_id = NULL, purged_at = NOW(), updated_at = NOW()
+        WHERE id = $1 AND deleted_at IS NOT NULL AND purged_at IS NULL`,
+      [id, PURGED_NAME]
+    );
+    if ((res.rowCount ?? 0) === 0) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await client.query("DELETE FROM user_avatars WHERE user_id = $1", [id]);
+    await client.query("DELETE FROM user_schools WHERE user_id = $1", [id]);
+    await client.query("DELETE FROM user_logs WHERE user_id = $1", [id]);
+    // Other people's log entries about this account (e.g. the admin's "Deleted
+    // a user") carry the old name and username.
+    await client.query(
+      "UPDATE user_logs SET entity_label = $2, detail = NULL WHERE entity_type = 'user' AND entity_id = $1",
+      [id, PURGED_NAME]
+    );
+    await client.query("COMMIT");
+    return true;
+  } catch (e) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 // ============================================================
@@ -2408,6 +2521,8 @@ export interface UserLog {
   entity_type: LogEntityType | null;
   entity_id: number | null;
   entity_label: string | null;
+  /** For entries about a user: "active", "archived", or "purged" (deleted forever). */
+  entity_state: "active" | "archived" | "purged" | null;
 }
 
 /**
@@ -2470,9 +2585,13 @@ export async function getUserLogs(
 
   const res = await pool.query(
     `SELECT l.id, l.action, l.detail, l.created_at, l.actor_id, a.full_name AS actor_name,
-            l.entity_type, l.entity_id, l.entity_label
+            l.entity_type, l.entity_id, l.entity_label,
+            CASE WHEN e.purged_at IS NOT NULL THEN 'purged'
+                 WHEN e.deleted_at IS NOT NULL THEN 'archived'
+                 WHEN e.id IS NOT NULL THEN 'active' END AS entity_state
        FROM user_logs l
        LEFT JOIN users a ON a.id = l.actor_id
+       LEFT JOIN users e ON l.entity_type = 'user' AND e.id = l.entity_id
       WHERE ${where}
       ORDER BY l.created_at DESC
       LIMIT $${params.length}`,
@@ -2488,6 +2607,7 @@ export async function getUserLogs(
     entity_type: (r.entity_type as LogEntityType | null) ?? null,
     entity_id: (r.entity_id as number | null) ?? null,
     entity_label: (r.entity_label as string | null) ?? null,
+    entity_state: (r.entity_state as UserLog["entity_state"]) ?? null,
   }));
 }
 

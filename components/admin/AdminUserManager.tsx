@@ -84,6 +84,8 @@ type UserLogView = {
   entity_type: LogEntityType | null;
   entity_id: number | null;
   entity_label: string | null;
+  /** For entries about a user: whether that account is active, archived, or deleted forever. */
+  entity_state: "active" | "archived" | "purged" | null;
 };
 
 type ConversationRow = {
@@ -109,8 +111,10 @@ const ACTION_LABELS: Record<string, string> = {
   signed_in: "Signed in",
   signed_out: "Signed out",
   user_deleted: "Deleted a user",
+  user_purged: "Deleted a user forever",
   district_created: "Created a district",
   district_deleted: "Deleted a district",
+  district_updated: "Updated a district",
   school_created: "Created a school",
   school_deleted: "Deleted a school",
   settings_updated: "Updated system settings",
@@ -1142,6 +1146,7 @@ function LogRow({
 }) {
   const dialog = useDialog();
   const [restoring, setRestoring] = useState(false);
+  const [purging, setPurging] = useState(false);
   const meta: string[] = [];
   // Skip detail when it just repeats the entity label (e.g. delete entries).
   if (l.detail && l.detail !== l.entity_label) meta.push(l.detail);
@@ -1150,7 +1155,32 @@ function LogRow({
   const linksTemplate = l.entity_type === "template" && l.entity_id != null;
   const linksThread = l.entity_type === "message" && l.entity_id != null;
   const linkable = linksTemplate || linksThread;
-  const restorable = DELETE_ACTIONS.has(l.action) && l.entity_type != null && l.entity_id != null;
+  // A user can be restored, or deleted forever, only while still archived.
+  const userArchived = l.entity_type === "user" && l.entity_state === "archived";
+  const restorable =
+    DELETE_ACTIONS.has(l.action) &&
+    l.entity_type != null &&
+    l.entity_id != null &&
+    (l.entity_type !== "user" || userArchived);
+  const purgeable = l.action === "user_deleted" && userArchived && l.entity_id != null;
+
+  const purge = async () => {
+    if (
+      !(await dialog.confirm(
+        `Delete ${l.entity_label ?? "this user"} forever? Their name, email, username, profile, photo, and history are erased and can't be restored. Messages and other items they were part of stay, shown as [deleted]. Their email can then be used to sign up again.`,
+        { title: "Delete forever", confirmText: "Delete forever", danger: true }
+      ))
+    )
+      return;
+    setPurging(true);
+    try {
+      await apiFetch("/api/admin/purge", { method: "POST", body: { userId: l.entity_id } });
+      onRestored();
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Failed to delete");
+      setPurging(false);
+    }
+  };
 
   const restore = async () => {
     setRestoring(true);
@@ -1179,6 +1209,16 @@ function LogRow({
               disabled={restoring}
             >
               {restoring ? "Restoring…" : "Restore"}
+            </button>
+          )}
+          {purgeable && (
+            <button
+              type="button"
+              className="text-red-700 hover:underline disabled:opacity-50"
+              onClick={purge}
+              disabled={purging || restoring}
+            >
+              {purging ? "Deleting…" : "Delete forever"}
             </button>
           )}
           <span className="text-dewey-mute">{new Date(l.created_at).toLocaleString()}</span>

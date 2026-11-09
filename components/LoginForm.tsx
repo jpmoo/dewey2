@@ -10,6 +10,8 @@ const GOOGLE_REFUSALS: Record<string, string> = {
     "The Dewey account for this Google email has been archived. Ask your admin to restore it, or to remove this email from it so you can sign up again.",
   GoogleDuplicate:
     "More than one Dewey account uses this Google email, so Dewey can't tell which one to sign in to. Ask your admin to remove the email from the extra account.",
+  GoogleDomain:
+    "Dewey isn't set up for your email's domain yet. Sign in with your school or district email, or ask your admin to add your district.",
   GoogleUnverified:
     "Google hasn't verified this account's email address, so Dewey can't use it to sign in. Verify it with Google, or use another account.",
   AccessDenied: "That Google account can't sign in to Dewey. Ask your admin for help.",

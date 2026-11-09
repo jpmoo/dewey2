@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { countUsersWithEmail, createUser, getDistricts, getSchools, logUserEvent } from "@/lib/db";
+import { countUsersWithEmail, createUser, districtForEmail, getSchools, logUserEvent } from "@/lib/db";
 
 /**
  * Finish a Google self sign-up: create the partner account for the verified
  * Google email held in the session token. Body: { full_name, nickname, title,
- * school_ids, district_wide }. The account joins the (single) district; choosing
- * district-wide saves every school in it. The client then calls
+ * school_ids, district_wide }. The account joins the district that lists the
+ * email's domain; choosing district-wide saves every school in it. The client then calls
  * session.update({ action: "complete-signup" }) to sign in as the new account.
  */
 export async function POST(request: NextRequest) {
@@ -24,8 +24,12 @@ export async function POST(request: NextRequest) {
   const fullName = typeof body.full_name === "string" ? body.full_name.trim() : "";
   if (!fullName) return NextResponse.json({ error: "Please enter your full name." }, { status: 400 });
 
-  const district = (await getDistricts())[0] ?? null;
-  const schools = district ? await getSchools(district.id) : [];
+  // Their email domain decides the district (see districtForEmail).
+  const district = await districtForEmail(email);
+  if (!district) {
+    return NextResponse.json({ error: "No district is set up for your email domain." }, { status: 403 });
+  }
+  const schools = await getSchools(district.id);
   let schoolIds: number[] = [];
   if (schools.length > 0) {
     if (body.district_wide === true) {
@@ -48,7 +52,7 @@ export async function POST(request: NextRequest) {
       role: typeof body.title === "string" ? body.title : null,
       email,
       system_role: "partner",
-      district_id: district?.id ?? null,
+      district_id: district.id,
       school_ids: schoolIds,
     });
     await logUserEvent({

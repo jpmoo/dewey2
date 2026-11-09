@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getDistricts, getSchools } from "@/lib/db";
+import { districtForEmail, getSchools } from "@/lib/db";
 import { WelcomeForm } from "@/components/WelcomeForm";
 import { Logo } from "@/components/Logo";
 
@@ -19,7 +19,7 @@ export default async function WelcomePage() {
   const pending = session.user.pendingSignup;
   if (!pending) redirect("/");
 
-  const district = (await getDistricts())[0] ?? null;
+  const district = await districtForEmail(pending.email);
   const schools = district ? await getSchools(district.id) : [];
 
   return (

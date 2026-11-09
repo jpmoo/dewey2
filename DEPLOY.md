@@ -129,9 +129,11 @@ and add this authorized redirect URI to the OAuth client in Google Cloud:
 `https://home-server.tailce6f0c.ts.net/dewey/api/auth/callback/google`
 
 A Google account with no matching Dewey email is asked for a name, title, and
-schools, then becomes a partner in the district. So anyone the OAuth client lets
-through can sign up: set its user type to **Internal** in Google Cloud to keep it
-to your Workspace domain.
+schools, then becomes a partner. Its email domain decides the district: list each
+district's domains (e.g. `mamkschools.org`) on the admin **Organization** page.
+Once any district lists a domain, sign-ups from other domains are refused. Until
+then, with a single district, any Google account the OAuth client lets through
+can sign up.
 
 ---
 

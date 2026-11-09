@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api-client";
 import { useDialog } from "@/components/DialogProvider";
 
 type School = { id: number; district_id: number; name: string };
-type DistrictWithSchools = { id: number; name: string; schools: School[] };
+type DistrictWithSchools = { id: number; name: string; email_domains: string[]; schools: School[] };
 
 export function AdminOrgManager() {
   const dialog = useDialog();
@@ -14,6 +14,7 @@ export function AdminOrgManager() {
   const [error, setError] = useState<string | null>(null);
   const [newDistrict, setNewDistrict] = useState("");
   const [schoolDrafts, setSchoolDrafts] = useState<Record<number, string>>({});
+  const [domainDrafts, setDomainDrafts] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -69,6 +70,30 @@ export function AdminOrgManager() {
     [schoolDrafts, load, dialog]
   );
 
+  const saveDomains = useCallback(
+    async (districtId: number, emailDomains: string[]) => {
+      setBusy(true);
+      try {
+        await apiFetch(`/api/admin/districts/${districtId}`, {
+          method: "PATCH",
+          body: { email_domains: emailDomains },
+        });
+        setDomainDrafts((prev) => ({ ...prev, [districtId]: "" }));
+        await load();
+      } catch (e) {
+        dialog.alert(e instanceof Error ? e.message : "Failed to save email domains");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, dialog]
+  );
+
+  const addDomain = (d: DistrictWithSchools) => {
+    const draft = (domainDrafts[d.id] ?? "").trim();
+    if (draft) saveDomains(d.id, [...d.email_domains, draft]);
+  };
+
   const removeDistrict = useCallback(
     async (d: DistrictWithSchools) => {
       if (
@@ -119,7 +144,8 @@ export function AdminOrgManager() {
         <h2 className="text-lg font-semibold">Organization</h2>
         <p className="text-sm text-dewey-mute">
           Districts and the schools within them. Accounts are assigned to a
-          district and school in user management.
+          district and school in user management. Someone signing in with Google
+          for the first time joins the district that lists their email domain.
         </p>
       </div>
 
@@ -141,6 +167,50 @@ export function AdminOrgManager() {
                 >
                   <span aria-hidden>🗑️</span> Delete district
                 </button>
+              </div>
+              <div className="mb-3">
+                <p className="mb-1 text-xs font-medium text-dewey-mute">Sign-up email domains</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {d.email_domains.length === 0 && (
+                    <span className="text-xs text-dewey-mute">
+                      None yet.
+                    </span>
+                  )}
+                  {d.email_domains.map((dom) => (
+                    <span
+                      key={dom}
+                      className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-xs text-dewey-accent"
+                    >
+                      @{dom}
+                      <button
+                        type="button"
+                        aria-label={`Remove ${dom}`}
+                        className="text-dewey-mute hover:text-red-700 disabled:opacity-50"
+                        onClick={() => saveDomains(d.id, d.email_domains.filter((x) => x !== dom))}
+                        disabled={busy}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-1.5 flex gap-2">
+                  <input
+                    className="dewey-input"
+                    placeholder="Add a domain, e.g. mamkschools.org"
+                    value={domainDrafts[d.id] ?? ""}
+                    onChange={(e) => setDomainDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && addDomain(d)}
+                  />
+                  <button
+                    type="button"
+                    className="dewey-btn-secondary"
+                    onClick={() => addDomain(d)}
+                    disabled={busy || !(domainDrafts[d.id] ?? "").trim()}
+                  >
+                    <span aria-hidden>➕</span> Add
+                  </button>
+                </div>
               </div>
               <ul className="space-y-1 mb-3">
                 {d.schools.length === 0 ? (

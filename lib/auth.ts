@@ -4,6 +4,7 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
 import {
   countUsersWithEmail,
+  districtForEmail,
   getUserByEmail,
   getUserById,
   getUserWithHashByUsername,
@@ -81,8 +82,9 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     // Google sign-in is allowed when the verified email maps to exactly one Dewey
     // account, or to none at all (a new person, who signs up on /welcome). An
-    // email shared by several accounts, or held only by an archived one, is
-    // refused, with an error code the login form explains.
+    // email shared by several accounts, held only by an archived one, or (for a
+    // new person) on a domain no district lists, is refused, with an error code
+    // the login form explains.
     async signIn({ account, profile }) {
       if (account?.provider !== "google") return true;
       const p = profile as { email?: string; email_verified?: boolean } | undefined;
@@ -91,6 +93,8 @@ export const authOptions: NextAuthOptions = {
       const { active, archived } = await countUsersWithEmail(p.email);
       if (active > 1) return loginError("GoogleDuplicate");
       if (archived > 0) return loginError("GoogleArchived");
+      // A new person: their email domain has to place them in a district.
+      if (!(await districtForEmail(p.email))) return loginError("GoogleDomain");
       return true;
     },
     async jwt({ token, user, account, profile, trigger, session }) {
