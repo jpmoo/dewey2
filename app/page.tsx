@@ -21,6 +21,10 @@ export default async function HomePage() {
   if (!session?.user) {
     redirect("/login");
   }
+  // First Google sign-in with no account yet: finish signing up.
+  if (session.user.pendingSignup) {
+    redirect("/welcome");
+  }
   switch (session.user.system_role) {
     case "admin":
       redirect("/admin");

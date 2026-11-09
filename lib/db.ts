@@ -866,6 +866,22 @@ export async function getUserByEmail(email: string): Promise<User | null> {
   return (await attachSchoolIds([rowToUser(res.rows[0])]))[0];
 }
 
+/**
+ * How many accounts, hidden ones included, carry this email. Lets a Google
+ * sign-in with no matching account tell "new person" (0) from an ambiguous or
+ * deleted account, which must not be able to sign up again.
+ */
+export async function countUsersWithEmail(email: string): Promise<number> {
+  const trimmed = email.trim();
+  if (!trimmed) return 0;
+  const pool = getPool();
+  await ensureSchema();
+  const res = await pool.query("SELECT COUNT(*)::int AS n FROM users WHERE LOWER(email) = LOWER($1)", [
+    trimmed,
+  ]);
+  return (res.rows[0]?.n as number) ?? 0;
+}
+
 /** Includes password_hash — for auth only. Never expose this shape to clients. */
 export async function getUserWithHashByUsername(
   username: string

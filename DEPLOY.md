@@ -128,6 +128,11 @@ For "Sign in with Google", also set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET
 and add this authorized redirect URI to the OAuth client in Google Cloud:
 `https://home-server.tailce6f0c.ts.net/dewey/api/auth/callback/google`
 
+A Google account with no matching Dewey email is asked for a name, title, and
+schools, then becomes a partner in the district. So anyone the OAuth client lets
+through can sign up: set its user type to **Internal** in Google Cloud to keep it
+to your Workspace domain.
+
 ---
 
 ## 4. Build

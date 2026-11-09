@@ -16,6 +16,8 @@ declare module "next-auth" {
       impersonating: boolean;
       /** Display name of the admin who started impersonating, if any. */
       impersonatorName: string | null;
+      /** Set when signed in with Google but no Dewey account exists yet (see /welcome). */
+      pendingSignup: { email: string; name: string; givenName: string } | null;
     };
   }
 
@@ -40,5 +42,7 @@ declare module "next-auth/jwt" {
     impersonatorId?: string;
     /** Original admin's display name while impersonating. */
     impersonatorName?: string;
+    /** A verified Google identity with no Dewey account yet; cleared once /welcome creates it. */
+    pendingSignup?: { email: string; name: string; givenName: string };
   }
 }

@@ -2,7 +2,13 @@ import type { NextAuthOptions } from "next-auth";
 import type { JWT } from "next-auth/jwt";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
-import { getUserByEmail, getUserById, getUserWithHashByUsername, logUserEvent } from "@/lib/db";
+import {
+  countUsersWithEmail,
+  getUserByEmail,
+  getUserById,
+  getUserWithHashByUsername,
+  logUserEvent,
+} from "@/lib/db";
 import type { SystemRole, User } from "@/lib/db";
 import { verifyPassword } from "@/lib/password";
 import { maybeRunDailyBackup } from "@/lib/backup";
@@ -67,16 +73,17 @@ function applyUserToToken(token: JWT, user: User): void {
 export const authOptions: NextAuthOptions = {
   providers,
   callbacks: {
-    // Google sign-in is allowed only when the verified email maps to exactly one
-    // existing Dewey account (roles/org are admin-provisioned — no auto-create).
+    // Google sign-in is allowed when the verified email maps to exactly one Dewey
+    // account, or to none at all (a new person, who signs up on /welcome). An
+    // email shared by several accounts, or held only by a deleted one, is refused.
     async signIn({ account, profile }) {
       if (account?.provider !== "google") return true;
       const p = profile as { email?: string; email_verified?: boolean } | undefined;
       if (!p?.email || p.email_verified === false) return false;
-      const dewey = await getUserByEmail(p.email);
-      return dewey ? true : false; // false → /login?error=AccessDenied
+      if (await getUserByEmail(p.email)) return true;
+      return (await countUsersWithEmail(p.email)) === 0; // false → /login?error=AccessDenied
     },
-    async jwt({ token, user, account, trigger, session }) {
+    async jwt({ token, user, account, profile, trigger, session }) {
       // Fresh sign-in via Google: resolve the identity from OUR database by the
       // verified email, so Google only proves who they are.
       if (user && account?.provider === "google") {
@@ -85,6 +92,16 @@ export const authOptions: NextAuthOptions = {
         if (dewey) {
           applyUserToToken(token, dewey);
           await logUserEvent({ userId: dewey.id, actorId: dewey.id, action: "signed_in", detail: "via Google" });
+        } else if (email) {
+          // No account yet: hold the Google identity, with no Dewey user id (so
+          // every guarded API refuses it), until the welcome form creates one.
+          const p = profile as { name?: string; given_name?: string } | undefined;
+          delete token.sub;
+          token.pendingSignup = {
+            email,
+            name: p?.name ?? (user.name as string | null) ?? "",
+            givenName: p?.given_name ?? "",
+          };
         }
         return token;
       }
@@ -142,6 +159,17 @@ export const authOptions: NextAuthOptions = {
           }
         }
 
+        // Welcome form done: swap the held Google identity for the account it
+        // just created, found by the verified email signed into this token.
+        else if (action === "complete-signup" && token.pendingSignup) {
+          const dewey = await getUserByEmail(token.pendingSignup.email);
+          if (dewey) {
+            applyUserToToken(token, dewey);
+            delete token.pendingSignup;
+            await logUserEvent({ userId: dewey.id, actorId: dewey.id, action: "signed_in", detail: "via Google" });
+          }
+        }
+
         // Reload the current identity from the DB (e.g. after a self profile
         // edit) so the name/nickname in the UI update without re-login.
         else if (action === "refresh") {
@@ -171,6 +199,8 @@ export const authOptions: NextAuthOptions = {
         // Surfaced so the UI can show the "viewing as…" banner and bail-out.
         session.user.impersonating = !!token.impersonatorId;
         session.user.impersonatorName = (token.impersonatorName as string | null) ?? null;
+        // Signed in with Google but has no account yet; pages send them to /welcome.
+        session.user.pendingSignup = token.pendingSignup ?? null;
       }
       return session;
     },

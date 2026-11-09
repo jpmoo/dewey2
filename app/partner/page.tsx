@@ -17,6 +17,8 @@ export const dynamic = "force-dynamic";
 export default async function PartnerPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/login");
+  // No account yet (its role reads as the "partner" default): finish signing up.
+  if (session.user.pendingSignup) redirect("/welcome");
   if (session.user.system_role === "admin") redirect("/admin");
   if (session.user.system_role === "coach") redirect("/coach");
   if (session.user.system_role === "site_leader" || session.user.system_role === "deputy_site_leader")

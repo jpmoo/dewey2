@@ -12,13 +12,13 @@ export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }
   // With Google available, username/password stays collapsed until asked for.
   const [showPassword, setShowPassword] = useState(!googleEnabled);
 
-  // Surface an OAuth failure redirected back as ?error= (e.g. an unlinked Google
-  // account is denied by the signIn callback → AccessDenied).
+  // Surface an OAuth failure redirected back as ?error= (e.g. a Google email
+  // shared by several accounts, or held by a deleted one → AccessDenied).
   useEffect(() => {
     const code = new URLSearchParams(window.location.search).get("error");
     if (!code) return;
     if (code === "AccessDenied") {
-      setError("That Google account isn't linked to a Dewey account. Ask your admin to add your email to your account.");
+      setError("That Google account can't sign in to Dewey. Ask your admin for help.");
     } else {
       setError("Couldn't sign in with Google. Please try again or use your username and password.");
       setShowPassword(true);
