@@ -7,6 +7,7 @@ import {
   getMessageBrief,
   getUserAttachmentBytes,
   logThreadEvent,
+  mentionedMemberIds,
   postMessage,
 } from "@/lib/messages";
 import { mentionsDewey, runDeweyForThread } from "@/lib/dewey";
@@ -96,13 +97,18 @@ export async function POST(
   const invokesDewey = mentionsDewey(body) || replyToAi;
   const cop = invokesDewey ? await getCopMeta(id) : null;
   const privateExchange = !!cop && invokesDewey;
+  // @-mentioning members makes the message private to the sender and them,
+  // until the sender shares it with the group.
+  const mentioned = await mentionedMemberIds(id, body, me0);
+  const audience =
+    privateExchange || mentioned.length > 0 ? Array.from(new Set([me0, ...mentioned])) : undefined;
 
   const messageId = await postMessage({
     threadId: id,
     senderId: me0,
     body,
     replyTo,
-    audience: privateExchange ? [me0] : undefined,
+    audience,
   });
   let docCount = 0;
   let fileCount = 0;

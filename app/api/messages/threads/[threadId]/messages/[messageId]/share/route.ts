@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { messageScope, requireUser } from "@/lib/guard";
 import { canAccessThread, shareCopExchange, logThreadEvent } from "@/lib/messages";
 
-/** Share a private CoP @dewey exchange with the whole community. */
+/** Share a private message (CoP @dewey exchange or private @-mention) with the whole thread. */
 export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> }

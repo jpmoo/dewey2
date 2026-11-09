@@ -29,6 +29,7 @@ type Participant = {
   id: number;
   full_name: string;
   nickname: string | null;
+  username: string;
   system_role: string;
 };
 type AttachmentMeta = { id: number; filename: string; mime_type: string; size_bytes: number };
@@ -55,6 +56,8 @@ type MessageView = {
   sources: { name: string; path: string }[];
   submission_status: "pending" | "approved" | "returned" | null;
   restricted: boolean;
+  /** Who a restricted message is visible to; null when everyone sees it. */
+  audience: number[] | null;
   event: "advance" | "finish" | null;
   dewey_conversation_id: number | null;
   dewey_mode: "snapshot" | "live" | null;
@@ -630,6 +633,29 @@ function threadTitle(t: ThreadSummary, meId: number | null): string {
  * an accent ring + label so it's clear who's coaching.
  */
 /**
+ * Short display names for a thread's members: the nickname (or full name), plus
+ * the last name's initial when two members would otherwise read the same
+ * ("Sam K.", "Sam L.").
+ */
+function memberDisplayNames(participants: Participant[]): Map<number, string> {
+  const base = (p: Participant) => p.nickname || p.full_name;
+  const counts = new Map<string, number>();
+  for (const p of participants) {
+    const key = base(p).trim().toLowerCase();
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const names = new Map<number, string>();
+  for (const p of participants) {
+    const name = base(p);
+    const parts = p.full_name.trim().split(/\s+/);
+    const initial = parts.length > 1 ? parts[parts.length - 1][0]?.toUpperCase() : "";
+    const shared = (counts.get(name.trim().toLowerCase()) ?? 0) > 1;
+    names.set(p.id, shared && initial ? `${name} ${initial}.` : name);
+  }
+  return names;
+}
+
+/**
  * Whom a thread highlights as its lead: the Chair in a Community of Practice,
  * otherwise the coaches.
  */
@@ -867,6 +893,7 @@ export function ThreadPane({
   const leadIds = new Set(
     thread ? thread.participants.filter((p) => isThreadLead(thread, p)).map((p) => p.id) : []
   );
+  const memberNames = memberDisplayNames(thread?.participants ?? []);
   // An accepted plan that's still in progress (not finished/abandoned) blocks
   // adding a new one. A terminal plan frees the coach to add the next.
   const hasActivePlan = messages.some((m) => m.plan_accepted && !m.plan_outcome && !m.plan_deactivated);
@@ -1128,7 +1155,7 @@ export function ThreadPane({
     [activeActivity, dialog, threadId, fetchThread, onPosted]
   );
 
-  // Reveal a private CoP @dewey exchange to the whole community.
+  // Reveal a private message (CoP @dewey exchange or private @-mention) to everyone.
   const shareExchange = useCallback(
     async (messageId: number) => {
       try {
@@ -1453,7 +1480,7 @@ export function ThreadPane({
                   {i > 0 && ", "}
                   <span className={isLead ? "font-medium text-dewey-ink" : ""}>
                     {isLead && <span aria-hidden>⚡️ </span>}
-                    {p.nickname || p.full_name}
+                    {memberNames.get(p.id)}
                   </span>
                 </span>
               );
@@ -1511,6 +1538,7 @@ export function ThreadPane({
                   onRevivePlan={revivePlan}
                   onReply={(t) => setReplyTarget(t)}
                   isCop={isCop}
+                  memberNames={memberNames}
                   onShare={shareExchange}
                   onOpenSharedDewey={(id) => setSharedDeweyMsg(id)}
                 />
@@ -1563,13 +1591,14 @@ export function ThreadPane({
       ) : (
         <Composer
           threadId={threadId}
+          participants={thread?.participants ?? []}
+          meId={meId}
           replyTarget={replyTarget}
           onClearReply={() => setReplyTarget(null)}
           onSent={() => {
             setReplyTarget(null);
             onSent();
           }}
-          onRefresh={() => fetchThread(false)}
           onDeweyPending={(pending) => {
             setDeweyThinking(pending);
             if (pending) stick.current = true;
@@ -1709,6 +1738,7 @@ function MessageBubble({
   onRevivePlan,
   onReply,
   isCop = false,
+  memberNames,
   onShare,
   onOpenSharedDewey,
 }: {
@@ -1732,7 +1762,9 @@ function MessageBubble({
   onReply: (t: ReplyTarget) => void;
   /** This thread is a Community of Practice (restricted = private, not coach-only). */
   isCop?: boolean;
-  /** Share a private CoP exchange with the whole community. */
+  /** Short names of the thread's members, for "Private: you & …". */
+  memberNames: Map<number, string>;
+  /** Share a private message (CoP @dewey exchange or private @-mention) with the group. */
   onShare?: (messageId: number) => void;
   /** Open a shared Dewey-conversation bubble. */
   onOpenSharedDewey?: (messageId: number) => void;
@@ -1748,6 +1780,18 @@ function MessageBubble({
   const planInactive = m.plan_deactivated || m.plan_outcome != null;
   // Quoted reply: collapsed (one line) by default, click to expand.
   const [replyExpanded, setReplyExpanded] = useState(false);
+  // Who can see a restricted message, e.g. "Private: you & Sam K.".
+  const audienceOthers = (m.audience ?? []).filter((id) => id !== meId).map((id) => memberNames.get(id) ?? "someone");
+  const inAudience = meId != null && (m.audience ?? []).includes(meId);
+  const privateLabel = !m.audience
+    ? isCop
+      ? "Private to you"
+      : "Coaches & partner"
+    : audienceOthers.length === 0
+    ? "Private to you"
+    : `Private: ${inAudience ? "you & " : ""}${audienceOthers.join(", ")}`;
+  // Outside a CoP, @dewey replies stay restricted to coaches and partner.
+  const canShare = m.restricted && !!onShare && (inAudience || isAdmin) && (isCop || !m.is_ai);
   return (
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`flex max-w-[min(85%,760px)] flex-col ${mine ? "items-end" : "items-start"}`}>
@@ -1802,15 +1846,15 @@ function MessageBubble({
             )}
             {m.restricted && (
               <span className="inline-flex items-center gap-1 rounded-full bg-dewey-surface-2 px-2 py-0.5 text-[11px] text-dewey-mute">
-                🔒 {isCop ? "Private to you" : "Coaches & partner"}
+                🔒 {privateLabel}
               </span>
             )}
-            {m.restricted && isCop && onShare && (
+            {canShare && (
               <button
                 type="button"
-                onClick={() => onShare(m.id)}
+                onClick={() => onShare?.(m.id)}
                 className="inline-flex items-center gap-1 rounded-full border border-dewey-accent/40 bg-dewey-accent/5 px-2 py-0.5 text-[11px] text-dewey-accent hover:bg-dewey-accent/10"
-                title="Make this @dewey exchange visible to the whole community"
+                title="Make this visible to everyone in the conversation"
               >
                 👥 Share with group
               </button>
@@ -2052,22 +2096,23 @@ function Attachment({
   );
 }
 
-type AddableUser = { id: number; full_name: string; username: string; system_role: string };
-
 function Composer({
   threadId,
+  participants,
+  meId,
   replyTarget,
   onClearReply,
   onSent,
-  onRefresh,
   onDeweyPending,
   onAskDewey,
 }: {
   threadId: number;
+  /** The thread's members: the only people @ can address. */
+  participants: Participant[];
+  meId: number | null;
   replyTarget: ReplyTarget | null;
   onClearReply: () => void;
   onSent: () => void;
-  onRefresh: () => void;
   onDeweyPending: (pending: boolean) => void;
   /** Route an @dewey question into the private Dewey side panel instead of the thread. */
   onAskDewey: (question: string) => void;
@@ -2080,31 +2125,18 @@ function Composer({
   const fileInput = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
-  // @-mention: when the word at the caret starts with "@", search addable users.
+  // @-mention: when the word at the caret starts with "@", offer Dewey and the
+  // other members. Mentioning members makes the message private to them.
   const [mention, setMention] = useState<string | null>(null);
-  const [matches, setMatches] = useState<AddableUser[]>([]);
-
-  useEffect(() => {
-    if (mention === null) {
-      setMatches([]);
-      return;
-    }
-    let cancelled = false;
-    const t = setTimeout(() => {
-      fetch(pathWithBase(`/api/messages/threads/${threadId}/addable?q=${encodeURIComponent(mention)}`))
-        .then((r) => (r.ok ? r.json() : { users: [] }))
-        .then((d) => {
-          if (!cancelled) setMatches(d.users ?? []);
-        })
-        .catch(() => {
-          if (!cancelled) setMatches([]);
+  const memberNames = memberDisplayNames(participants);
+  const matches =
+    mention === null
+      ? []
+      : participants.filter((p) => {
+          if (p.id === meId) return false;
+          const needle = mention.toLowerCase();
+          return `${p.nickname ?? ""} ${p.full_name} ${p.username}`.toLowerCase().includes(needle);
         });
-    }, 150);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [mention, threadId]);
 
   const onBodyChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const v = e.target.value;
@@ -2114,28 +2146,14 @@ function Composer({
     setMention(m ? m[2] : null);
   };
 
-  const pickMention = async (u: AddableUser) => {
+  const pickMention = (u: Participant) => {
     // Replace the partial "@word" before the caret with "@username ".
     const el = textRef.current;
     const caret = el?.selectionStart ?? body.length;
     const before = body.slice(0, caret).replace(/@(\w*)$/, `@${u.username} `);
     setBody(before + body.slice(caret));
     setMention(null);
-    setMatches([]);
-    try {
-      const res = await fetch(pathWithBase(`/api/messages/threads/${threadId}/participants`), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ userId: u.id }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error((d as { error?: string }).error || "Couldn't add");
-      }
-      onRefresh();
-    } catch (e) {
-      dialog.alert(e instanceof Error ? e.message : "Couldn't add that person");
-    }
+    el?.focus();
   };
 
   // Insert "@dewey" (the AI companion) — not a participant, so no add call.
@@ -2145,7 +2163,6 @@ function Composer({
     const before = body.slice(0, caret).replace(/@(\w*)$/, "@dewey ");
     setBody(before + body.slice(caret));
     setMention(null);
-    setMatches([]);
     el?.focus();
   };
   // Show @dewey while the typed fragment is still a prefix of "dewey".
@@ -2257,8 +2274,8 @@ function Composer({
                   pickMention(u);
                 }}
               >
-                <span className="font-medium text-dewey-ink">{u.full_name}</span>
-                <span className="ml-1 text-xs text-dewey-mute">@{u.username} · {u.system_role}</span>
+                <span className="font-medium text-dewey-ink">{memberNames.get(u.id)}</span>
+                <span className="ml-1 text-xs text-dewey-mute">{u.full_name} · message privately</span>
               </button>
             </li>
           ))}
@@ -2312,7 +2329,7 @@ function Composer({
           ref={textRef}
           className="dewey-input min-h-[38px] flex-1 resize-none"
           rows={1}
-          placeholder="Write a message…  @ to add someone"
+          placeholder="Write a message…  @ to message someone privately"
           value={body}
           onChange={onBodyChange}
           onKeyDown={(e) => {

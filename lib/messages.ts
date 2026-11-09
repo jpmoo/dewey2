@@ -42,6 +42,8 @@ export interface ThreadParticipant {
   id: number;
   full_name: string;
   nickname: string | null;
+  /** For @-mentions in the composer. */
+  username: string;
   system_role: string;
 }
 
@@ -85,6 +87,8 @@ export interface MessageView {
   submission_status: "pending" | "approved" | "returned" | null;
   /** True when this message has a restricted audience (visible to a subset). */
   restricted: boolean;
+  /** The user ids a restricted message is visible to; null when everyone sees it. */
+  audience: number[] | null;
   /** Celebratory progress marker: 'advance' | 'finish' | null. */
   event: "advance" | "finish" | null;
   /** Shared Dewey-conversation bubble (else null). */
@@ -628,9 +632,35 @@ export async function createCoP(params: {
 }
 
 /**
- * Reveal a private CoP @dewey exchange to the whole community. Clears the
- * audience restriction on the given message, its paired question/reply, and any
- * direct replies to it. Only the owner (a user in the audience) or an admin may.
+ * The thread members a message @-mentions by username (the sender excluded).
+ * Mentioning members makes the message private to the sender and them.
+ */
+export async function mentionedMemberIds(
+  threadId: number,
+  body: string,
+  senderId: number
+): Promise<number[]> {
+  const names = new Set<string>();
+  for (const m of Array.from(body.matchAll(/(^|\s)@([\w.-]+)/g))) {
+    names.add(m[2].replace(/[.-]+$/, "").toLowerCase());
+  }
+  names.delete("dewey");
+  if (names.size === 0) return [];
+  const pool = getPool();
+  const res = await pool.query(
+    `SELECT u.id FROM thread_participants p JOIN users u ON u.id = p.user_id
+      WHERE p.thread_id = $1 AND u.id <> $2 AND LOWER(u.username) = ANY($3::text[])`,
+    [threadId, senderId, Array.from(names)]
+  );
+  return res.rows.map((r) => r.id as number);
+}
+
+/**
+ * Reveal a private message to the whole thread: a CoP @dewey exchange, or a
+ * message privately @-mentioning members. Clears the audience restriction on
+ * the given message, its paired question/reply, and any direct replies to it.
+ * Only the owner (a user in the audience) or an admin may. Outside a CoP,
+ * @dewey replies stay restricted (there they're kept to coaches and partner).
  */
 export async function shareCopExchange(
   threadId: number,
@@ -640,11 +670,14 @@ export async function shareCopExchange(
 ): Promise<boolean> {
   const pool = getPool();
   const r = await pool.query(
-    "SELECT reply_to, audience FROM messages WHERE id = $1 AND thread_id = $2 AND deleted_at IS NULL",
+    `SELECT m.reply_to, m.audience, m.is_ai, t.kind
+       FROM messages m JOIN message_threads t ON t.id = m.thread_id
+      WHERE m.id = $1 AND m.thread_id = $2 AND m.deleted_at IS NULL`,
     [messageId, threadId]
   );
   const m = r.rows[0];
   if (!m) return false;
+  if (m.kind !== "cop" && m.is_ai) return false;
   const audience = (m.audience as number[] | null) ?? null;
   if (!isAdmin && !(audience && audience.includes(userId))) return false;
   await pool.query(
@@ -802,7 +835,7 @@ export async function listThreadsForUser(
   const ids = threads.map((t) => t.id as number);
 
   const partsRes = await pool.query(
-    `SELECT p.thread_id, u.id, u.full_name, u.nickname, u.system_role
+    `SELECT p.thread_id, u.id, u.full_name, u.nickname, u.username, u.system_role
        FROM thread_participants p
        JOIN users u ON u.id = p.user_id
       WHERE p.thread_id = ANY($1::int[])
@@ -812,7 +845,13 @@ export async function listThreadsForUser(
   const byThread = new Map<number, ThreadParticipant[]>();
   for (const r of partsRes.rows) {
     const list = byThread.get(r.thread_id) ?? [];
-    list.push({ id: r.id, full_name: r.full_name, nickname: r.nickname ?? null, system_role: r.system_role });
+    list.push({
+      id: r.id,
+      full_name: r.full_name,
+      nickname: r.nickname ?? null,
+      username: r.username,
+      system_role: r.system_role,
+    });
     byThread.set(r.thread_id, list);
   }
 
@@ -1083,7 +1122,7 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
   const t = res.rows[0];
   if (!t) return null;
   const partsRes = await pool.query(
-    `SELECT u.id, u.full_name, u.nickname, u.system_role
+    `SELECT u.id, u.full_name, u.nickname, u.username, u.system_role
        FROM thread_participants p JOIN users u ON u.id = p.user_id
       WHERE p.thread_id = $1 ORDER BY u.full_name`,
     [threadId]
@@ -1102,6 +1141,7 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
       id: r.id,
       full_name: r.full_name,
       nickname: r.nickname ?? null,
+      username: r.username,
       system_role: r.system_role,
     })),
     last_message: null,
@@ -1139,6 +1179,7 @@ export async function getThreadMessages(
             m.sources,
             m.event,
             (m.audience IS NOT NULL) AS restricted,
+            m.audience,
             m.dewey_conversation_id,
             m.dewey_mode,
             m.dewey_summary,
@@ -1218,6 +1259,7 @@ export async function getThreadMessages(
     submission_status:
       (m.submission_status as "pending" | "approved" | "returned" | null) ?? null,
     restricted: m.restricted === true,
+    audience: Array.isArray(m.audience) ? (m.audience as number[]).map(Number) : null,
     event: (m.event as "advance" | "finish" | null) ?? null,
     dewey_conversation_id: m.dewey_conversation_id != null ? Number(m.dewey_conversation_id) : null,
     dewey_mode: (m.dewey_mode as "snapshot" | "live" | null) ?? null,
