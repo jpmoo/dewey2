@@ -13,6 +13,7 @@ import { EditCoPModal } from "@/components/messages/EditCoPModal";
 import { DeweyPanel } from "@/components/messages/DeweyPanel";
 import { SourcePill } from "@/components/messages/SourcePill";
 import { PlanThumbnail } from "@/components/messages/PlanThumbnail";
+import { MemberCard } from "@/components/messages/MemberCard";
 import { SharedDeweyModal } from "@/components/messages/SharedDeweyModal";
 import { sanitizeDocumentHtml } from "@/lib/html-sanitize";
 
@@ -32,6 +33,9 @@ type Participant = {
   nickname: string | null;
   username: string;
   system_role: string;
+  /** Job title and "District-wide · …" / "Schools · District" (thread detail only). */
+  title?: string | null;
+  location?: string | null;
 };
 type AttachmentMeta = { id: number; filename: string; mime_type: string; size_bytes: number };
 type MessageView = {
@@ -1434,7 +1438,6 @@ export function ThreadPane({
           )}
           {!readOnly && (
             <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-              <PlanPill icon="💬" label="Ask Dewey" onClick={() => { setDeweySeed(null); setDeweyOpen(true); }} />
               {coachCanReview && (
                 <button
                   type="button"
@@ -1463,11 +1466,14 @@ export function ThreadPane({
               )}
               {canEditCop && <PlanPill icon="✏️" label="Edit community" onClick={() => setEditingCop(true)} />}
               {canManage && !isCop && <PlanPill icon="📝" label="Rename" onClick={renameThread} />}
-              {isCop && canManage && !planActive && (
-                <PlanPill icon="🎨" label="Build a plan" onClick={buildCoPPlan} />
+              {/* A CoP has one "Build a plan" (start blank, or from a library plan),
+                  hidden once any plan is in the chat (proposed or active); the
+                  header's View/edit Arc edits it from there. */}
+              {isCop && canManage && !planActive && !hasLivePlan && (
+                <PlanPill icon="🎨" label="Build a plan" onClick={() => setPicking(true)} />
               )}
-              {canManage && !planActive && (
-                <PlanPill icon="➕" label={isCop ? "Use a template" : "Add plan"} onClick={() => setPicking(true)} />
+              {!isCop && canManage && !planActive && (
+                <PlanPill icon="➕" label="Add plan" onClick={() => setPicking(true)} />
               )}
               {/* In a CoP only the Chair/admin/district leader can archive;
                   elsewhere anyone may archive a plan-less thread (admins always can). */}
@@ -1543,6 +1549,7 @@ export function ThreadPane({
                   onAcceptPlan={acceptPlan}
                   onSetOutcome={setPlanOutcome}
                   isLatestForPlan={m.plan_id == null || latestPlanMessageId.get(m.plan_id) === m.id}
+                  sender={thread?.participants.find((p) => p.id === m.sender_id)}
                   onCopyPlan={copyPlan}
                   onDismissPlan={dismissPlan}
                   onRevivePlan={revivePlan}
@@ -1660,6 +1667,14 @@ export function ThreadPane({
           threadId={threadId}
           isAdmin={isAdmin}
           chairOnly={iAmChair && !iAmCoach && !isAdmin}
+          onStartBlank={
+            isCop
+              ? () => {
+                  setPicking(false);
+                  buildCoPPlan();
+                }
+              : undefined
+          }
           onClose={() => setPicking(false)}
           onAdded={() => {
             setPicking(false);
@@ -1743,6 +1758,7 @@ function MessageBubble({
   onAcceptPlan,
   onSetOutcome,
   isLatestForPlan = true,
+  sender,
   onCopyPlan,
   onDismissPlan,
   onRevivePlan,
@@ -1767,6 +1783,8 @@ function MessageBubble({
   onSetOutcome: (messageId: number, outcome: "finished" | "abandoned" | "active") => void;
   /** False for an older message about a plan that has a newer one (actions live there). */
   isLatestForPlan?: boolean;
+  /** The sender's member record, for the info pop-up on their avatar and name. */
+  sender?: Participant;
   onCopyPlan: (planId: number) => void;
   onDismissPlan: (messageId: number) => void;
   onRevivePlan: (messageId: number) => void;
@@ -1791,6 +1809,8 @@ function MessageBubble({
   const planInactive = m.plan_deactivated || m.plan_outcome != null;
   // Quoted reply: collapsed (one line) by default, click to expand.
   const [replyExpanded, setReplyExpanded] = useState(false);
+  const [cardOpen, setCardOpen] = useState(false);
+  const closeCard = useCallback(() => setCardOpen(false), []);
   // Who can see a restricted message, e.g. "Private: you & Sam K.".
   const audienceOthers = (m.audience ?? []).filter((id) => id !== meId).map((id) => memberNames.get(id) ?? "someone");
   const inAudience = meId != null && (m.audience ?? []).includes(meId);
@@ -1807,22 +1827,46 @@ function MessageBubble({
     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div className={`flex max-w-[min(85%,760px)] flex-col ${mine ? "items-end" : "items-start"}`}>
         {/* mb-2 keeps the avatar (and the lead's ring around it) clear of the bubble. */}
-        <div className="mb-2 flex items-center gap-2 text-[11px] text-dewey-mute">
+        <div className="relative mb-2 flex items-center gap-2 text-[11px] text-dewey-mute">
           {m.is_ai ? (
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white ring-1 ring-dewey-border">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={pathWithBase("/logo.png")} alt="@dewey" className="h-5 w-5 object-contain" />
             </span>
           ) : (
-            <div className={`inline-flex shrink-0 rounded-full ${senderIsCoach ? "ring-1 ring-dewey-accent" : ""}`}>
+            // Avatar and name open the member pop-up (when the sender is still a member).
+            <button
+              type="button"
+              disabled={!sender}
+              onClick={() => setCardOpen((v) => !v)}
+              aria-label={sender ? `About ${sender.full_name}` : undefined}
+              className={`inline-flex shrink-0 rounded-full ${senderIsCoach ? "ring-1 ring-dewey-accent" : ""} ${
+                sender ? "cursor-pointer" : "cursor-default"
+              }`}
+            >
               <Avatar userId={m.sender_id} name={m.sender_name} size={36} />
-            </div>
+            </button>
           )}
           {/* The thread's lead (a CoP's Chair, or a coach) is named in the accent
               color with their role, like the ring on their avatar. */}
-          <span className={senderIsCoach ? "font-semibold text-dewey-accent" : "font-medium text-dewey-ink"}>
+          <button
+            type="button"
+            disabled={m.is_ai || !sender}
+            onClick={() => setCardOpen((v) => !v)}
+            className={`${senderIsCoach ? "font-semibold text-dewey-accent" : "font-medium text-dewey-ink"} ${
+              !m.is_ai && sender ? "hover:underline" : "cursor-default"
+            }`}
+          >
             {senderLabel}
-          </span>
+          </button>
+          {cardOpen && sender && (
+            <MemberCard
+              member={sender}
+              leadLabel={senderIsCoach ? (isCop ? "Chair" : "Coach") : null}
+              alignRight={mine}
+              onClose={closeCard}
+            />
+          )}
           {senderIsCoach && (
             <span className="rounded-full bg-dewey-accent/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-dewey-accent">
               {isCop ? "Chair" : "Coach"}
@@ -1917,7 +1961,7 @@ function MessageBubble({
               <span className="text-lg">🗂️</span>
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 text-xs uppercase tracking-wide text-dewey-mute">
-                  Coaching plan
+                  Plan of Action
                   {m.plan_deactivated ? (
                     <span className="rounded bg-dewey-surface px-1.5 py-0.5 text-[9px] font-medium text-dewey-mute">
                       Superseded
@@ -1959,7 +2003,10 @@ function MessageBubble({
               />
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <PlanPill icon="🗂️" label="View plan" onClick={() => onViewPlan(m.plan_id as number)} />
+              {/* The thumbnail opens the plan; the pill is only for a plan without one. */}
+              {!m.plan_outline && (
+                <PlanPill icon="🗂️" label="View plan" onClick={() => onViewPlan(m.plan_id as number)} />
+              )}
               {/* An older message about a plan that was saved again: the newest
                   message below carries the actions. */}
               {!isLatestForPlan ? (
@@ -2949,6 +2996,7 @@ function AddPlanModal({
   threadId,
   isAdmin = false,
   chairOnly = false,
+  onStartBlank,
   onClose,
   onAdded,
 }: {
@@ -2956,6 +3004,8 @@ function AddPlanModal({
   isAdmin?: boolean;
   /** The user manages this thread only as a CoP Chair (no coach template library). */
   chairOnly?: boolean;
+  /** Offer starting from a blank arc on the canvas (a CoP's "Build a plan"). */
+  onStartBlank?: () => void;
   onClose: () => void;
   onAdded: () => void;
 }) {
@@ -3001,9 +3051,20 @@ function AddPlanModal({
   const global = plans.filter((p) => p.scope === "global");
 
   return (
-    <PlanShell title="Add a plan to this message thread" onClose={onClose}>
+    <PlanShell title={onStartBlank ? "Build a plan" : "Add a plan to this message thread"} onClose={onClose}>
+      {onStartBlank && (
+        <button
+          type="button"
+          className="dewey-btn-secondary mb-4 w-full"
+          onClick={onStartBlank}
+          disabled={busy}
+        >
+          <span aria-hidden>🎨</span> Start from a blank arc
+        </button>
+      )}
       <p className="mb-3 text-sm text-dewey-mute">
-        A copy is embedded in the chat for everyone. It won&apos;t appear in your plan list.
+        {onStartBlank ? "Or start from a library plan. " : ""}A copy is embedded in the chat for everyone. It
+        won&apos;t appear in your plan list.
       </p>
       {loading ? (
         <p className="text-sm text-dewey-mute">Loading…</p>

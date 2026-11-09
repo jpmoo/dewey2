@@ -44,6 +44,21 @@ export interface ThreadParticipant {
   /** For @-mentions in the composer. */
   username: string;
   system_role: string;
+  /** Job title (users.role), for the member info pop-up. Thread detail only. */
+  title?: string | null;
+  /** "District-wide · District" or "School A, School B · District". Thread detail only. */
+  location?: string | null;
+}
+
+/** Where a member works: district-wide (no schools, or every school) or their schools. */
+function memberLocation(district: string | null, schools: string[], districtSchoolCount: number): string | null {
+  if (district) {
+    if (schools.length === 0 || (districtSchoolCount > 0 && schools.length >= districtSchoolCount)) {
+      return `District-wide · ${district}`;
+    }
+    return `${schools.join(", ")} · ${district}`;
+  }
+  return schools.length ? schools.join(", ") : null;
 }
 
 export interface AttachmentMeta {
@@ -1151,8 +1166,15 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
   const t = res.rows[0];
   if (!t) return null;
   const partsRes = await pool.query(
-    `SELECT u.id, u.full_name, u.nickname, u.username, u.system_role
+    `SELECT u.id, u.full_name, u.nickname, u.username, u.system_role, u.role AS title,
+            d.name AS district_name,
+            COALESCE((SELECT array_agg(s.name ORDER BY s.name)
+                        FROM user_schools us JOIN schools s ON s.id = us.school_id AND s.deleted_at IS NULL
+                       WHERE us.user_id = u.id), '{}') AS school_names,
+            (SELECT COUNT(*) FROM schools s
+              WHERE s.district_id = u.district_id AND s.deleted_at IS NULL)::int AS district_school_count
        FROM thread_participants p JOIN users u ON u.id = p.user_id
+       LEFT JOIN districts d ON d.id = u.district_id AND d.deleted_at IS NULL
       WHERE p.thread_id = $1 ORDER BY u.full_name`,
     [threadId]
   );
@@ -1172,6 +1194,12 @@ export async function getThreadMeta(threadId: number): Promise<ThreadSummary | n
       nickname: r.nickname ?? null,
       username: r.username,
       system_role: r.system_role,
+      title: (r.title as string | null) ?? null,
+      location: memberLocation(
+        (r.district_name as string | null) ?? null,
+        Array.isArray(r.school_names) ? (r.school_names as string[]) : [],
+        Number(r.district_school_count ?? 0)
+      ),
     })),
     last_message: null,
     message_count: 0,
