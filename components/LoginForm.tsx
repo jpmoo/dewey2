@@ -17,6 +17,18 @@ const GOOGLE_REFUSALS: Record<string, string> = {
   AccessDenied: "That Google account can't sign in to Dewey. Ask your admin for help.",
 };
 
+/**
+ * NextAuth's own error codes for a Google sign-in that failed partway, rather
+ * than one Dewey refused. These usually mean the server couldn't reach Google or
+ * hit an error of its own, so trying again (or the password form) can work.
+ */
+const GOOGLE_FAILURES: Record<string, string> = {
+  OAuthSignin: "Dewey couldn't start signing you in with Google. This is usually a brief network problem, so please try again in a moment.",
+  OAuthCallback: "Google signed you in, but Dewey couldn't reach Google to finish. This is usually a brief network problem, so please try again in a moment.",
+  Callback: "Google signed you in, but Dewey hit a problem loading your account. Please try again; if it keeps happening, tell your admin.",
+  Configuration: "Google sign-in isn't set up correctly on the server. Tell your admin, and use your username and password for now.",
+};
+
 export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -33,7 +45,11 @@ export function LoginForm({ googleEnabled = false }: { googleEnabled?: boolean }
     if (code in GOOGLE_REFUSALS) {
       setError(GOOGLE_REFUSALS[code]);
     } else {
-      setError("Couldn't sign in with Google. Please try again or use your username and password.");
+      // Include the code so an admin can match it to the server log.
+      setError(
+        GOOGLE_FAILURES[code] ??
+          `Couldn't sign in with Google (${code}). Please try again or use your username and password.`
+      );
       setShowPassword(true);
     }
   }, []);
