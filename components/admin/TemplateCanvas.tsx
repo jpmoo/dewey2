@@ -1650,7 +1650,8 @@ function SourceSelectorEditor({
   onChange: (v: SourceSelector | null) => void;
 }) {
   const all = !value || value.all;
-  const catIds = value?.categoryIds ?? [];
+  // Plans saved before category ids came back as numbers hold them as strings.
+  const catIds = (value?.categoryIds ?? []).map(Number);
   const pick = (ids: number[]) => onChange({ all: false, categoryIds: ids, documentIds: value?.documentIds ?? [] });
   return (
     <div className="space-y-1.5">

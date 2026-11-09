@@ -16,7 +16,7 @@ export async function listRagCategories(): Promise<{ id: number; name: string; d
     "SELECT id, name, description FROM rag_categories ORDER BY sort, name"
   );
   return res.rows.map((r) => ({
-    id: r.id as number,
+    id: Number(r.id),
     name: r.name as string,
     description: (r.description as string | null) ?? null,
   }));
@@ -260,6 +260,8 @@ function placementLabel(r: {
   return r.level;
 }
 
+// rag_* ids are BIGINT, which node-postgres returns as strings; every id read
+// here goes through Number() so map lookups and client comparisons match.
 async function placementsFor(docIds: number[]): Promise<Map<number, RagPlacementRow[]>> {
   const map = new Map<number, RagPlacementRow[]>();
   if (docIds.length === 0) return map;
@@ -276,16 +278,16 @@ async function placementsFor(docIds: number[]): Promise<Map<number, RagPlacement
     [docIds]
   );
   for (const r of res.rows) {
-    const arr = map.get(r.document_id as number) ?? [];
+    const arr = map.get(Number(r.document_id)) ?? [];
     arr.push({
-      id: r.id as number,
+      id: Number(r.id),
       level: r.level as string,
       districtId: (r.district_id as number | null) ?? null,
       schoolId: (r.school_id as number | null) ?? null,
       copId: (r.cop_id as number | null) ?? null,
       label: placementLabel(r),
     });
-    map.set(r.document_id as number, arr);
+    map.set(Number(r.document_id), arr);
   }
   return map;
 }
@@ -301,9 +303,9 @@ async function categoriesFor(docIds: number[]): Promise<Map<number, { id: number
     [docIds]
   );
   for (const r of res.rows) {
-    const arr = map.get(r.document_id as number) ?? [];
-    arr.push({ id: r.id as number, name: r.name as string });
-    map.set(r.document_id as number, arr);
+    const arr = map.get(Number(r.document_id)) ?? [];
+    arr.push({ id: Number(r.id), name: r.name as string });
+    map.set(Number(r.document_id), arr);
   }
   return map;
 }
@@ -324,10 +326,10 @@ export async function listRagDocuments(q = ""): Promise<RagDocSummary[]> {
       ORDER BY d.created_at DESC`,
     [term]
   );
-  const ids = res.rows.map((r) => r.id as number);
+  const ids = res.rows.map((r) => Number(r.id));
   const [cats, places] = await Promise.all([categoriesFor(ids), placementsFor(ids)]);
   return res.rows.map((r) => ({
-    id: r.id as number,
+    id: Number(r.id),
     title: r.title as string,
     description: (r.description as string | null) ?? null,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
@@ -336,8 +338,8 @@ export async function listRagDocuments(q = ""): Promise<RagDocSummary[]> {
     status: ((r.status as string) ?? "ready") as RagDocStatus,
     statusDetail: (r.status_detail as string | null) ?? null,
     chunkTotal: (r.chunk_total as number | null) ?? null,
-    categories: cats.get(r.id as number) ?? [],
-    placements: places.get(r.id as number) ?? [],
+    categories: cats.get(Number(r.id)) ?? [],
+    placements: places.get(Number(r.id)) ?? [],
   }));
 }
 
@@ -358,7 +360,7 @@ export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | n
     [id]
   );
   return {
-    id: d.id as number,
+    id: Number(d.id),
     title: d.title as string,
     description: (d.description as string | null) ?? null,
     filename: (d.filename as string | null) ?? null,
@@ -373,7 +375,7 @@ export async function getRagDocumentDetail(id: number): Promise<RagDocDetail | n
     categories: cats.get(id) ?? [],
     placements: places.get(id) ?? [],
     samplesList: sRes.rows.map((r) => ({
-      id: r.id as number,
+      id: Number(r.id),
       ordinal: r.ordinal as number,
       text: r.text as string,
       context: (r.context as string | null) ?? null,
