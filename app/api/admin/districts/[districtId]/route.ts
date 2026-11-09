@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
-import { deleteDistrict, getDistricts, logUserEvent, setDistrictEmailDomains } from "@/lib/db";
+import {
+  deleteDistrict,
+  getDistricts,
+  logUserEvent,
+  setDistrictCanvasInstruction,
+  setDistrictEmailDomains,
+} from "@/lib/db";
 
 /**
  * Delete a district. Its schools cascade away (FK ON DELETE CASCADE); any users
@@ -36,8 +42,9 @@ export async function DELETE(
 }
 
 /**
- * Set a district's sign-up email domains. Body: { email_domains: string[] }.
- * New Google accounts whose email is on one of them join this district.
+ * Update a district's settings. Body: { email_domains?: string[] } (new Google
+ * accounts on these domains join this district) and/or { canvas_instruction?:
+ * string } (appended to every canvas assistant request in the district).
  */
 export async function PATCH(
   request: NextRequest,
@@ -51,20 +58,37 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid district id" }, { status: 400 });
   }
   const body = await request.json().catch(() => ({}));
-  if (!Array.isArray(body.email_domains)) {
+  const hasDomains = "email_domains" in body;
+  const hasInstruction = "canvas_instruction" in body;
+  if (hasDomains && !Array.isArray(body.email_domains)) {
     return NextResponse.json({ error: "email_domains must be a list" }, { status: 400 });
   }
+  if (hasInstruction && typeof body.canvas_instruction !== "string") {
+    return NextResponse.json({ error: "canvas_instruction must be text" }, { status: 400 });
+  }
+  if (!hasDomains && !hasInstruction) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+  }
   try {
-    const district = await setDistrictEmailDomains(id, body.email_domains.map(String));
+    let district = null as Awaited<ReturnType<typeof setDistrictEmailDomains>> | null;
+    const changes: string[] = [];
+    if (hasDomains) {
+      district = await setDistrictEmailDomains(id, body.email_domains.map(String));
+      changes.push(`email domains: ${district.email_domains.join(", ") || "none"}`);
+    }
+    if (hasInstruction) {
+      district = await setDistrictCanvasInstruction(id, body.canvas_instruction);
+      changes.push(district.canvas_instruction ? "canvas instruction updated" : "canvas instruction cleared");
+    }
     const adminId = Number(session.user.id);
     await logUserEvent({
       userId: adminId,
       actorId: adminId,
       action: "district_updated",
-      detail: `email domains: ${district.email_domains.join(", ") || "none"}`,
+      detail: changes.join("; "),
       entityType: "district",
       entityId: id,
-      entityLabel: district.name,
+      entityLabel: district?.name ?? null,
     });
     return NextResponse.json({ district });
   } catch (e) {

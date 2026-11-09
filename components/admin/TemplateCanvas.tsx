@@ -1945,6 +1945,7 @@ const CanvasAssistant = forwardRef<
       let live = "";
       let graph: TemplateGraph | null = null;
       let blocked: string | null = null;
+      let graphFailed = false;
 
       for (;;) {
         const { done, value } = await reader.read();
@@ -1961,6 +1962,7 @@ const CanvasAssistant = forwardRef<
             text?: string;
             reply?: string;
             proposedGraph?: TemplateGraph | null;
+            graphFailed?: boolean;
             sources?: ChatSource[];
             error?: string;
             reason?: string;
@@ -1988,6 +1990,7 @@ const CanvasAssistant = forwardRef<
           } else if (ev.type === "done") {
             patchAssistant({ text: ev.reply || live || "(no response)" });
             graph = ev.proposedGraph ?? null;
+            graphFailed = ev.graphFailed === true;
           } else if (ev.type === "error") {
             throw new Error(ev.error || "Assistant error");
           }
@@ -2005,6 +2008,11 @@ const CanvasAssistant = forwardRef<
       if (graph) {
         setProposed(graph);
         setPreviewing(true); // pop the preview with discard/add/replace options
+      } else if (graphFailed) {
+        await dialog.alert(
+          "Dewey started a plan, but it came through incomplete, so nothing on the canvas changed. Please ask again. For a big revision, asking for one or two phases at a time can help.",
+          { title: "Plan didn't come through" }
+        );
       }
     } catch (e) {
       // Surface failures as a modal rather than rendering raw error text inline.

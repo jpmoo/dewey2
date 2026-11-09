@@ -36,9 +36,8 @@ const CATALOG_WITH_GATING = ACTIVITY_TYPES.map(
 const GRAPH_JSON_SHAPE = `{ "nodes": [ { "id": "n1", "activityKey": "<one of the keys below>", "gating": "OPEN"|"REVIEWED", "instructions": "<what the partner does>", "artifact": "<what the partner produces>", "phaseId": "p1"|null } ], "edges": [ { "source": "n1", "target": "n2" } ], "phases": [ { "id": "p1", "name": "<phase name>", "exitConditions": "<criteria>" } ] }`;
 
 /**
- * The canvas assistant's system prompt — reproduced verbatim so the canvas
- * generator is unchanged. Do not alter this without intending to change canvas
- * behavior.
+ * The canvas assistant's system prompt. Changing it changes what the canvas
+ * assistant generates.
  */
 export function buildCanvasPlanPrompt(): string {
   return `You are an assistant embedded in Dewey, a coaching platform for educators and school/district leaders, helping a coach or admin build a reusable coaching PLAN on a canvas. The person being coached (the "partner") may be a teacher or other educator, an instructional coach, or a school/district leader — keep suggestions applicable across these roles rather than assuming a leadership position.
@@ -46,7 +45,7 @@ export function buildCanvasPlanPrompt(): string {
 Model: Arc → Phase → Activity.
 - An Activity is a unit of work, drawn from a FIXED taxonomy (use only the exact keys listed below).
 - A Phase bundles activities and has EXIT CONDITIONS: criteria the AI evaluates once all the phase's activities are done, surfaced to the coach before they approve advancement (distinct from an activity's done-state/gating).
-- Edges indicate flow between activities (source = previous, target = next).
+- Edges indicate flow between activities (source = previous, target = next). Chain a phase's activities in order, and connect only a phase's LAST activity to the next phase's FIRST activity; never also link an earlier activity ahead to the next phase.
 
 FRAMEWORKS — BUILD THE WHOLE ARC: When the coach names or implies a coaching framework or cycle (e.g. Jim Knight's Impact Cycle = Identify → Learn → Improve; a Problem of Practice; Plan-Do-Study-Act; a book study), build the ENTIRE arc that covers every stage of that framework — never just one stage. Make each framework stage its OWN Phase, in the framework's canonical order, named after that stage; do NOT merge two stages into one phase and do NOT skip a stage. Within each phase, add the activities that stage genuinely needs. If the coach doesn't name a framework, choose a recognized one appropriate to their goal and cover it fully the same way.
 
@@ -62,6 +61,8 @@ ${GRAPH_MARKER}
 followed by a single JSON object:
 ${GRAPH_JSON_SHAPE}
 - For questions or advice with no canvas change, do NOT output the marker or any JSON.
+- If your prose says you are proposing, building, or revising the plan, the marker and the complete JSON MUST follow in that same reply. Never describe a new or revised plan without including it.
+- When revising, output the FULL revised arc (every phase and activity that should remain), not only the changes.
 
 Rules:
 - Use ONLY activityKey values from the list below. Never invent new activities or keys; the activity taxonomy is fixed.
@@ -144,7 +145,7 @@ interface ProposedNode {
 
 /**
  * Validate + normalize a model-proposed graph: drop unknown activities, fill
- * ids/colors/defaults, lay out. Reproduced verbatim from the canvas assistant.
+ * ids/colors/defaults, drop shortcut edges out of a phase, lay out.
  */
 export function sanitizeProposedGraph(raw: unknown): TemplateGraph | null {
   if (!raw || typeof raw !== "object") return null;
@@ -215,8 +216,25 @@ export function sanitizeProposedGraph(raw: unknown): TemplateGraph | null {
     }
   }
 
+  // Flow leaves a phase only from its last activity: drop a shortcut edge from
+  // an activity that also continues to another activity in its own phase (the
+  // model sometimes links both "a → b" and "a → next phase", which reads as if
+  // b were optional).
+  const phaseOf = new Map(nodes.map((n) => [n.id, n.phaseId]));
+  const continuesInPhase = new Set(
+    edges
+      .filter((e) => phaseOf.get(e.source) != null && phaseOf.get(e.source) === phaseOf.get(e.target))
+      .map((e) => e.source)
+  );
+  const flow = edges.filter(
+    (e) =>
+      phaseOf.get(e.source) == null ||
+      phaseOf.get(e.source) === phaseOf.get(e.target) ||
+      !continuesInPhase.has(e.source)
+  );
+
   if (nodes.length === 0 && phases.length === 0) return null;
-  return { nodes, edges, phases };
+  return { nodes, edges: flow, phases };
 }
 
 /** Pull a JSON object out of model text that may be fenced or have surrounding prose. */

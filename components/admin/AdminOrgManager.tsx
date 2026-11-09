@@ -5,7 +5,13 @@ import { apiFetch } from "@/lib/api-client";
 import { useDialog } from "@/components/DialogProvider";
 
 type School = { id: number; district_id: number; name: string };
-type DistrictWithSchools = { id: number; name: string; email_domains: string[]; schools: School[] };
+type DistrictWithSchools = {
+  id: number;
+  name: string;
+  email_domains: string[];
+  canvas_instruction: string | null;
+  schools: School[];
+};
 
 export function AdminOrgManager() {
   const dialog = useDialog();
@@ -15,6 +21,8 @@ export function AdminOrgManager() {
   const [newDistrict, setNewDistrict] = useState("");
   const [schoolDrafts, setSchoolDrafts] = useState<Record<number, string>>({});
   const [domainDrafts, setDomainDrafts] = useState<Record<number, string>>({});
+  // Unsaved canvas-instruction edits, by district; absent = showing the saved text.
+  const [instructionDrafts, setInstructionDrafts] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -82,6 +90,29 @@ export function AdminOrgManager() {
         await load();
       } catch (e) {
         dialog.alert(e instanceof Error ? e.message : "Failed to save email domains");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [load, dialog]
+  );
+
+  const saveInstruction = useCallback(
+    async (districtId: number, text: string) => {
+      setBusy(true);
+      try {
+        await apiFetch(`/api/admin/districts/${districtId}`, {
+          method: "PATCH",
+          body: { canvas_instruction: text },
+        });
+        await load();
+        setInstructionDrafts((prev) => {
+          const next = { ...prev };
+          delete next[districtId];
+          return next;
+        });
+      } catch (e) {
+        dialog.alert(e instanceof Error ? e.message : "Failed to save the canvas instruction");
       } finally {
         setBusy(false);
       }
@@ -211,6 +242,45 @@ export function AdminOrgManager() {
                     <span aria-hidden>➕</span> Add
                   </button>
                 </div>
+              </div>
+              <div className="mb-3">
+                <label htmlFor={`canvas-instruction-${d.id}`} className="mb-1 block text-xs font-medium text-dewey-mute">
+                  Canvas system instruction
+                </label>
+                <textarea
+                  id={`canvas-instruction-${d.id}`}
+                  className="dewey-input min-h-[72px]"
+                  placeholder="Added to every plan-building request in this district, e.g. which framework to use."
+                  maxLength={2000}
+                  value={instructionDrafts[d.id] ?? d.canvas_instruction ?? ""}
+                  onChange={(e) => setInstructionDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                />
+                {instructionDrafts[d.id] !== undefined &&
+                  instructionDrafts[d.id] !== (d.canvas_instruction ?? "") && (
+                    <div className="mt-1.5 flex gap-2">
+                      <button
+                        type="button"
+                        className="dewey-btn-secondary"
+                        onClick={() => saveInstruction(d.id, instructionDrafts[d.id])}
+                        disabled={busy}
+                      >
+                        <span aria-hidden>💾</span> Save instruction
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-dewey-mute hover:underline"
+                        onClick={() =>
+                          setInstructionDrafts((prev) => {
+                            const next = { ...prev };
+                            delete next[d.id];
+                            return next;
+                          })
+                        }
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
               </div>
               <ul className="space-y-1 mb-3">
                 {d.schools.length === 0 ? (

@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/guard";
 import { chatStream, complianceCheck, summarizeConversation, type ChatMessage } from "@/lib/ai";
 import { queryRagDefault, queryRag, formatRagContext, uniqueSources } from "@/lib/rag";
 import { getCopMeta, getThreadUnitScope, reportComplianceFlag } from "@/lib/messages";
+import { canvasInstructionFor } from "@/lib/db";
 import { allowAiRequest } from "@/lib/rate-limit";
 import {
   buildCanvasPlanPrompt,
@@ -135,6 +136,18 @@ export async function POST(request: NextRequest) {
       `Do NOT include coach review, feedback, endorsement, or "discuss with your coach" steps, and ` +
       `do not reference a coach; address the community.`;
   }
+  // The district's admin-set canvas instruction (a CoP's own district, else the
+  // requester's), e.g. which framework to build plans on.
+  const districtInstruction = await canvasInstructionFor({
+    districtId: cop?.districtId ?? null,
+    schoolId: cop?.schoolId ?? null,
+    userId: meId,
+  }).catch(() => null);
+  if (districtInstruction) {
+    system +=
+      `\n\nDISTRICT INSTRUCTION (set by the district's administrator; follow it unless the user ` +
+      `explicitly asks otherwise):\n"""\n${districtInstruction}\n"""`;
+  }
   const chunks = cop
     ? await queryRag(message, {
         ...(await getThreadUnitScope(copThreadId!).catch(() => ({
@@ -232,7 +245,9 @@ export async function POST(request: NextRequest) {
         // Surface the RAG source links up front, before any model output streams.
         if (sources.length > 0) send(controller, { type: "sources", sources });
 
-        for await (const delta of chatStream({ system: liveSystem, messages, maxTokens: 4096 })) {
+        // A full arc with instructions for every activity runs long; 4096 tokens cut
+        // revised plans off mid-JSON, so they were silently dropped.
+        for await (const delta of chatStream({ system: liveSystem, messages, maxTokens: 16000 })) {
           if (!firstTokenAt) firstTokenAt = Date.now();
           full += delta;
           if (graphStarted) continue;
@@ -268,9 +283,23 @@ export async function POST(request: NextRequest) {
         if (mi !== -1) reply = normalizeLeadInColon(reply).trim();
         const proposedGraph =
           mi !== -1 ? sanitizeProposedGraph(extractJsonObject(full.slice(mi + GRAPH_MARKER.length))) : null;
+        // The model started a plan but it didn't parse (cut off, or malformed).
+        const graphFailed = mi !== -1 && !proposedGraph;
+        if (graphFailed) {
+          console.warn(
+            `[assistant] proposed plan didn't parse (${full.length - mi} chars after marker); tail: ${full.slice(-200)}`
+          );
+        }
 
-        // Persist the assistant's turn (prose, plus a note when it proposed a plan).
-        const stored = (reply || "(no response)") + (proposedGraph ? "\n[Proposed a plan on the canvas.]" : "");
+        // Persist the assistant's turn (prose, plus a note on what happened to the
+        // plan, so the next turn doesn't assume the canvas changed).
+        const stored =
+          (reply || "(no response)") +
+          (proposedGraph
+            ? "\n[Proposed a plan on the canvas.]"
+            : graphFailed
+            ? "\n[The proposed plan came through incomplete, so the canvas was not changed.]"
+            : "");
         await appendMessage(conversationId, "assistant", stored).catch((e) =>
           console.warn("[assistant] failed to persist reply", e)
         );
@@ -282,7 +311,7 @@ export async function POST(request: NextRequest) {
           }ms total=${tEnd - tStart}ms`
         );
 
-        send(controller, { type: "done", reply: reply || "(no response)", proposedGraph });
+        send(controller, { type: "done", reply: reply || "(no response)", proposedGraph, graphFailed });
       } catch (e) {
         send(controller, {
           type: "error",

@@ -36,6 +36,8 @@ export interface District {
   name: string;
   /** Email domains (e.g. "mamkschools.org") whose Google sign-ups join this district. */
   email_domains: string[];
+  /** Appended to every canvas assistant request made in this district. */
+  canvas_instruction: string | null;
   created_at: string;
 }
 
@@ -267,6 +269,8 @@ export function ensureSchema(): Promise<void> {
         ALTER TABLE districts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         -- Lowercase email domains whose new Google sign-ups belong to this district.
         ALTER TABLE districts ADD COLUMN IF NOT EXISTS email_domains TEXT[] NOT NULL DEFAULT '{}';
+        -- Admin-set instruction appended to every canvas assistant request in the district.
+        ALTER TABLE districts ADD COLUMN IF NOT EXISTS canvas_instruction TEXT;
         ALTER TABLE schools ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
         ALTER TABLE coaching_templates ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
 
@@ -684,7 +688,7 @@ export async function getDistricts(): Promise<District[]> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    "SELECT id, name, email_domains, created_at FROM districts WHERE deleted_at IS NULL ORDER BY name"
+    "SELECT id, name, email_domains, canvas_instruction, created_at FROM districts WHERE deleted_at IS NULL ORDER BY name"
   );
   return res.rows.map(rowToDistrict);
 }
@@ -694,8 +698,52 @@ function rowToDistrict(r: Record<string, unknown>): District {
     id: r.id as number,
     name: r.name as string,
     email_domains: Array.isArray(r.email_domains) ? (r.email_domains as string[]) : [],
+    canvas_instruction: (r.canvas_instruction as string | null) ?? null,
     created_at: toIso(r.created_at),
   };
+}
+
+export const CANVAS_INSTRUCTION_MAX = 2000;
+
+/** Set (or clear, with blank text) a district's canvas system instruction. */
+export async function setDistrictCanvasInstruction(id: number, text: string): Promise<District> {
+  const pool = getPool();
+  await ensureSchema();
+  const clean = text.trim();
+  if (clean.length > CANVAS_INSTRUCTION_MAX) {
+    throw new Error(`Keep the canvas instruction under ${CANVAS_INSTRUCTION_MAX} characters.`);
+  }
+  const res = await pool.query(
+    `UPDATE districts SET canvas_instruction = $2 WHERE id = $1 AND deleted_at IS NULL
+     RETURNING id, name, email_domains, canvas_instruction, created_at`,
+    [id, clean || null]
+  );
+  if (!res.rows[0]) throw new Error("District not found");
+  return rowToDistrict(res.rows[0]);
+}
+
+/**
+ * The canvas instruction for a request: from the given district, else the
+ * given school's district, else the requesting user's district. A lone
+ * district applies to everyone (e.g. an admin with no district of their own).
+ */
+export async function canvasInstructionFor(opts: {
+  districtId?: number | null;
+  schoolId?: number | null;
+  userId: number;
+}): Promise<string | null> {
+  const pool = getPool();
+  await ensureSchema();
+  let districtId = opts.districtId ?? null;
+  if (districtId == null && opts.schoolId != null) {
+    const r = await pool.query("SELECT district_id FROM schools WHERE id = $1", [opts.schoolId]);
+    districtId = (r.rows[0]?.district_id as number | null) ?? null;
+  }
+  if (districtId == null) districtId = (await getUserById(opts.userId))?.district_id ?? null;
+  const districts = await getDistricts();
+  const district =
+    districtId != null ? districts.find((d) => d.id === districtId) : districts.length === 1 ? districts[0] : undefined;
+  return district?.canvas_instruction ?? null;
 }
 
 /** Lowercase a domain and drop any leading "@"; null if it isn't a plausible domain. */
@@ -728,7 +776,7 @@ export async function setDistrictEmailDomains(id: number, domains: string[]): Pr
   }
   const res = await pool.query(
     `UPDATE districts SET email_domains = $2 WHERE id = $1 AND deleted_at IS NULL
-     RETURNING id, name, email_domains, created_at`,
+     RETURNING id, name, email_domains, canvas_instruction, created_at`,
     [id, clean]
   );
   if (!res.rows[0]) throw new Error("District not found");
@@ -753,7 +801,7 @@ export async function createDistrict(name: string): Promise<District> {
   const pool = getPool();
   await ensureSchema();
   const res = await pool.query(
-    "INSERT INTO districts (name) VALUES ($1) RETURNING id, name, email_domains, created_at",
+    "INSERT INTO districts (name) VALUES ($1) RETURNING id, name, email_domains, canvas_instruction, created_at",
     [name.trim()]
   );
   return rowToDistrict(res.rows[0]);

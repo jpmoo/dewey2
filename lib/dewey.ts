@@ -226,7 +226,8 @@ export async function runDeweyForThread(params: {
           content: `Conversation so far:\n${transcript}${planContext}${activityContext}\n\nRespond to the most recent message.`,
         },
       ],
-      maxTokens: 4096,
+      // Room for a full plan's JSON after the prose (4096 could cut it off).
+      maxTokens: 12000,
     });
     reply = result.text;
   } catch (e) {
