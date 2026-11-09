@@ -146,17 +146,35 @@ export async function POST(request: NextRequest) {
   if (districtInstruction) {
     system +=
       `\n\nDISTRICT INSTRUCTION (set by the district's administrator; follow it unless the user ` +
-      `explicitly asks otherwise):\n"""\n${districtInstruction}\n"""`;
+      `explicitly asks otherwise):\n"""\n${districtInstruction}\n"""\n` +
+      `If it names a framework or document, build the arc's phases from that framework's own stages ` +
+      `as described in the document excerpts below, and name the source.`;
   }
-  const chunks = cop
-    ? await queryRag(message, {
-        ...(await getThreadUnitScope(copThreadId!).catch(() => ({
-          districtId: null,
-          schoolIds: [] as number[],
-          copId: null,
-        }))),
-      }).catch(() => [])
-    : await queryRagDefault(message).catch(() => []);
+  // Search the documents with the request AND the district instruction: the
+  // instruction names the framework/document to use, which the request's own
+  // words (e.g. "draft this community's plan") rarely match.
+  const scope = cop
+    ? await getThreadUnitScope(copThreadId!).catch(() => ({
+        districtId: null,
+        schoolIds: [] as number[],
+        copId: null,
+      }))
+    : null;
+  const search = (q: string) =>
+    (scope ? queryRag(q, scope) : queryRagDefault(q)).catch(() => [] as Awaited<ReturnType<typeof queryRag>>);
+  const [instructionChunks, messageChunks] = await Promise.all([
+    districtInstruction ? search(districtInstruction) : Promise.resolve([]),
+    search(message),
+  ]);
+  const seen = new Set<string>();
+  const chunks = [...instructionChunks, ...messageChunks]
+    .filter((c) => {
+      const key = `${c.sourceUrl}|${c.text.slice(0, 80)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12);
   const tRag = Date.now();
   const sources = uniqueSources(chunks);
   if (chunks.length > 0) {
@@ -306,7 +324,7 @@ export async function POST(request: NextRequest) {
 
         const tEnd = Date.now();
         console.info(
-          `[assistant] rag=${tRag - tStart}ms ttft=${firstTokenAt ? firstTokenAt - tRag : 0}ms model=${
+          `[assistant] sources=${JSON.stringify(sources.map((s) => s.name))} rag=${tRag - tStart}ms ttft=${firstTokenAt ? firstTokenAt - tRag : 0}ms model=${
             firstTokenAt ? tEnd - firstTokenAt : 0
           }ms total=${tEnd - tStart}ms`
         );
