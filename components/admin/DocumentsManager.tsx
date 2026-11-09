@@ -679,6 +679,9 @@ function DetailModal({
   const [doc, setDoc] = useState<DocDetail | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  // The title/description last saved, to tell when there are unsaved edits.
+  const [saved, setSaved] = useState({ title: "", description: "" });
+  const [metaStatus, setMetaStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [catIds, setCatIds] = useState<number[]>([]);
   const [newPlacement, setNewPlacement] = useState<DraftPlacement>({ level: "system", districtId: null, schoolId: null, copId: null });
   const [newSample, setNewSample] = useState("");
@@ -688,8 +691,10 @@ function DetailModal({
     setDoc(d.document);
     setTitle(d.document.title);
     setDescription(d.document.description ?? "");
+    setSaved({ title: d.document.title, description: d.document.description ?? "" });
     setCatIds(d.document.categories.map((c) => c.id));
   }, [docId]);
+  const metaDirty = title !== saved.title || description !== saved.description;
   useEffect(() => {
     load();
   }, [load]);
@@ -699,14 +704,19 @@ function DetailModal({
   // Accepts an override so a category toggle can save the exact next set
   // instead of the not-yet-committed state value.
   const saveMeta = async (over?: { title?: string; description?: string; categoryIds?: number[] }) => {
-    await apiFetch(`/api/admin/rag/documents/${docId}`, {
-      method: "PATCH",
-      body: {
-        title: over?.title ?? title,
-        description: over?.description ?? description,
-        categoryIds: over?.categoryIds ?? catIds,
-      },
-    });
+    const next = { title: over?.title ?? title, description: over?.description ?? description };
+    setMetaStatus("saving");
+    try {
+      await apiFetch(`/api/admin/rag/documents/${docId}`, {
+        method: "PATCH",
+        body: { ...next, categoryIds: over?.categoryIds ?? catIds },
+      });
+      setSaved(next);
+      setMetaStatus("saved");
+    } catch (e) {
+      setMetaStatus("error");
+      dialog.alert(e instanceof Error ? e.message : "Couldn't save the document details");
+    }
   };
   const addPlacement = async () => {
     const [v] = validPlacements([newPlacement]);
@@ -735,7 +745,15 @@ function DetailModal({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="dewey-label">Title</label>
-              <input className="dewey-input" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => saveMeta()} />
+              <input
+                className="dewey-input"
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  setMetaStatus("idle");
+                }}
+                onBlur={() => metaDirty && saveMeta()}
+              />
             </div>
             <div>
               <label className="dewey-label">Categories</label>
@@ -762,7 +780,32 @@ function DetailModal({
           </div>
           <div>
             <label className="dewey-label">Description</label>
-            <textarea className="dewey-input min-h-[50px]" value={description} onChange={(e) => setDescription(e.target.value)} onBlur={() => saveMeta()} />
+            <textarea
+              className="dewey-input min-h-[50px]"
+              value={description}
+              onChange={(e) => {
+                setDescription(e.target.value);
+                setMetaStatus("idle");
+              }}
+              onBlur={() => metaDirty && saveMeta()}
+            />
+            <div className="mt-1.5 flex items-center gap-3">
+              <button
+                type="button"
+                className="dewey-btn-secondary"
+                onClick={() => saveMeta()}
+                disabled={!metaDirty || metaStatus === "saving"}
+              >
+                <span aria-hidden>💾</span> {metaStatus === "saving" ? "Saving…" : "Save"}
+              </button>
+              <span className="text-xs text-dewey-mute">
+                {metaDirty
+                  ? "Unsaved changes"
+                  : metaStatus === "saved"
+                  ? "✓ Saved"
+                  : "Title and description are part of search; saving a change re-embeds this document's samples."}
+              </span>
+            </div>
           </div>
 
           <div>

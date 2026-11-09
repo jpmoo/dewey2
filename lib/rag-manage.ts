@@ -3,6 +3,7 @@ import { ragAvailable } from "@/lib/db";
 import { embedText, toVectorLiteral } from "@/lib/embeddings";
 import { getSystemSettings } from "@/lib/settings";
 import {
+  documentHeader,
   embeddableText,
   generateChunkContext,
   ingestModelOf,
@@ -23,15 +24,22 @@ export async function listRagCategories(): Promise<{ id: number; name: string; d
 }
 
 /**
- * Embed a chunk (its Contextual-Retrieval header + verbatim text) and store the
- * vector, or clear it if embedding failed. The context is read from the row so
- * callers only need to pass the text they just wrote.
+ * Embed a chunk (document title/description, its Contextual-Retrieval header,
+ * and the verbatim text) and store the vector, or clear it if embedding failed.
+ * The context and document fields are read from the database so callers only
+ * need to pass the text they just wrote.
  */
 async function embedChunk(chunkId: number, text: string): Promise<boolean> {
   const pool = getPool();
-  const ctxRes = await pool.query("SELECT context FROM rag_chunks WHERE id = $1", [chunkId]);
-  const context = (ctxRes.rows[0]?.context as string | null) ?? null;
-  const e = await embedText(embeddableText(context, text));
+  const ctxRes = await pool.query(
+    `SELECT c.context, d.title, d.description
+       FROM rag_chunks c JOIN rag_documents d ON d.id = c.document_id WHERE c.id = $1`,
+    [chunkId]
+  );
+  const row = ctxRes.rows[0];
+  const context = (row?.context as string | null) ?? null;
+  const header = documentHeader((row?.title as string | null) ?? null, (row?.description as string | null) ?? null);
+  const e = await embedText(embeddableText(context, text, header));
   if (!e) {
     await pool.query(
       "UPDATE rag_chunks SET embedding = NULL, embed_model = NULL, updated_at = NOW() WHERE id = $1",
@@ -89,7 +97,10 @@ export async function deleteSample(chunkId: number): Promise<void> {
  * samples are kept). Writes progress/status to the row and runs to completion in
  * the background, so callers should fire-and-forget it.
  */
-export async function reEmbedDocument(documentId: number): Promise<{ total: number; embedded: number }> {
+export async function reEmbedDocument(
+  documentId: number,
+  opts: { keepContext?: boolean } = {}
+): Promise<{ total: number; embedded: number }> {
   if (!(await ragAvailable())) throw new Error("RAG is not available.");
   const pool = getPool();
   try {
@@ -105,6 +116,9 @@ export async function reEmbedDocument(documentId: number): Promise<{ total: numb
     );
     const total = res.rows.length;
     const useContext = settings.rag_contextual_retrieval && !!docText && total > 1;
+    // keepContext: re-embed with the stored context headers (e.g. after a title or
+    // description change), skipping the slow per-chunk context regeneration.
+    const keepContext = opts.keepContext === true;
     const ctxModel = ingestModelOf(settings);
 
     await pool.query(
@@ -118,13 +132,15 @@ export async function reEmbedDocument(documentId: number): Promise<{ total: numb
       const text = res.rows[i].text as string;
       // Regenerate (or clear) the context header per current settings, then embed
       // it together with the verbatim text via embedChunk (which reads it back).
-      const context = useContext ? await generateChunkContext(docText, text, ctxModel) : null;
-      await pool.query("UPDATE rag_chunks SET context = $2 WHERE id = $1", [id, context]);
+      if (!keepContext) {
+        const context = useContext ? await generateChunkContext(docText, text, ctxModel) : null;
+        await pool.query("UPDATE rag_chunks SET context = $2 WHERE id = $1", [id, context]);
+      }
       if (await embedChunk(id, text)) embedded += 1;
       if (i % 2 === 0 || i === res.rows.length - 1) {
         await pool.query("UPDATE rag_documents SET status_detail = $2 WHERE id = $1", [
           documentId,
-          `${useContext ? "Contextualizing" : "Re-embedding"} ${embedded}/${total}…`,
+          `${useContext && !keepContext ? "Contextualizing" : "Re-embedding"} ${embedded}/${total}…`,
         ]);
       }
     }
@@ -177,10 +193,11 @@ export async function setDocumentCategories(documentId: number, categoryIds: num
   }
 }
 
+/** Update a document's title/description. Returns true when either changed. */
 export async function updateDocumentMeta(
   documentId: number,
   meta: { title?: string; description?: string | null }
-): Promise<void> {
+): Promise<boolean> {
   const pool = getPool();
   const sets: string[] = [];
   const vals: unknown[] = [];
@@ -193,9 +210,14 @@ export async function updateDocumentMeta(
     sets.push(`description = $${i++}`);
     vals.push(meta.description?.trim() || null);
   }
-  if (sets.length === 0) return;
+  if (sets.length === 0) return false;
   vals.push(documentId);
+  const before = await pool.query("SELECT title, description FROM rag_documents WHERE id = $1", [documentId]);
   await pool.query(`UPDATE rag_documents SET ${sets.join(", ")} WHERE id = $${i}`, vals);
+  const after = await pool.query("SELECT title, description FROM rag_documents WHERE id = $1", [documentId]);
+  const b = before.rows[0];
+  const a = after.rows[0];
+  return !!b && !!a && (b.title !== a.title || (b.description ?? null) !== (a.description ?? null));
 }
 
 export async function softDeleteDocument(documentId: number): Promise<void> {

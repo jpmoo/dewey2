@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
+import { ragAvailable } from "@/lib/db";
+import { getPool } from "@/lib/pg";
 import {
   getRagDocumentDetail,
+  reEmbedDocument,
   setDocumentCategories,
   softDeleteDocument,
   updateDocumentMeta,
@@ -29,7 +32,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (docId == null) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   const body = await request.json().catch(() => ({}));
   if (typeof body.title === "string" || typeof body.description === "string") {
-    await updateDocumentMeta(docId, { title: body.title, description: body.description });
+    const changed = await updateDocumentMeta(docId, { title: body.title, description: body.description });
+    // Title and description are embedded with every sample, so re-embed in the
+    // background (keeping the stored context headers) when either changes.
+    if (changed && (await ragAvailable())) {
+      await getPool().query(
+        "UPDATE rag_documents SET status = 'processing', status_detail = 'Queued…' WHERE id = $1",
+        [docId]
+      );
+      void reEmbedDocument(docId, { keepContext: true }).catch(() => {
+        /* status is set to 'error' inside reEmbedDocument */
+      });
+    }
   }
   if (Array.isArray(body.categoryIds)) {
     await setDocumentCategories(docId, body.categoryIds.map((n: unknown) => Number(n)).filter(Number.isFinite));

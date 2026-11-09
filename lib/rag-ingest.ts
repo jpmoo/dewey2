@@ -168,9 +168,23 @@ export async function generateChunkContext(
   }
 }
 
-/** The text actually embedded for a chunk: its context header + the verbatim text. */
-export function embeddableText(context: string | null, text: string): string {
-  return context ? `${context}\n\n${text}` : text;
+/**
+ * The document's title and description as a header for each of its chunks, so a
+ * search for the document by name or purpose finds its passages.
+ */
+export function documentHeader(title: string | null, description: string | null): string | null {
+  const t = (title ?? "").trim();
+  const d = (description ?? "").trim();
+  if (!t && !d) return null;
+  return [t && `Document: ${t}`, d].filter(Boolean).join("\n");
+}
+
+/**
+ * The text actually embedded for a chunk: the document header (title and
+ * description), its context header, then the verbatim text.
+ */
+export function embeddableText(context: string | null, text: string, docHeader: string | null = null): string {
+  return [docHeader, context, text].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -329,6 +343,14 @@ export async function processDocument(documentId: number, src: ProcessSource): P
       return;
     }
 
+    // Title + description (possibly just drafted above) go into every chunk's
+    // embedding.
+    const meta = await pool.query("SELECT title, description FROM rag_documents WHERE id = $1", [documentId]);
+    const docHeader = documentHeader(
+      (meta.rows[0]?.title as string | null) ?? null,
+      (meta.rows[0]?.description as string | null) ?? null
+    );
+
     // Contextual Retrieval: when enabled, situate each chunk within the whole
     // document before embedding. Skipped for a single chunk (nothing to situate).
     const settings = await getSystemSettings();
@@ -338,7 +360,7 @@ export async function processDocument(documentId: number, src: ProcessSource): P
     let embedded = 0;
     for (let i = 0; i < chunks.length; i++) {
       const context = useContext ? await generateChunkContext(text, chunks[i], ctxModel) : null;
-      const e = await embedText(embeddableText(context, chunks[i]));
+      const e = await embedText(embeddableText(context, chunks[i], docHeader));
       if (e) {
         await pool.query(
           `INSERT INTO rag_chunks (document_id, ordinal, text, context, embed_model, embedding)
