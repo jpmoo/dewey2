@@ -30,10 +30,8 @@ export default async function CoachPage() {
     <div className="min-h-screen bg-dewey-cream text-dewey-ink flex flex-col">
       <header className="border-b border-dewey-border pl-16 pr-6 h-16 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">Coach</h1>
-          <span className="text-sm text-dewey-mute">
-            {session.user.nickname || session.user.name}
-          </span>
+          <h1 className="text-lg font-semibold">{session.user.nickname || session.user.name}</h1>
+          <span className="text-sm text-dewey-mute">Coach</span>
         </div>
         <div className="flex items-center gap-4">
           <ThemeToggle />

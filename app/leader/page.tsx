@@ -31,8 +31,8 @@ export default async function LeaderPage() {
     <div className="flex min-h-screen flex-col bg-dewey-cream text-dewey-ink">
       <header className="flex h-16 items-center justify-between border-b border-dewey-border pl-16 pr-6">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">{LEADER_TITLE[role] ?? "Leader"}</h1>
-          <span className="text-sm text-dewey-mute">{session.user.nickname || session.user.name}</span>
+          <h1 className="text-lg font-semibold">{session.user.nickname || session.user.name}</h1>
+          <span className="text-sm text-dewey-mute">{LEADER_TITLE[role] ?? "Leader"}</span>
         </div>
         <div className="flex items-center gap-4">
           <ThemeToggle />
