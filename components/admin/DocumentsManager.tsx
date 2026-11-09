@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
 import { pathWithBase } from "@/lib/base-path";
 import { useDialog } from "@/components/DialogProvider";
@@ -686,11 +686,17 @@ function DetailModal({
   const [newPlacement, setNewPlacement] = useState<DraftPlacement>({ level: "system", districtId: null, schoolId: null, copId: null });
   const [newSample, setNewSample] = useState("");
 
+  const loaded = useRef(false);
   const load = useCallback(async () => {
     const d = await apiFetch<{ document: DocDetail }>(`/api/admin/rag/documents/${docId}`);
     setDoc(d.document);
-    setTitle(d.document.title);
-    setDescription(d.document.description ?? "");
+    // Fill the title/description boxes only on first load, so a reload after a
+    // placement or sample change keeps unsaved edits.
+    if (!loaded.current) {
+      loaded.current = true;
+      setTitle(d.document.title);
+      setDescription(d.document.description ?? "");
+    }
     setSaved({ title: d.document.title, description: d.document.description ?? "" });
     setCatIds(d.document.categories.map((c) => c.id));
   }, [docId]);
@@ -699,24 +705,40 @@ function DetailModal({
     load();
   }, [load]);
 
-  // Persist metadata without reloading — reloading here reset local state
-  // mid-edit, which broke multi-select and dropped the category highlights.
-  // Accepts an override so a category toggle can save the exact next set
-  // instead of the not-yet-committed state value.
-  const saveMeta = async (over?: { title?: string; description?: string; categoryIds?: number[] }) => {
-    const next = { title: over?.title ?? title, description: over?.description ?? description };
+  // Title and description save only from the Save button (a change re-embeds
+  // the document). Categories save on each toggle, sending only the categories
+  // so an unsaved title/description edit isn't saved along with them.
+  const saveDetails = async () => {
+    const next = { title, description };
     setMetaStatus("saving");
     try {
-      await apiFetch(`/api/admin/rag/documents/${docId}`, {
-        method: "PATCH",
-        body: { ...next, categoryIds: over?.categoryIds ?? catIds },
-      });
+      await apiFetch(`/api/admin/rag/documents/${docId}`, { method: "PATCH", body: next });
       setSaved(next);
       setMetaStatus("saved");
     } catch (e) {
       setMetaStatus("error");
       dialog.alert(e instanceof Error ? e.message : "Couldn't save the document details");
     }
+  };
+  const saveCategories = async (categoryIds: number[]) => {
+    try {
+      await apiFetch(`/api/admin/rag/documents/${docId}`, { method: "PATCH", body: { categoryIds } });
+    } catch (e) {
+      dialog.alert(e instanceof Error ? e.message : "Couldn't save the categories");
+    }
+  };
+  // Closing with unsaved title/description edits asks first.
+  const close = async () => {
+    if (
+      metaDirty &&
+      !(await dialog.confirm("Discard your unsaved title and description changes?", {
+        title: "Unsaved changes",
+        confirmText: "Discard",
+        danger: true,
+      }))
+    )
+      return;
+    onClose();
   };
   const addPlacement = async () => {
     const [v] = validPlacements([newPlacement]);
@@ -737,7 +759,7 @@ function DetailModal({
   };
 
   return (
-    <Modal title={doc?.title ?? "Document"} onClose={onClose} wide>
+    <Modal title={doc?.title ?? "Document"} onClose={close} wide>
       {!doc ? (
         <p className="text-dewey-mute">Loading…</p>
       ) : (
@@ -752,7 +774,6 @@ function DetailModal({
                   setTitle(e.target.value);
                   setMetaStatus("idle");
                 }}
-                onBlur={() => metaDirty && saveMeta()}
               />
             </div>
             <div>
@@ -767,7 +788,7 @@ function DetailModal({
                       onClick={() => {
                         const next = on ? catIds.filter((x) => x !== c.id) : [...catIds, c.id];
                         setCatIds(next);
-                        saveMeta({ categoryIds: next });
+                        saveCategories(next);
                       }}
                       className={`${chip} ${on ? "border-dewey-accent bg-dewey-accent/10 text-dewey-accent" : "border-dewey-border text-dewey-mute"}`}
                     >
@@ -787,13 +808,12 @@ function DetailModal({
                 setDescription(e.target.value);
                 setMetaStatus("idle");
               }}
-              onBlur={() => metaDirty && saveMeta()}
             />
             <div className="mt-1.5 flex items-center gap-3">
               <button
                 type="button"
                 className="dewey-btn-secondary"
-                onClick={() => saveMeta()}
+                onClick={saveDetails}
                 disabled={!metaDirty || metaStatus === "saving"}
               >
                 <span aria-hidden>💾</span> {metaStatus === "saving" ? "Saving…" : "Save"}
