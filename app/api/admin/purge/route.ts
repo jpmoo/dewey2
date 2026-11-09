@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/guard";
-import { logUserEvent, PURGED_NAME, purgeUser } from "@/lib/db";
+import { logUserEvent, purgeUser } from "@/lib/db";
 
 /**
  * Delete an archived user forever. Admin only. Body: { userId }. The account
  * must already be archived (soft-deleted); its identity is scrubbed to
- * "[deleted]" and it can't be restored afterwards. See purgeUser.
+ * "[deleted]" and it can't be restored afterwards; only the admin's log entry
+ * keeps the old username. See purgeUser.
  */
 export async function POST(request: NextRequest) {
   const guard = await requireAdmin();
@@ -20,7 +21,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "You can't delete your own account." }, { status: 400 });
   }
 
-  if (!(await purgeUser(userId))) {
+  const username = await purgeUser(userId);
+  if (!username) {
     return NextResponse.json(
       { error: "Only an archived account can be deleted forever." },
       { status: 404 }
@@ -33,7 +35,8 @@ export async function POST(request: NextRequest) {
     action: "user_purged",
     entityType: "user",
     entityId: userId,
-    entityLabel: PURGED_NAME,
+    // The username is the one trace kept, so the admin can tell who this was.
+    entityLabel: `@${username}`,
   });
   return NextResponse.json({ ok: true });
 }

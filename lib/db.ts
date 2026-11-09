@@ -1166,25 +1166,30 @@ export const PURGED_NAME = "[deleted]";
  * that identifies the person: name, nickname, email, username, password, title,
  * about, settings, photo, buildings, and their own audit history. Messages and
  * other items they're linked to stay, and show the name as "[deleted]". The
- * email and username are freed, so the person can sign up again.
+ * email and username are freed, so the person can sign up again. Returns the
+ * old username (for the admin's log), or null if the account wasn't archived.
  */
-export async function purgeUser(id: number): Promise<boolean> {
+export async function purgeUser(id: number): Promise<string | null> {
   await ensureSchema();
   const client = await getPool().connect();
   try {
     await client.query("BEGIN");
-    const res = await client.query(
+    const before = await client.query(
+      "SELECT username FROM users WHERE id = $1 AND deleted_at IS NOT NULL AND purged_at IS NULL FOR UPDATE",
+      [id]
+    );
+    if (!before.rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    await client.query(
       `UPDATE users
           SET full_name = $2, nickname = NULL, email = NULL, username = 'deleted-' || id,
               password_hash = '', role = NULL, about = NULL, settings = '{}',
               district_id = NULL, school_id = NULL, purged_at = NOW(), updated_at = NOW()
-        WHERE id = $1 AND deleted_at IS NOT NULL AND purged_at IS NULL`,
+        WHERE id = $1`,
       [id, PURGED_NAME]
     );
-    if ((res.rowCount ?? 0) === 0) {
-      await client.query("ROLLBACK");
-      return false;
-    }
     await client.query("DELETE FROM user_avatars WHERE user_id = $1", [id]);
     await client.query("DELETE FROM user_schools WHERE user_id = $1", [id]);
     await client.query("DELETE FROM user_logs WHERE user_id = $1", [id]);
@@ -1195,7 +1200,7 @@ export async function purgeUser(id: number): Promise<boolean> {
       [id, PURGED_NAME]
     );
     await client.query("COMMIT");
-    return true;
+    return before.rows[0].username as string;
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
     throw e;
