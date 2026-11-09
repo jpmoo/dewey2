@@ -866,6 +866,7 @@ export async function listThreadsForUser(
     unread: t.unread === true,
     accepted_plan_id: (t.accepted_plan_id as number | null) ?? null,
     accepted_plan_name: (t.accepted_plan_name as string | null) ?? null,
+    cop_chair_id: (t.cop_chair_id as number | null) ?? null,
   }));
 }
 

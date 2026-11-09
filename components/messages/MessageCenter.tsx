@@ -629,13 +629,23 @@ function threadTitle(t: ThreadSummary, meId: number | null): string {
  * Row of participant avatars with nicknames below; coaches are highlighted with
  * an accent ring + label so it's clear who's coaching.
  */
-/** Compact overlapping avatar cluster for the thread list (coaches ringed). */
+/**
+ * Whom a thread highlights as its lead: the Chair in a Community of Practice,
+ * otherwise the coaches.
+ */
+function isThreadLead(thread: Pick<ThreadSummary, "kind" | "cop_chair_id">, p: Participant): boolean {
+  return thread.kind === "cop" ? p.id === thread.cop_chair_id : p.system_role === "coach";
+}
+
+/** Compact overlapping avatar cluster for the thread list (the lead ringed). */
 function AvatarStack({
+  thread,
   participants,
   meId,
   size = 30,
   max = 3,
 }: {
+  thread: ThreadSummary;
   participants: Participant[];
   meId: number | null;
   size?: number;
@@ -654,7 +664,7 @@ function AvatarStack({
           key={p.id}
           title={p.full_name}
           className={`rounded-full ring-2 ${
-            p.system_role === "coach" ? "ring-dewey-accent" : "ring-dewey-surface"
+            isThreadLead(thread, p) ? "ring-dewey-accent" : "ring-dewey-surface"
           }`}
         >
           <Avatar userId={p.id} name={p.full_name} size={size} />
@@ -732,7 +742,7 @@ function ThreadListItem({
             : "border-transparent hover:bg-dewey-surface-2"
         }`}
       >
-        <AvatarStack participants={t.participants} meId={meId} size={34} />
+        <AvatarStack thread={t} participants={t.participants} meId={meId} size={34} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span
@@ -852,10 +862,10 @@ export function ThreadPane({
     thread?.kind === "template_submission" && (thread?.status == null || thread?.status === "open");
   // The most recent fully-accepted plan, surfaced as a header "View plan" link.
   const acceptedPlan = [...messages].reverse().find((m) => m.plan_id != null && m.plan_accepted);
-  // Coach senders get the same accent ring in the message window as they do in
-  // the thread list, so the coach's voice is easy to spot at a glance.
-  const coachIds = new Set(
-    (thread?.participants ?? []).filter((p) => p.system_role === "coach").map((p) => p.id)
+  // The lead's messages (coach, or a CoP's Chair) get the same accent ring in
+  // the message window as in the thread list, so their voice is easy to spot.
+  const leadIds = new Set(
+    thread ? thread.participants.filter((p) => isThreadLead(thread, p)).map((p) => p.id) : []
   );
   // An accepted plan that's still in progress (not finished/abandoned) blocks
   // adding a new one. A terminal plan frees the coach to add the next.
@@ -1437,12 +1447,12 @@ export function ThreadPane({
         {thread && thread.participants.length > 0 && (
           <p className="mt-1 truncate text-xs text-dewey-mute">
             {thread.participants.map((p, i) => {
-              const isCoach = p.system_role === "coach";
+              const isLead = isThreadLead(thread, p);
               return (
-                <span key={p.id} title={isCoach ? "Coach" : undefined}>
+                <span key={p.id} title={isLead ? (isCop ? "Chair" : "Coach") : undefined}>
                   {i > 0 && ", "}
-                  <span className={isCoach ? "font-medium text-dewey-ink" : ""}>
-                    {isCoach && <span aria-hidden>⚡️ </span>}
+                  <span className={isLead ? "font-medium text-dewey-ink" : ""}>
+                    {isLead && <span aria-hidden>⚡️ </span>}
                     {p.nickname || p.full_name}
                   </span>
                 </span>
@@ -1484,7 +1494,7 @@ export function ThreadPane({
                   meId={meId}
                   iAmCoach={iAmCoach || iAmChair}
                   isAdmin={isAdmin}
-                  senderIsCoach={m.sender_id != null && coachIds.has(m.sender_id)}
+                  senderIsCoach={m.sender_id != null && leadIds.has(m.sender_id)}
                   canSubmit={canSubmit && m.sender_id === meId && m.plan_id == null && !m.is_ai}
                   isCurrentSubmission={activeActivity?.submission?.messageId === m.id}
                   onSubmit={submitMessage}
