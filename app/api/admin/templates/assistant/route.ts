@@ -150,9 +150,10 @@ export async function POST(request: NextRequest) {
       `If it names a framework or document, build the arc's phases from that framework's own stages ` +
       `as described in the document excerpts below, and name the source.`;
   }
-  // Search the documents with the request AND the district instruction: the
-  // instruction names the framework/document to use, which the request's own
-  // words (e.g. "draft this community's plan") rarely match.
+  // Search the documents with the district instruction, the community's goal,
+  // and the request: the instruction names the framework to use and the goal
+  // names the topic (e.g. Tier 1/Tier 2), which the request's own words (e.g.
+  // "draft this community's plan") rarely match.
   const scope = cop
     ? await getThreadUnitScope(copThreadId!).catch(() => ({
         districtId: null,
@@ -162,19 +163,24 @@ export async function POST(request: NextRequest) {
     : null;
   const search = (q: string) =>
     (scope ? queryRag(q, scope) : queryRagDefault(q)).catch(() => [] as Awaited<ReturnType<typeof queryRag>>);
-  const [instructionChunks, messageChunks] = await Promise.all([
+  const lists = await Promise.all([
     districtInstruction ? search(districtInstruction) : Promise.resolve([]),
+    cop?.goal ? search(cop.goal) : Promise.resolve([]),
     search(message),
   ]);
+  // Each search gets up to 5 places first, so no one of them (e.g. several
+  // framework excerpts) crowds out the rest; leftovers fill up to 14.
   const seen = new Set<string>();
-  const chunks = [...instructionChunks, ...messageChunks]
-    .filter((c) => {
-      const key = `${c.sourceUrl}|${c.text.slice(0, 80)}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, 12);
+  const fresh = (c: (typeof lists)[number][number]) => {
+    const key = `${c.sourceUrl}|${c.text.slice(0, 80)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  };
+  const chunks = [
+    ...lists.flatMap((l) => l.slice(0, 5).filter(fresh)),
+    ...lists.flatMap((l) => l.slice(5).filter(fresh)),
+  ].slice(0, 14);
   const tRag = Date.now();
   const sources = uniqueSources(chunks);
   if (chunks.length > 0) {

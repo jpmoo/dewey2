@@ -145,7 +145,8 @@ interface ProposedNode {
 
 /**
  * Validate + normalize a model-proposed graph: drop unknown activities, fill
- * ids/colors/defaults, drop shortcut edges out of a phase, lay out.
+ * ids/colors/defaults, drop shortcut edges out of a phase, add links the model
+ * left out between phases, lay out.
  */
 export function sanitizeProposedGraph(raw: unknown): TemplateGraph | null {
   if (!raw || typeof raw !== "object") return null;
@@ -232,6 +233,29 @@ export function sanitizeProposedGraph(raw: unknown): TemplateGraph | null {
       phaseOf.get(e.source) === phaseOf.get(e.target) ||
       !continuesInPhase.has(e.source)
   );
+
+  // Fill in links the model left out, so every phase is on the path: chain a
+  // phase's activities in order when it has none between them, and join each
+  // phase's last activity to the next phase's first when nothing connects them.
+  const link = (source: string, target: string) =>
+    flow.push({ id: `e_${++edgeId}`, source, target });
+  const byPhase = phases.map((p) => nodes.filter((n) => n.phaseId === p.id).map((n) => n.id));
+  for (const ids of byPhase) {
+    const inside = new Set(ids);
+    const linked = flow.some((e) => inside.has(e.source) && inside.has(e.target));
+    if (!linked) for (let i = 1; i < ids.length; i++) link(ids[i - 1], ids[i]);
+  }
+  for (let i = 1; i < byPhase.length; i++) {
+    const prev = new Set(byPhase[i - 1]);
+    const next = new Set(byPhase[i]);
+    if (prev.size === 0 || next.size === 0) continue;
+    if (flow.some((e) => prev.has(e.source) && next.has(e.target))) continue;
+    // Exit: the last activity that doesn't continue within its phase; entry:
+    // the first one nothing in its own phase leads into.
+    const exit = [...byPhase[i - 1]].reverse().find((id) => !flow.some((e) => e.source === id && prev.has(e.target)));
+    const entry = byPhase[i].find((id) => !flow.some((e) => e.target === id && next.has(e.source)));
+    link(exit ?? byPhase[i - 1][byPhase[i - 1].length - 1], entry ?? byPhase[i][0]);
+  }
 
   if (nodes.length === 0 && phases.length === 0) return null;
   return { nodes, edges: flow, phases };
