@@ -58,7 +58,12 @@ function CanvasLoading() {
  * own personal templates as editable. They can start blank, duplicate any
  * template into an editable copy, and edit/delete their own.
  */
-export function CoachTemplates() {
+export function CoachTemplates({
+  canShare = true,
+}: {
+  /** Share (with coaches) and Contribute (to the admin) — coaches and district leaders only. */
+  canShare?: boolean;
+} = {}) {
   const dialog = useDialog();
   const [templates, setTemplates] = useState<CoachingTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,13 +198,17 @@ export function CoachTemplates() {
             renderActions={(t) => (
               <>
                 <CardPill icon="✏️" label="Edit" onClick={() => setEditing(t.id)} />
-                <CardPill icon="🔗" label="Share" onClick={() => setSharing(t)} />
-                <CardPill
-                  icon="📤"
-                  label="Contribute"
-                  onClick={() => setSubmitting(t)}
-                  title="Contribute for district-wide consideration"
-                />
+                {canShare && (
+                  <>
+                    <CardPill icon="🔗" label="Share" onClick={() => setSharing(t)} />
+                    <CardPill
+                      icon="📤"
+                      label="Contribute"
+                      onClick={() => setSubmitting(t)}
+                      title="Contribute for district-wide consideration"
+                    />
+                  </>
+                )}
                 <CardPill icon="📋" label="Duplicate" onClick={() => duplicate(t.id)} disabled={busy} />
                 <CardPill icon="🗑️" label="Delete" onClick={() => remove(t)} disabled={busy} />
               </>
@@ -215,7 +224,7 @@ export function CoachTemplates() {
             renderActions={(t) => (
               <>
                 <CardPill icon="🗂️" label="View" onClick={() => setViewing(t.id)} />
-                <CardPill icon="🔗" label="Share" onClick={() => setSharing(t)} />
+                {canShare && <CardPill icon="🔗" label="Share" onClick={() => setSharing(t)} />}
                 <CardPill icon="📋" label="Duplicate" onClick={() => duplicate(t.id)} disabled={busy} />
               </>
             )}

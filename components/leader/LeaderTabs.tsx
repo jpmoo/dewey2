@@ -4,19 +4,22 @@ import { useState } from "react";
 import { MessageCenter } from "@/components/messages/MessageCenter";
 import { ProgressReport } from "@/components/ProgressReport";
 import { useUnreadCount } from "@/components/messages/useUnreadCount";
+import { CoachTemplates } from "@/components/coach/CoachTemplates";
 
-type Tab = "messages" | "progress";
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "messages", label: "Message Center" },
-  { id: "progress", label: "Progress" },
-];
+type Tab = "messages" | "canvas" | "progress";
 
 /** Workspace for Site Leaders / Deputy Site Leaders: they're coached like a
- *  partner (Message Center) and can see their school's Progress report. */
-export function LeaderTabs() {
+ *  partner (Message Center) and can see their school's Progress report. When
+ *  they may create communities, they also get the Coaching Canvas to build
+ *  plans for them. */
+export function LeaderTabs({ canBuildPlans = false }: { canBuildPlans?: boolean }) {
   const [tab, setTab] = useState<Tab>("messages");
   const unread = useUnreadCount();
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "messages", label: "Message Center" },
+    ...(canBuildPlans ? [{ id: "canvas" as Tab, label: "Coaching Canvas" }] : []),
+    { id: "progress", label: "Progress" },
+  ];
 
   return (
     <div>
@@ -45,6 +48,7 @@ export function LeaderTabs() {
       </nav>
 
       {tab === "messages" && <MessageCenter />}
+      {tab === "canvas" && <CoachTemplates canShare={false} />}
       {tab === "progress" && <ProgressReport />}
     </div>
   );

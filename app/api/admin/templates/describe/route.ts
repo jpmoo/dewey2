@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCoachOrAdmin } from "@/lib/guard";
+import { requirePlanAuthor } from "@/lib/guard";
 import { summarizeWithComplianceModel } from "@/lib/ai";
 import { ACTIVITY_BY_KEY } from "@/lib/activities";
 import { allowAiRequest } from "@/lib/rate-limit";
@@ -12,7 +12,7 @@ import type { TemplateGraph } from "@/lib/templates";
  * Returns { description: "" } on any failure so the save dialog can still open.
  */
 export async function POST(request: NextRequest) {
-  const guard = await requireCoachOrAdmin();
+  const guard = await requirePlanAuthor();
   if (guard instanceof NextResponse) return guard;
   if (!allowAiRequest(Number(guard.session.user.id))) {
     return NextResponse.json({ description: "" });

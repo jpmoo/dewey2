@@ -5,6 +5,8 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ProfileButton } from "@/components/ProfileButton";
 import { MessageCenter } from "@/components/messages/MessageCenter";
+import { PartnerTabs } from "@/components/partner/PartnerTabs";
+import { canAuthorPlans } from "@/lib/guard";
 import { CelebrationGate } from "@/components/CelebrationGate";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +41,8 @@ export default async function PartnerPage() {
         </div>
       </header>
       <main className="w-full flex-1 px-6 py-6">
-        <MessageCenter />
+        {/* Partners allowed to create communities also get the Coaching Canvas. */}
+        {(await canAuthorPlans(session.user.system_role)) ? <PartnerTabs /> : <MessageCenter />}
       </main>
       <CelebrationGate />
     </div>

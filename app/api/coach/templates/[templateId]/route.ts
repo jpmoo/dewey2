@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCoach } from "@/lib/guard";
+import { requirePlanAuthor } from "@/lib/guard";
 import {
   deleteCoachTemplate,
   getTemplateForCoach,
@@ -29,7 +29,7 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ templateId: string }> }
 ) {
-  const guard = await requireCoach();
+  const guard = await requirePlanAuthor();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
   const { templateId } = await params;
@@ -45,7 +45,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ templateId: string }> }
 ) {
-  const guard = await requireCoach();
+  const guard = await requirePlanAuthor();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
   const { templateId } = await params;
@@ -96,7 +96,7 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ templateId: string }> }
 ) {
-  const guard = await requireCoach();
+  const guard = await requirePlanAuthor();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
   const { templateId } = await params;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCoach } from "@/lib/guard";
+import { requirePlanAuthor } from "@/lib/guard";
 import { duplicateTemplateForCoach, logUserEvent } from "@/lib/db";
 
 function parseId(templateId: string): number | null {
@@ -15,7 +15,7 @@ export async function POST(
   _request: NextRequest,
   { params }: { params: Promise<{ templateId: string }> }
 ) {
-  const guard = await requireCoach();
+  const guard = await requirePlanAuthor();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
   const { templateId } = await params;

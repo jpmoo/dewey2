@@ -5,6 +5,7 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { ProfileButton } from "@/components/ProfileButton";
 import { LeaderTabs } from "@/components/leader/LeaderTabs";
+import { canAuthorPlans } from "@/lib/guard";
 import { CelebrationGate } from "@/components/CelebrationGate";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export default async function LeaderPage() {
         </div>
       </header>
       <main className="w-full flex-1 px-6 py-6">
-        <LeaderTabs />
+        <LeaderTabs canBuildPlans={await canAuthorPlans(role)} />
       </main>
       <CelebrationGate />
     </div>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import type { Session } from "next-auth";
 import { authOptions, isAdminSession } from "@/lib/auth";
+import { copCreateLevels, getSystemSettings } from "@/lib/settings";
 
 /**
  * Guard for admin-only API routes. Returns the session on success, or a ready
@@ -71,6 +72,29 @@ export function messageScope(session: Session): {
   const overseeDistrictId =
     role === "district_leader" ? session.user.district_id ?? null : null;
   return { me: Number(session.user.id), isAdmin, overseeDistrictId, canOversee: isAdmin || overseeDistrictId != null };
+}
+
+/**
+ * Whether a role may build plans on the canvas (its own plan library): coaches,
+ * district leaders, and admins always; anyone else who may create a Community
+ * of Practice (Settings → community creation) too, since they draw its arc.
+ */
+export async function canAuthorPlans(role: string): Promise<boolean> {
+  if (role === "coach" || role === "district_leader" || role === "admin") return true;
+  const levels = copCreateLevels(role, (await getSystemSettings()).cop_create_permissions);
+  return levels.school || levels.district;
+}
+
+/** Guard for the plan library and canvas routes (see canAuthorPlans). */
+export async function requirePlanAuthor(): Promise<{ session: Session } | NextResponse> {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!(await canAuthorPlans(session.user.system_role))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return { session };
 }
 
 /** Guard for any authenticated user (e.g. the message center). */

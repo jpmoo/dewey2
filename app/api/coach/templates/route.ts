@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireCoach } from "@/lib/guard";
+import { requirePlanAuthor } from "@/lib/guard";
 import { createTemplate, getTemplatesForCoach, logUserEvent } from "@/lib/db";
 import type { TemplateGraph } from "@/lib/templates";
 
 /** List the coach's own templates plus every global (admin) template. */
 export async function GET() {
-  const guard = await requireCoach();
+  const guard = await requirePlanAuthor();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
   const templates = await getTemplatesForCoach(Number(session.user.id));
@@ -14,7 +14,7 @@ export async function GET() {
 
 /** Create a new personal template owned by the coach. */
 export async function POST(request: NextRequest) {
-  const guard = await requireCoach();
+  const guard = await requirePlanAuthor();
   if (guard instanceof NextResponse) return guard;
   const { session } = guard;
 

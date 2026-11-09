@@ -3015,14 +3015,15 @@ function AddPlanModal({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // Admins pick from their own library (drafts + globals); coaches from theirs;
-    // a CoP Chair who isn't a coach picks from the shared (global) library.
-    const url = isAdmin
-      ? "/api/admin/templates"
-      : chairOnly
-      ? "/api/cops/templates"
-      : "/api/coach/templates";
-    apiFetch<{ templates: PlanOption[] }>(url)
+    // Admins pick from their own library (drafts + globals); anyone who builds
+    // plans on the canvas (coaches, and roles allowed to create communities)
+    // from theirs; any other CoP Chair from the shared (global) library.
+    const load = isAdmin
+      ? apiFetch<{ templates: PlanOption[] }>("/api/admin/templates")
+      : apiFetch<{ templates: PlanOption[] }>("/api/coach/templates").catch((e) =>
+          chairOnly ? apiFetch<{ templates: PlanOption[] }>("/api/cops/templates") : Promise.reject(e)
+        );
+    load
       .then((d) => setPlans(d.templates))
       .catch(() => setPlans([]))
       .finally(() => setLoading(false));

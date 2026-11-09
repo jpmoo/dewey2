@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUser } from "@/lib/guard";
+import { canAuthorPlans, requireUser } from "@/lib/guard";
 import { chatStream, complianceCheck, summarizeConversation, type ChatMessage } from "@/lib/ai";
 import { queryRagDefault, queryRag, formatRagContext, uniqueSources } from "@/lib/rag";
 import { getCopMeta, getThreadUnitScope, reportComplianceFlag } from "@/lib/messages";
@@ -73,12 +73,13 @@ export async function POST(request: NextRequest) {
   const meId = Number(session.user.id);
   const role = session.user.system_role;
 
-  // Authorization: coach/admin/district-leader normally; for a Community of
-  // Practice arc, also the CoP's Chair (who may be any role).
+  // Authorization: anyone who may build plans (coach/admin/district leader, or a
+  // role allowed to create communities); for a Community of Practice arc, also
+  // the CoP's Chair (who may be any role).
   const rawThreadId = Number((await request.clone().json().catch(() => ({}))).threadId);
   const copThreadId = Number.isFinite(rawThreadId) && rawThreadId > 0 ? rawThreadId : null;
   const cop = copThreadId ? await getCopMeta(copThreadId) : null;
-  const staff = role === "coach" || role === "admin" || role === "district_leader";
+  const staff = await canAuthorPlans(role);
   if (!(staff || (cop && cop.chairId === meId))) {
     return NextResponse.json({ error: "Not allowed" }, { status: 403 });
   }
