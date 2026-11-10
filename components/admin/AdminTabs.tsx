@@ -16,7 +16,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "system", label: "System" },
   { id: "organization", label: "Organization" },
   { id: "users", label: "Users" },
-  { id: "templates", label: "Coaching Canvas" },
+  { id: "templates", label: "Action Canvas" },
   { id: "documents", label: "Documents" },
   { id: "messages", label: "Messages" },
   { id: "progress", label: "Progress" },

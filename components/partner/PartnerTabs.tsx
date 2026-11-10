@@ -9,12 +9,12 @@ type Tab = "messages" | "canvas";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "messages", label: "Message Center" },
-  { id: "canvas", label: "Coaching Canvas" },
+  { id: "canvas", label: "Action Canvas" },
 ];
 
 /**
  * Partner workspace for a partner allowed to create communities: the Message
- * Center plus the Coaching Canvas, where they build plans for their communities.
+ * Center plus the Action Canvas, where they build plans for their communities.
  */
 export function PartnerTabs() {
   const [tab, setTab] = useState<Tab>("messages");

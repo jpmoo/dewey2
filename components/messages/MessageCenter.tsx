@@ -1291,7 +1291,7 @@ export function ThreadPane({
         return;
       try {
         await apiFetch(`/api/coach/templates/${planId}/duplicate`, { method: "POST" });
-        await dialog.alert("Copied to your plans — find it under the Coaching Canvas.", {
+        await dialog.alert("Copied to your plans — find it under the Action Canvas.", {
           title: "Copied",
         });
       } catch (e) {

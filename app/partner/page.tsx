@@ -41,7 +41,7 @@ export default async function PartnerPage() {
         </div>
       </header>
       <main className="w-full flex-1 px-6 py-6">
-        {/* Partners allowed to create communities also get the Coaching Canvas. */}
+        {/* Partners allowed to create communities also get the Action Canvas. */}
         {(await canAuthorPlans(session.user.system_role)) ? <PartnerTabs /> : <MessageCenter />}
       </main>
       <CelebrationGate />

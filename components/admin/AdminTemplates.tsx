@@ -50,7 +50,7 @@ function CanvasLoading() {
 }
 
 /**
- * Admin Coaching Canvas. The admin builds plans as drafts, then publishes them to
+ * Admin Action Canvas. The admin builds plans as drafts, then publishes them to
  * the global library (no approval needed). Global plans are editable here too.
  * Coach submissions still flow through the approval panel.
  */
@@ -140,7 +140,7 @@ export function AdminTemplates() {
   return (
     <section>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">Coaching Canvas</h2>
+        <h2 className="text-lg font-semibold">Action Canvas</h2>
         <p className="text-sm text-dewey-mute">
           Build plans as drafts, then publish them to the global library for all coaches.
         </p>

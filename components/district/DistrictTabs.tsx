@@ -12,14 +12,14 @@ type Tab = "messages" | "directory" | "canvas" | "progress";
 const TABS: { id: Tab; label: string }[] = [
   { id: "messages", label: "Message Center" },
   { id: "directory", label: "Partner Directory" },
-  { id: "canvas", label: "Coaching Canvas" },
+  { id: "canvas", label: "Action Canvas" },
   { id: "progress", label: "Progress" },
 ];
 
 /**
  * District Leader workspace: a coach at their base, with district-wide oversight —
  * all messages across their district (admin-level actions), the district Partner
- * Directory, the Coaching Canvas, and the district Progress report. No Dashboard,
+ * Directory, the Action Canvas, and the district Progress report. No Dashboard,
  * Organization, Users, or System.
  */
 export function DistrictTabs() {

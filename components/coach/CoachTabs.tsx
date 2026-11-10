@@ -15,7 +15,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "messages", label: "Message Center" },
   { id: "directory", label: "Partner Directory" },
-  { id: "canvas", label: "Coaching Canvas" },
+  { id: "canvas", label: "Action Canvas" },
   { id: "progress", label: "Progress" },
 ];
 

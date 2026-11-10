@@ -10,14 +10,14 @@ type Tab = "messages" | "canvas" | "progress";
 
 /** Workspace for Site Leaders / Deputy Site Leaders: they're coached like a
  *  partner (Message Center) and can see their school's Progress report. When
- *  they may create communities, they also get the Coaching Canvas to build
+ *  they may create communities, they also get the Action Canvas to build
  *  plans for them. */
 export function LeaderTabs({ canBuildPlans = false }: { canBuildPlans?: boolean }) {
   const [tab, setTab] = useState<Tab>("messages");
   const unread = useUnreadCount();
   const TABS: { id: Tab; label: string }[] = [
     { id: "messages", label: "Message Center" },
-    ...(canBuildPlans ? [{ id: "canvas" as Tab, label: "Coaching Canvas" }] : []),
+    ...(canBuildPlans ? [{ id: "canvas" as Tab, label: "Action Canvas" }] : []),
     { id: "progress", label: "Progress" },
   ];
 

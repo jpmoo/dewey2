@@ -54,7 +54,7 @@ function CanvasLoading() {
 }
 
 /**
- * Coaching Canvas tab. Coaches see global (admin) templates read-only and their
+ * Action Canvas tab. Coaches see global (admin) templates read-only and their
  * own personal templates as editable. They can start blank, duplicate any
  * template into an editable copy, and edit/delete their own.
  */
@@ -168,7 +168,7 @@ export function CoachTemplates({
   return (
     <section>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">Coaching Canvas</h2>
+        <h2 className="text-lg font-semibold">Action Canvas</h2>
         <p className="text-sm text-dewey-mute">
           Build coaching plans on the canvas. Global plans are read-only — duplicate one to make it
           your own.

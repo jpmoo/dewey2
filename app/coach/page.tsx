@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Coach workspace. Tabbed shell: message center, partnerships, partner
- * directory, and the coaching canvas (the coach's template builder).
+ * directory, and the Action Canvas (the coach's template builder).
  */
 export default async function CoachPage() {
   const session = await getServerSession(authOptions);
